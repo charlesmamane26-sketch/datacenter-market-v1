@@ -14,6 +14,7 @@
     "db:seed": "tsx server/seed.ts",
     "db:purge": "tsx server/purge-leads.ts",
     "db:cancel-stale": "tsx server/cancel-stale-orders.ts",
+    "db:telemetry": "tsx server/simulate-telemetry.ts --daemon",
     "integration-check": "tsx server/integration-check.ts"
   },
   "dependencies": {
