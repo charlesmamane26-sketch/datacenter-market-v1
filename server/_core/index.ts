@@ -1,4 +1,6 @@
 import "dotenv/config";
+import * as Sentry from "@sentry/node";
+import { nodeProfilingIntegration } from "@sentry/profiling-node";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -30,8 +32,26 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Initialize Sentry early so it catches errors during startup too
+  if (process.env.SENTRY_DSN) {
+    Sentry.init({
+      dsn: process.env.SENTRY_DSN,
+      integrations: [
+        nodeProfilingIntegration(),
+      ],
+      tracesSampleRate: 1.0,
+      profilesSampleRate: 1.0,
+    });
+    console.log("[Sentry] Server monitoring initialized.");
+  }
+
   const app = express();
   const server = createServer(app);
+
+  if (process.env.SENTRY_DSN) {
+    // The request handler must be the first middleware on the app
+    Sentry.setupExpressErrorHandler(app);
+  }
   // Stripe webhook needs the raw request body — register it before the JSON body parser.
   registerStripeWebhook(app);
   // Configure body parser with larger size limit for file uploads
@@ -56,6 +76,11 @@ async function startServer() {
     await setupVite(app, server);
   } else {
     serveStatic(app);
+  }
+
+  // The error handler must be before any other error middleware and after all controllers
+  if (process.env.SENTRY_DSN) {
+    Sentry.setupExpressErrorHandler(app);
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
