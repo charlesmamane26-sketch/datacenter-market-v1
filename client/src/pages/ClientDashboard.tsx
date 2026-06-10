@@ -9,16 +9,16 @@ const ACTIVE_STATUSES = ["processing", "provisioning", "active"];
 function statusBadgeClass(status: string): string {
   switch (status) {
     case "active":
-      return "bg-green-100 text-green-800";
+      return "bg-green-500/15 text-green-400";
     case "provisioning":
     case "processing":
-      return "bg-blue-100 text-blue-800";
+      return "bg-blue-500/15 text-blue-400";
     case "completed":
-      return "bg-gray-100 text-gray-800";
+      return "bg-muted text-muted-foreground";
     case "cancelled":
-      return "bg-red-100 text-red-800";
+      return "bg-red-500/15 text-red-400";
     default:
-      return "bg-amber-100 text-amber-800"; // pending
+      return "bg-amber-500/15 text-amber-400"; // pending
   }
 }
 
@@ -51,19 +51,16 @@ export default function ClientDashboard() {
     latestMetrics?.gpuUsagePercent != null ? Number(latestMetrics.gpuUsagePercent) : null;
 
   return (
-    <div
-      className="min-h-screen bg-white text-gray-900"
-      style={{ backgroundColor: "#ffffff", color: "#111827" }}
-    >
+    <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <header className="border-b border-gray-200 bg-white sticky top-0 z-50">
+      <header className="border-b border-border bg-background sticky top-0 z-50">
         <div className="container flex items-center justify-between h-16">
           <div className="flex items-center gap-2">
-            <Cpu className="w-6 h-6 text-blue-600" />
+            <Cpu className="w-6 h-6 text-accent" />
             <span className="font-bold text-lg">DatacenterMarket</span>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">{user?.email}</span>
+            <span className="text-sm text-muted-foreground">{user?.email}</span>
             <Button
               variant="outline"
               size="sm"
@@ -81,7 +78,7 @@ export default function ClientDashboard() {
       <main className="container py-12">
         <div className="mb-12">
           <h1 className="text-4xl font-bold mb-2">Welcome back, {user?.name || "User"}</h1>
-          <p className="text-lg text-gray-600">
+          <p className="text-lg text-muted-foreground">
             Monitor your infrastructure and manage your subscriptions
           </p>
         </div>
@@ -89,88 +86,88 @@ export default function ClientDashboard() {
         {/* KPI Cards */}
         <div className="grid md:grid-cols-4 gap-6 mb-12">
           {/* Monthly Spend */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
+          <div className="bg-card border border-border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between mb-4">
-              <h3 className="font-semibold text-gray-900">Monthly Spend</h3>
-              <DollarSign className="w-5 h-5 text-amber-600" />
+              <h3 className="font-semibold text-foreground">Monthly Spend</h3>
+              <DollarSign className="w-5 h-5 text-amber-400" />
             </div>
-            <p className="text-3xl font-bold text-gray-900 mb-2">
+            <p className="text-3xl font-bold text-foreground mb-2">
               €{monthlySpend.toLocaleString()}
             </p>
-            <p className="text-sm text-gray-600">Across active subscriptions</p>
+            <p className="text-sm text-muted-foreground">Across active subscriptions</p>
           </div>
 
           {/* Active Services */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
+          <div className="bg-card border border-border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between mb-4">
-              <h3 className="font-semibold text-gray-900">Active Services</h3>
-              <Activity className="w-5 h-5 text-green-600" />
+              <h3 className="font-semibold text-foreground">Active Services</h3>
+              <Activity className="w-5 h-5 text-green-400" />
             </div>
-            <p className="text-3xl font-bold text-gray-900 mb-2">{activeServices}</p>
-            <p className="text-sm text-gray-600">Currently running</p>
+            <p className="text-3xl font-bold text-foreground mb-2">{activeServices}</p>
+            <p className="text-sm text-muted-foreground">Currently running</p>
           </div>
 
           {/* Total Orders */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
+          <div className="bg-card border border-border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between mb-4">
-              <h3 className="font-semibold text-gray-900">Total Orders</h3>
-              <Layers className="w-5 h-5 text-blue-600" />
+              <h3 className="font-semibold text-foreground">Total Orders</h3>
+              <Layers className="w-5 h-5 text-accent" />
             </div>
-            <p className="text-3xl font-bold text-gray-900 mb-2">{orderList.length}</p>
-            <p className="text-sm text-gray-600">All time</p>
+            <p className="text-3xl font-bold text-foreground mb-2">{orderList.length}</p>
+            <p className="text-sm text-muted-foreground">All time</p>
           </div>
 
           {/* GPU Usage (live telemetry) */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
+          <div className="bg-card border border-border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between mb-4">
-              <h3 className="font-semibold text-gray-900">GPU Usage</h3>
-              <Cpu className="w-5 h-5 text-blue-600" />
+              <h3 className="font-semibold text-foreground">GPU Usage</h3>
+              <Cpu className="w-5 h-5 text-accent" />
             </div>
             {gpuUsage != null ? (
               <>
-                <p className="text-3xl font-bold text-gray-900 mb-2">{gpuUsage}%</p>
-                <p className="text-sm text-gray-600">Live utilization</p>
-                <div className="w-full bg-gray-200 rounded-full h-2 mt-4">
+                <p className="text-3xl font-bold text-foreground mb-2">{gpuUsage}%</p>
+                <p className="text-sm text-muted-foreground">Live utilization</p>
+                <div className="w-full bg-muted rounded-full h-2 mt-4">
                   <div
-                    className="bg-blue-600 h-2 rounded-full"
+                    className="bg-accent h-2 rounded-full"
                     style={{ width: `${gpuUsage}%` }}
                   />
                 </div>
               </>
             ) : (
               <>
-                <p className="text-3xl font-bold text-gray-400 mb-2">—</p>
-                <p className="text-sm text-gray-600">Awaiting telemetry</p>
+                <p className="text-3xl font-bold text-muted-foreground mb-2">—</p>
+                <p className="text-sm text-muted-foreground">Awaiting telemetry</p>
               </>
             )}
           </div>
         </div>
 
         {/* Active Orders */}
-        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-          <h2 className="text-2xl font-bold mb-6 text-gray-900">Active Infrastructure</h2>
+        <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
+          <h2 className="text-2xl font-bold mb-6 text-foreground">Active Infrastructure</h2>
 
           {orderList.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 font-semibold text-gray-900">Order ID</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-900">Configuration</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-900">Monthly Cost</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-900">Action</th>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-4 font-semibold text-foreground">Order ID</th>
+                    <th className="text-left py-3 px-4 font-semibold text-foreground">Configuration</th>
+                    <th className="text-left py-3 px-4 font-semibold text-foreground">Status</th>
+                    <th className="text-left py-3 px-4 font-semibold text-foreground">Monthly Cost</th>
+                    <th className="text-left py-3 px-4 font-semibold text-foreground">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {orderList.map(order => {
                     const offer = offerById.get(order.offerId);
                     return (
-                      <tr key={order.id} className="border-b border-gray-200 hover:bg-gray-50">
-                        <td className="py-3 px-4 font-mono text-gray-900">
+                      <tr key={order.id} className="border-b border-border hover:bg-muted/50">
+                        <td className="py-3 px-4 font-mono text-foreground">
                           ORD-{String(order.id).padStart(6, "0")}
                         </td>
-                        <td className="py-3 px-4 text-gray-900">
+                        <td className="py-3 px-4 text-foreground">
                           {offer ? `${offer.gpuCount}x ${offer.gpuType}` : "—"}
                         </td>
                         <td className="py-3 px-4">
@@ -182,7 +179,7 @@ export default function ClientDashboard() {
                             {order.status}
                           </span>
                         </td>
-                        <td className="py-3 px-4 font-semibold text-gray-900">
+                        <td className="py-3 px-4 font-semibold text-foreground">
                           €{Number(order.monthlyRecurring).toLocaleString()}
                         </td>
                         <td className="py-3 px-4">
@@ -198,10 +195,10 @@ export default function ClientDashboard() {
             </div>
           ) : (
             <div className="text-center py-12">
-              <p className="text-gray-600 mb-4">No active infrastructure orders</p>
+              <p className="text-muted-foreground mb-4">No active infrastructure orders</p>
               <Button
                 onClick={() => setLocation("/workload")}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
+                className="bg-accent hover:bg-accent/90 text-accent-foreground"
               >
                 Request Infrastructure
               </Button>
@@ -213,7 +210,7 @@ export default function ClientDashboard() {
         <div className="grid md:grid-cols-3 gap-6 mt-12">
           <Button
             onClick={() => setLocation("/workload")}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-6"
+            className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold py-6"
           >
             Request More Infrastructure
           </Button>

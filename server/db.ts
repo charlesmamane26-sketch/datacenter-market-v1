@@ -160,26 +160,45 @@ export async function purgeLeadsOlderThan(days: number) {
 }
 
 // Offers queries
+
+/**
+ * The mysql2 driver can return JSON columns as raw strings depending on version;
+ * normalize `features` to an array at the data boundary so every consumer
+ * (matching engine, tRPC clients) always sees string[].
+ */
+function normalizeOffer<T extends { features: unknown }>(offer: T): T {
+  if (typeof offer.features === "string") {
+    try {
+      return { ...offer, features: JSON.parse(offer.features) };
+    } catch {
+      return { ...offer, features: [] };
+    }
+  }
+  return offer;
+}
+
 export async function getAllOffers() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
-  return db.select().from(offers);
+
+  const rows = await db.select().from(offers);
+  return rows.map(normalizeOffer);
 }
 
 export async function getOffersByCategory(category: "best_value" | "fastest" | "cheapest") {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
-  return db.select().from(offers).where(eq(offers.category, category));
+
+  const rows = await db.select().from(offers).where(eq(offers.category, category));
+  return rows.map(normalizeOffer);
 }
 
 export async function getOffer(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   const result = await db.select().from(offers).where(eq(offers.id, id)).limit(1);
-  return result.length > 0 ? result[0] : null;
+  return result.length > 0 ? normalizeOffer(result[0]) : null;
 }
 
 // Orders queries

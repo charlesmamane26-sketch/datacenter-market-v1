@@ -22,7 +22,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header Navigation */}
-      <header className="border-b border-border/50 backdrop-blur-sm sticky top-0 z-50">
+      <header className="border-b border-border/50 bg-background/70 backdrop-blur-md sticky top-0 z-50">
         <div className="container flex items-center justify-between h-16">
           <div className="flex items-center gap-2">
             <Cpu className="w-6 h-6 text-accent" />
@@ -44,11 +44,16 @@ export default function Home() {
 
       {/* Hero Section */}
       <section className="relative overflow-hidden py-20 md:py-32">
-        <div className="absolute inset-0 bg-gradient-to-b from-accent/5 to-transparent pointer-events-none" />
-        
+        <div className="absolute inset-0 bg-grid pointer-events-none [mask-image:radial-gradient(ellipse_70%_60%_at_50%_40%,black,transparent)]" />
+        <div className="absolute inset-0 glow-halo pointer-events-none" />
+
         <div className="container relative z-10">
           <div className="max-w-3xl mx-auto text-center space-y-8">
-            <div className="space-y-4">
+            <div className="space-y-5">
+              <p className="tech-label">
+                <span className="inline-block w-2 h-2 rounded-full bg-accent mr-2 align-middle" />
+                EU sovereign GPU marketplace
+              </p>
               <h1 className="text-4xl md:text-6xl font-bold tracking-tight">
                 Get AI Compute & Datacenter Capacity in <span className="text-accent">72h</span>
               </h1>
@@ -61,7 +66,7 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
               <Button
                 size="lg"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold px-8 py-6 text-base"
+                className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold px-8 py-6 text-base glow-accent"
                 onClick={() => setLocation("/workload")}
               >
                 Request Compute
@@ -70,7 +75,7 @@ export default function Home() {
               <Button
                 size="lg"
                 variant="outline"
-                className="border-border hover:bg-card px-8 py-6 text-base"
+                className="border-border hover:bg-card hover:text-foreground px-8 py-6 text-base"
                 onClick={() => setLocation("/pricing")}
               >
                 View Pricing
@@ -100,6 +105,7 @@ export default function Home() {
       <section id="features" className="py-20 border-t border-border/50">
         <div className="container">
           <div className="max-w-3xl mx-auto mb-16">
+            <p className="tech-label mb-3">Why us</p>
             <h2 className="text-3xl md:text-4xl font-bold mb-4">Why DatacenterMarket?</h2>
             <p className="text-lg text-muted-foreground">
               Eliminate the complexity of infrastructure sourcing. We handle provider matching, contract generation, and provisioning so you can focus on your workloads.
@@ -147,28 +153,29 @@ export default function Home() {
       <section className="py-20 border-t border-border/50 bg-card/50">
         <div className="container">
           <div className="text-center mb-16">
+            <p className="tech-label mb-3">Track record</p>
             <h2 className="text-3xl md:text-4xl font-bold mb-4">Trusted by AI Teams</h2>
             <p className="text-lg text-muted-foreground">
               Leading AI companies rely on DatacenterMarket for fast, reliable infrastructure
             </p>
           </div>
 
-          <div className="grid md:grid-cols-4 gap-8 text-center">
-            <div className="space-y-2">
-              <p className="text-3xl font-bold text-accent">500+</p>
-              <p className="text-muted-foreground">Infrastructure Requests</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border/60 rounded-xl overflow-hidden border border-border/60">
+            <div className="space-y-2 bg-card py-8 px-4 text-center">
+              <p className="text-3xl font-bold text-accent font-mono">500+</p>
+              <p className="text-sm text-muted-foreground">Infrastructure Requests</p>
             </div>
-            <div className="space-y-2">
-              <p className="text-3xl font-bold text-accent">72h</p>
-              <p className="text-muted-foreground">Average Provisioning</p>
+            <div className="space-y-2 bg-card py-8 px-4 text-center">
+              <p className="text-3xl font-bold text-accent font-mono">72h</p>
+              <p className="text-sm text-muted-foreground">Average Provisioning</p>
             </div>
-            <div className="space-y-2">
-              <p className="text-3xl font-bold text-accent">99.9%</p>
-              <p className="text-muted-foreground">Uptime SLA</p>
+            <div className="space-y-2 bg-card py-8 px-4 text-center">
+              <p className="text-3xl font-bold text-accent font-mono">99.9%</p>
+              <p className="text-sm text-muted-foreground">Uptime SLA</p>
             </div>
-            <div className="space-y-2">
-              <p className="text-3xl font-bold text-accent">€2M+</p>
-              <p className="text-muted-foreground">Monthly Capacity</p>
+            <div className="space-y-2 bg-card py-8 px-4 text-center">
+              <p className="text-3xl font-bold text-accent font-mono">€2M+</p>
+              <p className="text-sm text-muted-foreground">Monthly Capacity</p>
             </div>
           </div>
         </div>
@@ -186,7 +193,7 @@ export default function Home() {
             </div>
             <Button
               size="lg"
-              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold px-8 py-6 text-base"
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold px-8 py-6 text-base glow-accent"
               onClick={() => setLocation("/workload")}
             >
               Request Compute

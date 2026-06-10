@@ -39,65 +39,76 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/*
+ * Dark "AI infra" design system.
+ * Near-black blue surfaces + one electric lime accent (the only saturated color),
+ * cyan/violet reserved for charts and the offer-category color coding.
+ * Both :root and .dark hold the same palette: the product is dark-only by design.
+ */
 :root {
-  --primary: oklch(0.55 0.24 264.4);
-  --primary-foreground: oklch(1 0 0);
-  --sidebar-primary: oklch(0.55 0.24 264.4);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --chart-1: oklch(0.65 0.2 264.4);
-  --chart-2: oklch(0.55 0.24 264.4);
-  --chart-3: oklch(0.5 0.2 264.4);
-  --chart-4: oklch(0.45 0.2 264.4);
-  --chart-5: oklch(0.4 0.2 264.4);
-  --background: oklch(0.98 0.001 264.4);
-  --foreground: oklch(0.25 0.05 264.4);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.25 0.05 264.4);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.25 0.05 264.4);
-  --muted: oklch(0.9 0.01 264.4);
-  --muted-foreground: oklch(0.55 0.05 264.4);
-  --accent: oklch(0.55 0.24 264.4);
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.6 0.2 29);
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.92 0.01 264.4);
-  --input: oklch(0.97 0.002 264.4);
-  --ring: oklch(0.55 0.24 264.4);
-  --radius: 0.5rem;
-  --sidebar: oklch(0.97 0.002 264.4);
-  --sidebar-foreground: oklch(0.25 0.05 264.4);
-  --sidebar-primary: oklch(0.55 0.24 264.4);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.55 0.24 264.4);
-  --sidebar-accent-foreground: oklch(1 0 0);
-  --sidebar-border: oklch(0.92 0.01 264.4);
-  --sidebar-ring: oklch(0.55 0.24 264.4);
+  --background: oklch(0.145 0.015 260);
+  --foreground: oklch(0.93 0.008 260);
+  --card: oklch(0.185 0.018 260);
+  --card-foreground: oklch(0.93 0.008 260);
+  --popover: oklch(0.185 0.018 260);
+  --popover-foreground: oklch(0.93 0.008 260);
+  --primary: oklch(0.87 0.21 130);
+  --primary-foreground: oklch(0.17 0.04 130);
+  --secondary: oklch(0.24 0.02 260);
+  --secondary-foreground: oklch(0.93 0.008 260);
+  --muted: oklch(0.22 0.018 260);
+  --muted-foreground: oklch(0.68 0.015 260);
+  --accent: oklch(0.87 0.21 130);
+  --accent-foreground: oklch(0.17 0.04 130);
+  --destructive: oklch(0.62 0.21 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.27 0.02 260);
+  --input: oklch(0.21 0.018 260);
+  --ring: oklch(0.87 0.21 130);
+  --radius: 0.625rem;
+  --chart-1: oklch(0.87 0.21 130);
+  --chart-2: oklch(0.8 0.13 210);
+  --chart-3: oklch(0.65 0.18 260);
+  --chart-4: oklch(0.65 0.2 300);
+  --chart-5: oklch(0.8 0.16 80);
+  --sidebar: oklch(0.165 0.016 260);
+  --sidebar-foreground: oklch(0.93 0.008 260);
+  --sidebar-primary: oklch(0.87 0.21 130);
+  --sidebar-primary-foreground: oklch(0.17 0.04 130);
+  --sidebar-accent: oklch(0.24 0.02 260);
+  --sidebar-accent-foreground: oklch(0.93 0.008 260);
+  --sidebar-border: oklch(0.27 0.02 260);
+  --sidebar-ring: oklch(0.87 0.21 130);
 }
 
 .dark {
-  --background: oklch(0.98 0.001 264.4);
-  --foreground: oklch(0.25 0.05 264.4);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.25 0.05 264.4);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.25 0.05 264.4);
-  --muted: oklch(0.9 0.01 264.4);
-  --muted-foreground: oklch(0.55 0.05 264.4);
-  --accent: oklch(0.55 0.24 264.4);
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.6 0.2 29);
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.92 0.01 264.4);
-  --input: oklch(0.97 0.002 264.4);
-  --ring: oklch(0.55 0.24 264.4);
+  --background: oklch(0.145 0.015 260);
+  --foreground: oklch(0.93 0.008 260);
+  --card: oklch(0.185 0.018 260);
+  --card-foreground: oklch(0.93 0.008 260);
+  --popover: oklch(0.185 0.018 260);
+  --popover-foreground: oklch(0.93 0.008 260);
+  --primary: oklch(0.87 0.21 130);
+  --primary-foreground: oklch(0.17 0.04 130);
+  --secondary: oklch(0.24 0.02 260);
+  --secondary-foreground: oklch(0.93 0.008 260);
+  --muted: oklch(0.22 0.018 260);
+  --muted-foreground: oklch(0.68 0.015 260);
+  --accent: oklch(0.87 0.21 130);
+  --accent-foreground: oklch(0.17 0.04 130);
+  --destructive: oklch(0.62 0.21 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.27 0.02 260);
+  --input: oklch(0.21 0.018 260);
+  --ring: oklch(0.87 0.21 130);
 }
 
 @layer base {
   html {
-    color-scheme: light;
+    color-scheme: dark;
   }
 
   body {
@@ -192,15 +203,53 @@
   .tech-card {
     background-color: var(--card);
     border: 1px solid var(--border);
-    border-radius: 0.5rem;
+    border-radius: var(--radius);
     padding: 1.5rem;
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
-    transition: box-shadow 0.2s, border-color 0.2s;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+    transition: box-shadow 0.2s, border-color 0.2s, transform 0.2s;
   }
 
   .tech-card:hover {
-    box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.1);
-    border-color: var(--accent);
+    box-shadow: 0 8px 30px 0 rgba(0, 0, 0, 0.5);
+    border-color: color-mix(in oklch, var(--accent) 50%, var(--border));
+  }
+
+  /* Faint blueprint grid for hero/section backgrounds. */
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+
+  /* Radial accent halo to put behind hero headlines (use inside a relative parent). */
+  .glow-halo {
+    background: radial-gradient(
+      ellipse 60% 50% at 50% 35%,
+      color-mix(in oklch, var(--accent) 14%, transparent),
+      transparent 70%
+    );
+  }
+
+  /* Lime glow for primary CTAs. */
+  .glow-accent {
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 35%, transparent),
+      0 0 28px color-mix(in oklch, var(--accent) 28%, transparent);
+  }
+
+  .glow-accent:hover {
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 55%, transparent),
+      0 0 40px color-mix(in oklch, var(--accent) 40%, transparent);
+  }
+
+  /* Small uppercase monospace label — section eyebrows, statuses, metric captions. */
+  .tech-label {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
   }
 
   .tech-button {
