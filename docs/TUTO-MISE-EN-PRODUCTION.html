@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tutoriel — Mettre DatacenterMarket en production</title>
+<style>
+  :root {
+    --accent: #0f766e;
+    --accent-light: #f0fdfa;
+    --warn: #b45309;
+    --warn-bg: #fffbeb;
+    --ok: #15803d;
+    --ok-bg: #f0fdf4;
+    --ink: #1e293b;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --code-bg: #f1f5f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: var(--ink);
+    line-height: 1.65;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+    background: #fff;
+  }
+  header { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 .4rem; color: var(--accent); }
+  .meta { color: var(--muted); font-size: .95rem; }
+  h2 { font-size: 1.4rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: .35rem; margin-top: 2.5rem; }
+  h3 { font-size: 1.1rem; margin-top: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .95rem; }
+  th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: var(--accent-light); color: var(--accent); }
+  code { background: var(--code-bg); padding: .12em .35em; border-radius: 4px; font-family: Consolas, "Courier New", monospace; font-size: .9em; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 1rem 1.2rem; border-radius: 8px; overflow-x: auto; font-size: .88rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; color: inherit; }
+  .box { border-radius: 8px; padding: .8rem 1.1rem; margin: 1rem 0; border-left: 4px solid; }
+  .tip { background: var(--accent-light); border-color: var(--accent); }
+  .warn { background: var(--warn-bg); border-color: var(--warn); }
+  .ok { background: var(--ok-bg); border-color: var(--ok); }
+  ul.checklist { list-style: none; padding-left: 0; }
+  ul.checklist li::before { content: "☐ "; color: var(--accent); font-weight: bold; }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); font-size: .88rem; }
+  nav { background: var(--code-bg); border-radius: 8px; padding: 1rem 1.4rem; margin: 1.5rem 0; }
+  nav ol { margin: .4rem 0 0; padding-left: 1.2rem; }
+  nav a { color: var(--accent); text-decoration: none; }
+  nav a:hover { text-decoration: underline; }
+  @media print {
+    body { max-width: none; padding: 0; font-size: 11pt; }
+    pre { white-space: pre-wrap; }
+    h2 { page-break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Tutoriel — Mettre DatacenterMarket en production</h1>
+  <p class="meta">Anavim Advisory · 10 juin 2026 · Phases 2 → 4 du plan de production<br>
+  Prérequis : Phases 0 et 1 (sécurité) déjà déployées sur GitHub · Durée : 2-4 h sur 2-3 jours</p>
+</header>
+
+<nav>
+  <strong>Sommaire</strong>
+  <ol>
+    <li><a href="#etape1">La base de données MySQL cloud (~30 min)</a></li>
+    <li><a href="#etape2">L'hébergement Railway (~45 min)</a></li>
+    <li><a href="#etape3">Stripe : test puis live (~45 min + vérification)</a></li>
+    <li><a href="#etape4">Monitoring et go-live (~30 min)</a></li>
+    <li><a href="#depannage">En cas de problème</a></li>
+  </ol>
+</nav>
+
+<h2 id="vue">Vue d'ensemble</h2>
+<p>Il reste trois briques externes à brancher, puis le déploiement :</p>
+<table>
+  <tr><th>Étape</th><th>Service</th><th>Compte à créer</th><th>Coût de départ</th></tr>
+  <tr><td>1. Base de données</td><td>TiDB Serverless (ou OVH MySQL)</td><td>tidbcloud.com</td><td>Gratuit (tier serverless)</td></tr>
+  <tr><td>2. Hébergement</td><td>Railway (ou Fly.io)</td><td>railway.app</td><td>~5 $/mois</td></tr>
+  <tr><td>3. Paiements</td><td>Stripe</td><td>stripe.com</td><td>Commission par transaction</td></tr>
+  <tr><td>4. Monitoring</td><td>Sentry + UptimeRobot</td><td>sentry.io, uptimerobot.com</td><td>Gratuit (tiers free)</td></tr>
+</table>
+<div class="box warn"><strong>Règle d'or :</strong> ne jamais mettre une clé secrète dans Git. Toutes les clés vont dans les variables d'environnement de l'hébergeur.</div>
+
+<h2 id="etape1">Étape 1 — La base de données MySQL cloud (~30 min)</h2>
+<p>Le projet utilise Drizzle ORM sur MySQL. Le plus simple et gratuit : <strong>TiDB Serverless</strong> (compatible MySQL).</p>
+
+<h3>1.1 Créer le cluster</h3>
+<ol>
+  <li>Va sur <strong>https://tidbcloud.com</strong> → <em>Sign up</em> (compte Google possible).</li>
+  <li>Clique <strong>Create Cluster</strong> → choisis <strong>Serverless</strong> (gratuit jusqu'à 5 Go).</li>
+  <li>Région : <strong>Frankfurt (eu-central-1)</strong> — données en UE, cohérent avec le positionnement RGPD du site.</li>
+  <li>Une fois le cluster créé, clique <strong>Connect</strong> en haut à droite.</li>
+  <li>Choisis <em>Connect With</em> → <strong>General</strong>, génère le mot de passe et note la chaîne de connexion :</li>
+</ol>
+<pre><code>mysql://xxxxxx.root:MOT_DE_PASSE@gateway01.eu-central-1.prod.aws.tidbcloud.com:4000/test?ssl={"rejectUnauthorized":true}</code></pre>
+
+<h3>1.2 Créer la base et pousser le schéma</h3>
+<p>Depuis ton PC, dans le dossier du projet :</p>
+<pre><code>cd C:\Users\Carlus\Projects\datacenter-market-v1
+
+REM Mets la chaîne de connexion dans .env (remplace /test par /datacenter_market)
+REM DATABASE_URL=mysql://xxxxxx.root:MOT_DE_PASSE@gateway01...:4000/datacenter_market?ssl={"rejectUnauthorized":true}
+
+node_modules\.bin\pnpm db:push           REM crée les tables
+node_modules\.bin\pnpm db:seed           REM insère le catalogue des 7 offres
+node_modules\.bin\pnpm integration-check REM vérifie le tunnel complet</code></pre>
+<div class="box ok"><strong>✅ Critère de réussite :</strong> <code>integration-check</code> affiche « Full funnel verified against the real database ».</div>
+<div class="box tip"><strong>💡 Alternative OVH :</strong> une instance « Web Cloud Databases MySQL » chez OVH fonctionne aussi (cohérent avec ton infra existante) — récupère l'URL de connexion au même format.</div>
+
+<h2 id="etape2">Étape 2 — L'hébergement (~45 min)</h2>
+<p>Le projet a un Dockerfile prêt. <strong>Railway</strong> est le plus simple pour un premier déploiement.</p>
+
+<h3>2.1 Créer le projet Railway</h3>
+<ol>
+  <li>Va sur <strong>https://railway.app</strong> → <em>Login with GitHub</em>.</li>
+  <li><strong>New Project</strong> → <strong>Deploy from GitHub repo</strong> → choisis <code>datacenter-market-v1</code>.</li>
+  <li>Railway détecte le Dockerfile automatiquement.</li>
+</ol>
+
+<h3>2.2 Configurer les variables d'environnement</h3>
+<p>Dans Railway → ton service → onglet <strong>Variables</strong>, ajoute :</p>
+<table>
+  <tr><th>Variable</th><th>Valeur</th><th>Note</th></tr>
+  <tr><td><code>DATABASE_URL</code></td><td>la chaîne TiDB de l'étape 1</td><td>secrète</td></tr>
+  <tr><td><code>JWT_SECRET</code></td><td>64 caractères aléatoires</td><td>génère avec la commande ci-dessous</td></tr>
+  <tr><td><code>OAUTH_SERVER_URL</code></td><td>URL du serveur OAuth Manus</td><td>depuis ton espace Manus</td></tr>
+  <tr><td><code>OWNER_OPEN_ID</code></td><td>ton openId Manus</td><td>c'est ce qui fait de toi l'admin</td></tr>
+  <tr><td><code>STRIPE_SECRET_KEY</code></td><td><em>(étape 3)</em></td><td><code>sk_test_</code> puis <code>sk_live_</code></td></tr>
+  <tr><td><code>STRIPE_WEBHOOK_SECRET</code></td><td><em>(étape 3)</em></td><td>commence par <code>whsec_</code></td></tr>
+  <tr><td><code>SENTRY_DSN</code></td><td><em>(étape 4)</em></td><td>optionnel au début</td></tr>
+  <tr><td><code>PORT</code></td><td><code>3000</code></td><td></td></tr>
+</table>
+<p>Pour générer le <code>JWT_SECRET</code> :</p>
+<pre><code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code></pre>
+<div class="box warn"><strong>⚠️ Important :</strong> le serveur refuse de démarrer en production si <code>JWT_SECRET</code> fait moins de 32 caractères (protection ajoutée en Phase 1).</div>
+
+<h3>2.3 Les variables de build (VITE_*)</h3>
+<p>Ces variables sont <strong>compilées dans le JavaScript public</strong> au moment du build — n'y mets jamais un secret :</p>
+<ul>
+  <li><code>VITE_APP_ID</code> — identifiant de ton app Manus</li>
+  <li><code>VITE_OAUTH_PORTAL_URL</code> — URL du portail de login Manus</li>
+  <li><code>VITE_FRONTEND_FORGE_API_URL</code> / <code>VITE_FRONTEND_FORGE_API_KEY</code> — API Forge frontend (clé publique uniquement)</li>
+</ul>
+
+<h3>2.4 Domaine et déploiement</h3>
+<ol>
+  <li>Railway → <strong>Settings</strong> → <strong>Networking</strong> → <strong>Generate Domain</strong> (tu obtiens <code>xxx.up.railway.app</code>).</li>
+  <li>Pour un domaine Anavim (ex. <code>compute.anavim-infra.com</code>) : ajoute un <strong>Custom Domain</strong> dans Railway puis crée le CNAME indiqué dans ta zone DNS OVH. Le certificat TLS est automatique.</li>
+  <li>Chaque <code>git push</code> sur <code>main</code> redéploie automatiquement.</li>
+</ol>
+<div class="box ok"><strong>✅ Critère de réussite :</strong> <code>https://ton-domaine/health</code> répond <code>{"status":"ok"}</code> et la landing s'affiche.</div>
+
+<h3>2.5 Les crons RGPD</h3>
+<p>Dans Railway, crée deux services « Cron Job » pointant sur le même repo :</p>
+<table>
+  <tr><th>Cron</th><th>Commande</th><th>Fréquence</th></tr>
+  <tr><td>Purge des leads</td><td><code>pnpm db:purge</code></td><td>tous les jours à 03:00</td></tr>
+  <tr><td>Annulation commandes abandonnées</td><td><code>pnpm db:cancel-stale</code></td><td>toutes les heures</td></tr>
+</table>
+
+<h2 id="etape3">Étape 3 — Stripe (~45 min + délai de vérification du compte)</h2>
+
+<h3>3.1 Créer le compte</h3>
+<ol>
+  <li><strong>https://stripe.com</strong> → crée le compte au nom d'<strong>Anavim Advisory SAS</strong> (SIREN, IBAN, adresse 10 rue du Colisée).</li>
+  <li>La vérification d'identité peut prendre 1-2 jours — commence en <strong>mode test</strong> sans attendre.</li>
+</ol>
+
+<h3>3.2 Mode test d'abord (obligatoire)</h3>
+<ol>
+  <li>Dashboard Stripe → active le <strong>mode Test</strong> (toggle en haut à droite).</li>
+  <li><strong>Développeurs → Clés API</strong> : copie la clé secrète <code>sk_test_...</code> → variable <code>STRIPE_SECRET_KEY</code> dans Railway.</li>
+  <li><strong>Développeurs → Webhooks → Ajouter un endpoint</strong> :
+    <ul>
+      <li>URL : <code>https://ton-domaine/api/stripe/webhook</code></li>
+      <li>Événement à écouter : <code>checkout.session.completed</code> (celui-là suffit)</li>
+    </ul>
+  </li>
+  <li>Copie le <strong>Signing secret</strong> <code>whsec_...</code> → variable <code>STRIPE_WEBHOOK_SECRET</code>.</li>
+  <li>Redéploie (Railway le fait automatiquement quand tu changes une variable).</li>
+</ol>
+
+<h3>3.3 Tester un paiement de bout en bout</h3>
+<ol>
+  <li>Sur ton site : formulaire workload → choisis une offre → connecte-toi → <strong>Confirm Order</strong>.</li>
+  <li>Sur la page Stripe, paie avec la carte de test : <strong>4242 4242 4242 4242</strong>, date future, CVC 424.</li>
+  <li>Vérifie dans l'ordre :
+    <ul>
+      <li>redirection vers <code>/confirmation</code> avec la timeline de provisioning ;</li>
+      <li>Dashboard Stripe (mode test) → le paiement apparaît ;</li>
+      <li>ton dashboard admin (<code>/admin</code>) → le lead est passé à <strong>converted</strong> ;</li>
+      <li>Stripe → Webhooks → l'événement est en <strong>Succeeded</strong> (200).</li>
+    </ul>
+  </li>
+</ol>
+<div class="box warn"><strong>⚠️ Point à valider explicitement</strong> (hypothèse non testée du code) : choisis une offre <strong>avec frais d'installation</strong> (setup fee &gt; 0) pour vérifier que Stripe accepte le line-item one-time dans une session subscription. Si Stripe renvoie une erreur à la création de session, le contournement est connu (facturer le setup via <code>subscription_data.add_invoice_items</code>).</div>
+
+<h3>3.4 Passage en live</h3>
+<ol>
+  <li>Désactive le mode test → copie <code>sk_live_...</code> → remplace <code>STRIPE_SECRET_KEY</code>.</li>
+  <li>Recrée le webhook en mode live (nouveau <code>whsec_...</code>) → remplace <code>STRIPE_WEBHOOK_SECRET</code>.</li>
+  <li>Fais <strong>un vrai paiement</strong> avec ta propre carte sur l'offre la moins chère, puis rembourse-le depuis le dashboard Stripe.</li>
+  <li>Active <strong>Stripe Tax</strong> si tu factures de la TVA UE (B2B : autoliquidation avec numéro de TVA).</li>
+</ol>
+
+<h2 id="etape4">Étape 4 — Monitoring et go-live (~30 min)</h2>
+
+<h3>4.1 Sentry (erreurs serveur)</h3>
+<ol>
+  <li><strong>https://sentry.io</strong> → compte gratuit → <strong>Create Project</strong> → plateforme <strong>Node.js (Express)</strong>.</li>
+  <li>Copie le <strong>DSN</strong> → variable <code>SENTRY_DSN</code> dans Railway.</li>
+  <li>C'est tout — l'intégration est déjà câblée. Au prochain déploiement, le log affichera <code>[Sentry] Server monitoring initialized.</code></li>
+</ol>
+
+<h3>4.2 Uptime</h3>
+<ol>
+  <li><strong>https://uptimerobot.com</strong> → compte gratuit → <strong>Add Monitor</strong> : HTTP(s), URL <code>https://ton-domaine/health</code>, intervalle 5 min.</li>
+  <li>Alerte e-mail vers <code>contact@anavim-infra.com</code>.</li>
+</ol>
+
+<h3>4.3 Décision télémétrie GPU</h3>
+<p>Le dashboard client affiche « Awaiting telemetry » car rien n'alimente les métriques. Trois options :</p>
+<ul>
+  <li><strong>(a) Conseillé pour le lancement :</strong> masquer le panneau (10 min de dev) ;</li>
+  <li>(b) <code>pnpm db:telemetry --daemon</code> — données <strong>simulées</strong>, déconseillé face à de vrais clients ;</li>
+  <li>(c) brancher une vraie ingestion plus tard (API des providers GPU).</li>
+</ul>
+
+<h3>4.4 Checklist finale avant d'annoncer le site</h3>
+<ul class="checklist">
+  <li><code>https://ton-domaine/health</code> → <code>{"status":"ok"}</code></li>
+  <li>Landing, formulaire, résultats, CGU/confidentialité/mentions légales s'affichent</li>
+  <li>Login OAuth fonctionne et ton compte a bien le rôle admin (<code>/admin</code> accessible)</li>
+  <li>Paiement test 4242… complet : lead <code>converted</code> + webhook 200</li>
+  <li>Paiement réel + remboursement OK (mode live)</li>
+  <li>Crons <code>db:purge</code> et <code>db:cancel-stale</code> planifiés</li>
+  <li>Sentry reçoit les événements, UptimeRobot est vert</li>
+  <li>Sauvegardes activées côté base (TiDB Serverless : automatiques)</li>
+</ul>
+
+<h2 id="depannage">En cas de problème</h2>
+<table>
+  <tr><th>Symptôme</th><th>Cause probable</th><th>Solution</th></tr>
+  <tr><td>Le serveur ne démarre pas : « JWT_SECRET must be at least 32 characters »</td><td>Secret trop court</td><td>Régénère avec la commande de l'étape 2.2</td></tr>
+  <tr><td>« Database not available » sur le site</td><td><code>DATABASE_URL</code> absente ou fausse</td><td>Vérifie la variable dans Railway, teste avec <code>integration-check</code> en local</td></tr>
+  <tr><td>« Payments are not configured » au checkout</td><td><code>STRIPE_SECRET_KEY</code> absente</td><td>Étape 3.2</td></tr>
+  <tr><td>Le paiement passe mais le lead reste « offered »</td><td>Webhook mal configuré</td><td>Vérifie l'URL du webhook et le <code>whsec_</code>, regarde Stripe → Webhooks → tentatives</td></tr>
+  <tr><td>Login OAuth en boucle ou erreur 400 « invalid state »</td><td><code>VITE_OAUTH_PORTAL_URL</code> / <code>VITE_APP_ID</code> faux, ou domaine non déclaré côté Manus</td><td>Vérifie les variables de build et la config de l'app Manus</td></tr>
+  <tr><td>Pas de rôle admin après login</td><td><code>OWNER_OPEN_ID</code> ne correspond pas</td><td>Récupère ton openId exact (table <code>users</code> après ta 1ʳᵉ connexion) et corrige la variable</td></tr>
+</table>
+
+<footer>
+  Document généré le 10 juin 2026 — accompagne <code>PRODUCTION-PLAN.md</code> (état technique) dans le dépôt <code>datacenter-market-v1</code>.<br>
+  DatacenterMarket est un service d'Anavim Advisory SAS — 10 rue du Colisée, 75008 Paris.
+</footer>
+
+</body>
+</html>
