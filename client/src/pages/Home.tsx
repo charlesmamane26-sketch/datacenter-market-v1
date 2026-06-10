@@ -114,7 +114,7 @@ export default function Home() {
               </div>
               <h3 className="text-xl font-semibold mb-2">Lightning Fast</h3>
               <p className="text-muted-foreground">
-                From request to provisioning in 24 hours. No lengthy sales cycles or manual negotiations.
+                From request to provisioning in 72 hours. No lengthy sales cycles or manual negotiations.
               </p>
             </div>
 
@@ -159,7 +159,7 @@ export default function Home() {
               <p className="text-muted-foreground">Infrastructure Requests</p>
             </div>
             <div className="space-y-2">
-              <p className="text-3xl font-bold text-accent">24h</p>
+              <p className="text-3xl font-bold text-accent">72h</p>
               <p className="text-muted-foreground">Average Provisioning</p>
             </div>
             <div className="space-y-2">

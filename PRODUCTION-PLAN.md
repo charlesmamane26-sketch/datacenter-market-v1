@@ -16,17 +16,17 @@
 
 Correctif déjà appliqué en local (à committer) : l'override pnpm `path-to-regexp@<0.1.13 → >=0.1.13` cassait Express 4 (résolution en 8.4.2, crash au boot `pathRegexp is not a function`). Corrigé en `>=0.1.13 <0.2.0` → 0.1.13.
 
-## Phase 1 — Durcissement recommandé (semaine 1)
+## Phase 1 — Durcissement recommandé ✅ FAIT (10 juin 2026)
 
-1. **Session 1 an sans révocation** : réduire la durée du JWT (quelques heures à 7 jours) ou ajouter un store de sessions révocables. Le logout actuel n'invalide rien côté serveur (`server/_core/sdk.ts`, `oauth.ts:41`).
-2. **Cookie `sameSite: "none"`** : passer à `lax` (ou `strict` si le flux OAuth le permet) — réduit fortement la surface CSRF des mutations tRPC (`server/_core/cookies.ts`).
-3. **Validation du `state` OAuth** : lier le `state` à un nonce signé/stocké côté serveur avant l'échange de code (`server/_core/oauth.ts:13-23`).
-4. **Idempotence webhook Stripe** : court-circuiter si `order.paymentStatus === "succeeded"` ; idéalement, table `stripe_events` pour dédupliquer les rejeux (`server/stripe.ts:97-123`).
-5. **`helmet`** : ajouter les headers de sécurité (CSP, HSTS, nosniff, frame-deny).
-6. **Rate limiter** : éviction des clés vides (fuite mémoire de la `Map`) ; Redis si plusieurs instances.
-7. **Dockerfile** : utilisateur non-root (`USER appuser`).
-8. **JWT_SECRET** : valider ≥ 32 octets au démarrage.
-9. **Corriger le placeholder `{{project_title}}`** dans le `<title>` de `client/index.html` et harmoniser 24h/72h sur la landing (todo.md Phase 7 disait tout passer à 72h).
+1. ✅ **Session** : JWT réduit à 7 jours (`SESSION_TTL_MS`, shared/const.ts) — pas encore de révocation serveur (acceptable avec une durée courte).
+2. ✅ **Cookie** : `sameSite: "lax"` (le callback OAuth top-level continue de fonctionner).
+3. ✅ **State OAuth** : le redirectUri décodé doit correspondre à l'origine de la requête (`isValidState`, oauth.ts).
+4. ✅ **Idempotence webhook Stripe** : rejeu d'un ordre déjà payé = no-op (acquitté sans réécriture). Table `stripe_events` pour déduplication fine : reporté (non nécessaire tant que seul `checkout.session.completed` est traité).
+5. ✅ **helmet** : actif, CSP désactivée (SPA avec scripts inline Vite — activer plus tard avec nonces).
+6. ✅ **Rate limiter** : sweep périodique des clés expirées (5 min). Redis toujours requis si multi-instance.
+7. ✅ **Dockerfile** : `USER node` + `--chown` dans le stage runtime.
+8. ✅ **JWT_SECRET** : refus de démarrer en production si < 32 caractères.
+9. ✅ **Cosmétique** : titre `index.html` corrigé, landing harmonisée sur 72h.
 
 ## Phase 2 — Infrastructure (jours 1-3)
 

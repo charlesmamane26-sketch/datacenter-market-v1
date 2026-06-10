@@ -13,12 +13,28 @@ export interface RateLimitResult {
  */
 const store = new Map<string, number[]>();
 
+// Lazy pruning only touches keys that are queried again, so one request from each
+// of N distinct IPs would grow the Map forever. Sweep expired keys periodically.
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_WINDOW_MS = 60 * 60 * 1000; // upper bound on any window used by callers
+let lastSweep = 0;
+
+function sweep(now: number) {
+  if (now - lastSweep < SWEEP_INTERVAL_MS) return;
+  lastSweep = now;
+  const cutoff = now - MAX_WINDOW_MS;
+  store.forEach((hits, key) => {
+    if (hits.length === 0 || hits[hits.length - 1] <= cutoff) store.delete(key);
+  });
+}
+
 export function rateLimit(
   key: string,
   limit: number,
   windowMs: number,
   now: number = Date.now(),
 ): RateLimitResult {
+  sweep(now);
   const cutoff = now - windowMs;
   const hits = (store.get(key) ?? []).filter(ts => ts > cutoff);
 
@@ -30,6 +46,11 @@ export function rateLimit(
   hits.push(now);
   store.set(key, hits);
   return { allowed: true, retryAfterMs: 0 };
+}
+
+/** Test-only: number of keys currently tracked. */
+export function __storeSize(): number {
+  return store.size;
 }
 
 /**
@@ -45,4 +66,5 @@ export function clientIp(req: TrpcContext["req"]): string {
 /** Test-only: clears the limiter store. */
 export function __resetRateLimit(): void {
   store.clear();
+  lastSweep = 0;
 }

@@ -2,6 +2,7 @@ import "dotenv/config";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 import express from "express";
+import helmet from "helmet";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -32,6 +33,12 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Sessions are HMAC-signed (HS256): a short JWT_SECRET would be brute-forceable,
+  // so refuse to boot in production with a weak or missing one.
+  if (process.env.NODE_ENV === "production" && (process.env.JWT_SECRET ?? "").length < 32) {
+    throw new Error("JWT_SECRET must be at least 32 characters in production.");
+  }
+
   // Initialize Sentry early so it catches errors during startup too
   if (process.env.SENTRY_DSN) {
     Sentry.init({
@@ -54,6 +61,11 @@ async function startServer() {
   if (process.env.NODE_ENV === "production") {
     app.set("trust proxy", parseInt(process.env.TRUST_PROXY_HOPS || "1"));
   }
+
+  // Security headers (nosniff, frame-deny, HSTS, etc.). CSP is left off: the SPA
+  // relies on inline scripts/styles injected by Vite and the analytics snippet —
+  // enable it later with proper nonces if needed.
+  app.use(helmet({ contentSecurityPolicy: false }));
 
   if (process.env.SENTRY_DSN) {
     // The request handler must be the first middleware on the app

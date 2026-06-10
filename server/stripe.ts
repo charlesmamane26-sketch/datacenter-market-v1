@@ -108,6 +108,12 @@ export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
         ? session.payment_intent
         : session.id;
 
+  const order = await getOrder(orderId);
+  if (!order) return false;
+  // Stripe retries webhooks on non-2xx responses: re-deliveries of an already-paid
+  // order must be no-ops so later transitions (provisioning, etc.) aren't clobbered.
+  if (order.paymentStatus === "succeeded") return true;
+
   await updateOrder(orderId, {
     paymentStatus: "succeeded",
     status: "processing",
@@ -115,10 +121,7 @@ export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
   });
 
   // Payment succeeded — the lead is genuinely converted now (not at checkout start).
-  const order = await getOrder(orderId);
-  if (order) {
-    await updateLead(order.leadId, { status: "converted", selectedOfferId: order.offerId });
-  }
+  await updateLead(order.leadId, { status: "converted", selectedOfferId: order.offerId });
   return true;
 }
 

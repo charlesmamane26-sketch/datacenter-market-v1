@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { rateLimit, clientIp, __resetRateLimit } from "./rateLimit";
+import { rateLimit, clientIp, __resetRateLimit, __storeSize } from "./rateLimit";
 
 beforeEach(() => __resetRateLimit());
 
@@ -19,6 +19,17 @@ describe("rateLimit (sliding window)", () => {
     for (let i = 0; i < 3; i++) rateLimit("k", 3, 1000, t0);
     expect(rateLimit("k", 3, 1000, t0).allowed).toBe(false);
     expect(rateLimit("k", 3, 1000, t0 + 1001).allowed).toBe(true);
+  });
+
+  it("sweeps long-expired keys so the store cannot grow unbounded", () => {
+    const t0 = 1_000_000;
+    for (let i = 0; i < 100; i++) rateLimit(`ip:${i}`, 5, 60_000, t0);
+    expect(__storeSize()).toBe(100);
+    // Two hours later (sweep interval + max window elapsed), one fresh call
+    // triggers the sweep and evicts every stale key.
+    const t1 = t0 + 2 * 60 * 60 * 1000;
+    rateLimit("ip:new", 5, 60_000, t1);
+    expect(__storeSize()).toBe(1);
   });
 
   it("tracks keys independently", () => {

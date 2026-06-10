@@ -39,10 +39,12 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  // "lax" still sends the cookie on the top-level OAuth callback redirect, but
+  // blocks it on cross-site subresource/fetch requests (CSRF surface of tRPC mutations).
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
+    sameSite: "lax",
     secure: isSecureRequest(req),
   };
 }
