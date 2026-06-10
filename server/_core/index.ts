@@ -48,6 +48,13 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
+  // Behind a reverse proxy (Docker/PaaS), trust the first hop so req.ip reflects the
+  // real client (rate limiting keys on it) instead of a spoofable X-Forwarded-For.
+  // TRUST_PROXY_HOPS lets multi-proxy setups widen this without a code change.
+  if (process.env.NODE_ENV === "production") {
+    app.set("trust proxy", parseInt(process.env.TRUST_PROXY_HOPS || "1"));
+  }
+
   if (process.env.SENTRY_DSN) {
     // The request handler must be the first middleware on the app
     Sentry.setupExpressErrorHandler(app);

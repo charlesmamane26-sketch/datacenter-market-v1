@@ -32,11 +32,13 @@ export function rateLimit(
   return { allowed: true, retryAfterMs: 0 };
 }
 
-/** Best-effort client IP, preferring the first X-Forwarded-For hop behind a proxy. */
+/**
+ * Best-effort client IP. Relies on req.ip, which Express derives from X-Forwarded-For
+ * only for hops covered by the "trust proxy" setting (see server/_core/index.ts).
+ * Never read X-Forwarded-For directly: clients can prepend arbitrary entries to it,
+ * which would let them rotate rate-limit keys at will.
+ */
 export function clientIp(req: TrpcContext["req"]): string {
-  const xff = req.headers["x-forwarded-for"];
-  if (typeof xff === "string" && xff.length > 0) return xff.split(",")[0].trim();
-  if (Array.isArray(xff) && xff.length > 0) return String(xff[0]).trim();
   return req.ip ?? req.socket?.remoteAddress ?? "unknown";
 }
 

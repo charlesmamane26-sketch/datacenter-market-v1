@@ -30,14 +30,19 @@ describe("rateLimit (sliding window)", () => {
 });
 
 describe("clientIp", () => {
-  it("prefers the first X-Forwarded-For hop", () => {
-    const req = { headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" } } as any;
-    expect(clientIp(req)).toBe("203.0.113.7");
+  it("ignores X-Forwarded-For (spoofable) and uses req.ip", () => {
+    // req.ip already accounts for trusted proxies via Express's "trust proxy" setting;
+    // reading the header directly would let clients rotate rate-limit keys at will.
+    const req = {
+      headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" },
+      ip: "198.51.100.2",
+    } as any;
+    expect(clientIp(req)).toBe("198.51.100.2");
   });
 
-  it("falls back to req.ip", () => {
-    const req = { headers: {}, ip: "198.51.100.2" } as any;
-    expect(clientIp(req)).toBe("198.51.100.2");
+  it("falls back to the socket address when req.ip is unset", () => {
+    const req = { headers: {}, socket: { remoteAddress: "192.0.2.9" } } as any;
+    expect(clientIp(req)).toBe("192.0.2.9");
   });
 
   it("returns 'unknown' when no source is available", () => {
