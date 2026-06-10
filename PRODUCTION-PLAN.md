@@ -34,8 +34,8 @@ Correctif déjà appliqué en local (à committer) : l'override pnpm `path-to-re
    - `pnpm db:push` puis `pnpm db:seed` (idempotent, 7 offres).
 2. **Secrets runtime** : `DATABASE_URL`, `JWT_SECRET` (généré, 64 hex), `OAUTH_SERVER_URL`, `OWNER_OPEN_ID`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SENTRY_DSN`, `PORT`. Stockés dans le gestionnaire de secrets de l'hébergeur — jamais dans Git.
 3. **Build args** : `VITE_APP_ID`, `VITE_OAUTH_PORTAL_URL`, `VITE_FRONTEND_FORGE_API_*` (⚠️ inlinés dans le bundle JS public — vérifier que la clé Forge frontend est bien une clé publique).
-4. **Hébergement** : conteneur Docker (image multi-stage existante) sur Fly.io / Railway / OVH ; ou pm2 + nginx sur VPS. Une seule instance au départ (rate limiter en mémoire).
-5. **Cron** : `pnpm db:purge` quotidien 03:00 (RGPD, rétention 730 j) ; `pnpm db:cancel-stale` horaire.
+4. **Hébergement** : conteneur Docker (image multi-stage existante) sur **Render free tier** (objectif 0 € — veille après 15 min compensée par le ping UptimeRobot) ; passer au plan Starter quand les premiers clients arrivent. Une seule instance (rate limiter en mémoire).
+5. **Cron** : via GitHub Actions (`.github/workflows/crons.yml`, déjà dans le repo — il ne manque que le secret `DATABASE_URL`) : `db:purge` quotidien 03:00 UTC, `db:cancel-stale` horaire. Gratuit.
 
 ## Phase 3 — Stripe en mode live (jours 3-5)
 

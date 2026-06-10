@@ -11,12 +11,17 @@
 
 Il reste trois briques externes à brancher, puis le déploiement :
 
-| Étape | Service | Compte à créer | Coût de départ |
+| Étape | Service | Compte à créer | Coût |
 |---|---|---|---|
-| 1. Base de données | TiDB Serverless (ou OVH MySQL) | tidbcloud.com | Gratuit (tier serverless) |
-| 2. Hébergement | Railway (ou Fly.io) | railway.app | ~5 $/mois |
-| 3. Paiements | Stripe | stripe.com | Gratuit (commission par transaction) |
-| 4. Monitoring | Sentry + UptimeRobot | sentry.io, uptimerobot.com | Gratuit (tiers free) |
+| 1. Base de données | TiDB Serverless | tidbcloud.com | **0 €** (jusqu'à 5 Go) |
+| 2. Hébergement | Render (free tier) | render.com | **0 €** |
+| 2bis. Crons RGPD | GitHub Actions | déjà en place | **0 €** |
+| 3. Paiements | Stripe | stripe.com | **0 €** fixe (commission ~1,5 % + 0,25 € par vente uniquement) |
+| 4. Monitoring | Sentry + UptimeRobot | sentry.io, uptimerobot.com | **0 €** (tiers free) |
+
+**Budget total : 0 € de coût fixe.** Tu ne paies que la commission Stripe quand un client paie réellement.
+
+⚠️ **Limite à connaître du tier gratuit Render :** le serveur s'endort après 15 min sans trafic et met ~50 s à se réveiller à la visite suivante. Le ping UptimeRobot toutes les 5 min (étape 4.2) le maintient éveillé en pratique. Quand les premiers clients arrivent, passe au plan Starter (~7 $/mois) pour supprimer cette limite.
 
 **Règle d'or : ne jamais mettre une clé secrète dans Git.** Toutes les clés vont dans les variables d'environnement de l'hébergeur.
 
@@ -65,19 +70,21 @@ node_modules\.bin\pnpm integration-check
 
 ---
 
-## Étape 2 — L'hébergement (~45 min)
+## Étape 2 — L'hébergement gratuit sur Render (~45 min)
 
-Le projet a un Dockerfile prêt. **Railway** est le plus simple pour un premier déploiement.
+Le projet a un Dockerfile prêt. **Render** offre un tier gratuit qui suffit pour démarrer.
 
-### 2.1 Créer le projet Railway
+### 2.1 Créer le service Render
 
-1. Va sur **https://railway.app** → *Login with GitHub*.
-2. **New Project** → **Deploy from GitHub repo** → choisis `datacenter-market-v1`.
-3. Railway détecte le Dockerfile automatiquement.
+1. Va sur **https://render.com** → *Sign up with GitHub*.
+2. **New** → **Web Service** → connecte le repo `datacenter-market-v1`.
+3. Render détecte le Dockerfile automatiquement (Language : **Docker**).
+4. **Instance Type : Free** ← c'est là que tu choisis le 0 €.
+5. Région : **Frankfurt** (UE).
 
 ### 2.2 Configurer les variables d'environnement
 
-Dans Railway → ton service → onglet **Variables**, ajoute :
+Dans Render → ton service → onglet **Environment**, ajoute :
 
 | Variable | Valeur | Note |
 |---|---|---|
@@ -88,7 +95,8 @@ Dans Railway → ton service → onglet **Variables**, ajoute :
 | `STRIPE_SECRET_KEY` | *(étape 3)* | commence par `sk_test_` puis `sk_live_` |
 | `STRIPE_WEBHOOK_SECRET` | *(étape 3)* | commence par `whsec_` |
 | `SENTRY_DSN` | *(étape 4)* | optionnel au début |
-| `PORT` | `3000` | |
+
+(Pas besoin de `PORT` : Render le fournit automatiquement et l'app le lit.)
 
 Pour générer le `JWT_SECRET` :
 
@@ -106,24 +114,43 @@ Ces variables sont **compilées dans le JavaScript public** au moment du build �
 - `VITE_OAUTH_PORTAL_URL` — l'URL du portail de login Manus
 - `VITE_FRONTEND_FORGE_API_URL` / `VITE_FRONTEND_FORGE_API_KEY` — API Forge frontend (clé publique uniquement)
 
-Dans Railway, ajoute-les aussi dans Variables (elles sont injectées au build Docker).
+Ajoute-les aussi dans **Environment** : Render rend les variables d'environnement disponibles pendant le build Docker. Si après déploiement le bouton de login pointe dans le vide, c'est qu'elles manquaient au build — ajoute-les puis **Manual Deploy → Clear build cache & deploy**.
 
 ### 2.4 Domaine et déploiement
 
-1. Railway → **Settings** → **Networking** → **Generate Domain** (tu obtiens `xxx.up.railway.app`).
-2. Pour un domaine Anavim (ex. `compute.anavim-infra.com`) : ajoute un **Custom Domain** dans Railway, puis crée le CNAME indiqué dans ta zone DNS OVH. Le certificat TLS est automatique.
+1. Render te donne d'office un domaine gratuit en `xxx.onrender.com` — suffisant pour démarrer.
+2. *(Optionnel, toujours 0 € nouveau)* : pour `compute.anavim-infra.com`, ajoute un **Custom Domain** dans Render → Settings, puis crée le CNAME indiqué dans ta zone DNS OVH (le domaine anavim-infra.com est déjà payé). Certificat TLS automatique.
 3. Chaque `git push` sur `main` redéploie automatiquement.
 
 ✅ **Critère de réussite :** `https://ton-domaine/health` répond `{"status":"ok"}` et la landing s'affiche.
 
-### 2.5 Les crons RGPD
+### 2.5 Les crons RGPD — gratuits via GitHub Actions
 
-Dans Railway, crée deux services « Cron Job » pointant sur le même repo :
+Le tier gratuit Render n'inclut pas les cron jobs, mais **GitHub Actions** les exécute gratuitement. Crée le fichier `.github/workflows/crons.yml` dans le repo :
 
-| Cron | Commande | Fréquence |
-|---|---|---|
-| Purge des leads | `pnpm db:purge` | tous les jours à 03:00 |
-| Annulation commandes abandonnées | `pnpm db:cancel-stale` | toutes les heures |
+```yaml
+name: RGPD crons
+on:
+  schedule:
+    - cron: "0 3 * * *"   # purge des leads, tous les jours à 03:00 UTC
+    - cron: "30 * * * *"  # commandes abandonnées, toutes les heures
+  workflow_dispatch: {}    # déclenchement manuel possible
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm db:cancel-stale
+        env: { DATABASE_URL: "${{ secrets.DATABASE_URL }}" }
+      - run: pnpm db:purge
+        if: github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch'
+        env: { DATABASE_URL: "${{ secrets.DATABASE_URL }}" }
+```
+
+Puis dans GitHub → repo → **Settings → Secrets and variables → Actions** → ajoute le secret `DATABASE_URL` (la même chaîne TiDB). Teste avec **Actions → RGPD crons → Run workflow**.
 
 ---
 
@@ -137,12 +164,12 @@ Dans Railway, crée deux services « Cron Job » pointant sur le même repo :
 ### 3.2 Mode test d'abord (obligatoire)
 
 1. Dashboard Stripe → active le **mode Test** (toggle en haut à droite).
-2. **Développeurs → Clés API** : copie la **clé secrète** `sk_test_...` → variable `STRIPE_SECRET_KEY` dans Railway.
+2. **Développeurs → Clés API** : copie la **clé secrète** `sk_test_...` → variable `STRIPE_SECRET_KEY` dans Render.
 3. **Développeurs → Webhooks → Ajouter un endpoint** :
    - URL : `https://ton-domaine/api/stripe/webhook`
    - Événement à écouter : `checkout.session.completed` (celui-là suffit)
-4. Copie le **Signing secret** `whsec_...` → variable `STRIPE_WEBHOOK_SECRET` dans Railway.
-5. Redéploie (Railway le fait automatiquement quand tu changes une variable).
+4. Copie le **Signing secret** `whsec_...` → variable `STRIPE_WEBHOOK_SECRET` dans Render.
+5. Redéploie (Render le fait automatiquement quand tu changes une variable).
 
 ### 3.3 Tester un paiement de bout en bout
 
@@ -172,7 +199,7 @@ Quand le compte est vérifié **et** que le test ci-dessus passe :
 ### 4.1 Sentry (erreurs serveur)
 
 1. **https://sentry.io** → compte gratuit → **Create Project** → plateforme **Node.js (Express)**.
-2. Copie le **DSN** (`https://xxx@yyy.ingest.sentry.io/zzz`) → variable `SENTRY_DSN` dans Railway.
+2. Copie le **DSN** (`https://xxx@yyy.ingest.sentry.io/zzz`) → variable `SENTRY_DSN` dans Render.
 3. C'est tout — l'intégration est déjà câblée dans le code. Au prochain déploiement, le log affichera `[Sentry] Server monitoring initialized.`
 
 ### 4.2 Uptime
@@ -180,6 +207,8 @@ Quand le compte est vérifié **et** que le test ci-dessus passe :
 1. **https://uptimerobot.com** → compte gratuit → **Add Monitor** :
    - Type : HTTP(s) — URL : `https://ton-domaine/health` — intervalle : 5 min.
 2. Configure l'alerte e-mail vers `contact@anavim-infra.com`.
+
+Double rôle sur le tier gratuit Render : le ping toutes les 5 min **empêche aussi le serveur de s'endormir** (mise en veille après 15 min d'inactivité).
 
 ### 4.3 Décision télémétrie GPU
 
@@ -207,11 +236,12 @@ Le dashboard client affiche « Awaiting telemetry » car rien n'alimente les mé
 | Symptôme | Cause probable | Solution |
 |---|---|---|
 | Le serveur ne démarre pas, log « JWT_SECRET must be at least 32 characters » | Secret trop court | Régénère avec la commande de l'étape 2.2 |
-| « Database not available » sur le site | `DATABASE_URL` absente ou fausse | Vérifie la variable dans Railway, teste avec `integration-check` en local |
+| « Database not available » sur le site | `DATABASE_URL` absente ou fausse | Vérifie la variable dans Render, teste avec `integration-check` en local |
 | « Payments are not configured » au checkout | `STRIPE_SECRET_KEY` absente | Étape 3.2 |
 | Le paiement passe mais le lead reste « offered » | Webhook mal configuré | Vérifie l'URL du webhook et le `whsec_`, regarde Stripe → Webhooks → tentatives |
 | Login OAuth en boucle ou erreur 400 « invalid state » | `VITE_OAUTH_PORTAL_URL` / `VITE_APP_ID` faux, ou domaine non déclaré côté Manus | Vérifie les variables de build et la config de l'app Manus |
 | Pas de rôle admin après login | `OWNER_OPEN_ID` ne correspond pas à ton openId | Récupère ton openId exact (table `users` après ta 1ʳᵉ connexion) et corrige la variable |
+| Première visite très lente (~50 s) puis tout va bien | Tier gratuit Render : le serveur dormait | Normal — le ping UptimeRobot le maintient éveillé ; plan Starter pour supprimer la veille |
 
 ---
 

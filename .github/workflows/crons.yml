@@ -1,0 +1,27 @@
+# RGPD maintenance crons — runs for free on GitHub Actions (no paid host cron needed).
+# Requires the DATABASE_URL repository secret (Settings → Secrets and variables → Actions).
+name: RGPD crons
+on:
+  schedule:
+    - cron: "0 3 * * *" # daily: purge stale unconverted leads (LEAD_RETENTION_DAYS)
+    - cron: "30 * * * *" # hourly: cancel abandoned pending/unpaid orders
+  workflow_dispatch: {}
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Cancel stale orders
+        run: pnpm db:cancel-stale
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Purge stale leads (daily schedule or manual run only)
+        if: github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch'
+        run: pnpm db:purge
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
