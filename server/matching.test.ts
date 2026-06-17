@@ -6,7 +6,6 @@ function offer(partial: Partial<Offer>): Offer {
   return {
     id: 0,
     name: "test",
-    category: "best_value",
     gpuType: "NVIDIA H100",
     gpuCount: 8,
     cpuCores: 64,

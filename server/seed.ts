@@ -8,14 +8,12 @@ import { getDb } from "./db";
  *
  * This is a flat catalogue of infrastructure configurations. The "best value / fastest /
  * cheapest" cards shown on the results screen are computed per lead by the matching engine
- * (see server/matching.ts) — they are not fixed per offer. The `category` column below is
- * kept only because it is NOT NULL in the current schema and is no longer used for matching.
+ * (see server/matching.ts) — they are not fixed per offer, so there is no `category` column.
  * Prices are EUR/month.
  */
 const SEED_OFFERS = [
   {
     name: "H100 Production Cluster",
-    category: "best_value",
     gpuType: "NVIDIA H100",
     gpuCount: 8,
     cpuCores: 64,
@@ -37,7 +35,6 @@ const SEED_OFFERS = [
   },
   {
     name: "H100 Rapid Deploy",
-    category: "fastest",
     gpuType: "NVIDIA H100",
     gpuCount: 8,
     cpuCores: 96,
@@ -59,7 +56,6 @@ const SEED_OFFERS = [
   },
   {
     name: "A100 Training Pod",
-    category: "cheapest",
     gpuType: "NVIDIA A100",
     gpuCount: 8,
     cpuCores: 48,
@@ -81,7 +77,6 @@ const SEED_OFFERS = [
   },
   {
     name: "H100 Scale-Out Cluster",
-    category: "best_value",
     gpuType: "NVIDIA H100",
     gpuCount: 16,
     cpuCores: 128,
@@ -103,7 +98,6 @@ const SEED_OFFERS = [
   },
   {
     name: "A100 Starter",
-    category: "cheapest",
     gpuType: "NVIDIA A100",
     gpuCount: 4,
     cpuCores: 24,
@@ -125,7 +119,6 @@ const SEED_OFFERS = [
   },
   {
     name: "L40S Inference Node",
-    category: "best_value",
     gpuType: "NVIDIA L40S",
     gpuCount: 8,
     cpuCores: 64,
@@ -147,7 +140,6 @@ const SEED_OFFERS = [
   },
   {
     name: "RTX 4090 Budget Pod",
-    category: "cheapest",
     gpuType: "NVIDIA RTX 4090",
     gpuCount: 8,
     cpuCores: 48,

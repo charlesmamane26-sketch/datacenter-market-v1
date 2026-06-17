@@ -6,11 +6,18 @@ export interface RateLimitResult {
 }
 
 /**
- * In-memory sliding-window rate limiter.
- *
- * NOTE: the store is process-local. For multi-instance deployments, back this with a shared
- * store (e.g. Redis) so limits are enforced across replicas. Old hits are pruned lazily on access.
+ * Pluggable backing store for the sliding-window limiter. The default is
+ * process-local (in-memory); set REDIS_URL to enforce limits across replicas.
+ * `check` records a hit and returns the decision atomically for the given key.
  */
+export interface RateLimitStore {
+  check(key: string, limit: number, windowMs: number, now: number): Promise<RateLimitResult>;
+}
+
+// ---------------------------------------------------------------------------
+// In-memory store (default)
+// ---------------------------------------------------------------------------
+
 const store = new Map<string, number[]>();
 
 // Lazy pruning only touches keys that are queried again, so one request from each
@@ -28,6 +35,10 @@ function sweep(now: number) {
   });
 }
 
+/**
+ * Pure sliding-window decision against the in-memory store. Kept synchronous so
+ * the algorithm stays trivially testable; the async `RateLimitStore` wraps it.
+ */
 export function rateLimit(
   key: string,
   limit: number,
@@ -48,7 +59,35 @@ export function rateLimit(
   return { allowed: true, retryAfterMs: 0 };
 }
 
-/** Test-only: number of keys currently tracked. */
+const memoryStore: RateLimitStore = {
+  check: (key, limit, windowMs, now) => Promise.resolve(rateLimit(key, limit, windowMs, now)),
+};
+
+// ---------------------------------------------------------------------------
+// Active store selection
+// ---------------------------------------------------------------------------
+
+let activeStore: RateLimitStore = memoryStore;
+
+/** Swap the backing store (used by the Redis bootstrap; see ./_core/redisRateLimit). */
+export function setRateLimitStore(s: RateLimitStore): void {
+  activeStore = s;
+}
+
+/**
+ * Async entry point used by request handlers. Routes through the active store
+ * (in-memory by default, Redis when configured) so limits hold across replicas.
+ */
+export function enforceRateLimit(
+  key: string,
+  limit: number,
+  windowMs: number,
+  now: number = Date.now(),
+): Promise<RateLimitResult> {
+  return activeStore.check(key, limit, windowMs, now);
+}
+
+/** Test-only: number of keys currently tracked (in-memory store). */
 export function __storeSize(): number {
   return store.size;
 }
@@ -63,8 +102,9 @@ export function clientIp(req: TrpcContext["req"]): string {
   return req.ip ?? req.socket?.remoteAddress ?? "unknown";
 }
 
-/** Test-only: clears the limiter store. */
+/** Test-only: clears the in-memory store and resets the active store to memory. */
 export function __resetRateLimit(): void {
   store.clear();
   lastSweep = 0;
+  activeStore = memoryStore;
 }

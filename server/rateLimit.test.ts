@@ -1,5 +1,13 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { rateLimit, clientIp, __resetRateLimit, __storeSize } from "./rateLimit";
+import {
+  rateLimit,
+  enforceRateLimit,
+  setRateLimitStore,
+  clientIp,
+  __resetRateLimit,
+  __storeSize,
+  type RateLimitStore,
+} from "./rateLimit";
 
 beforeEach(() => __resetRateLimit());
 
@@ -37,6 +45,36 @@ describe("rateLimit (sliding window)", () => {
     expect(rateLimit("a", 1, 1000, now).allowed).toBe(true);
     expect(rateLimit("a", 1, 1000, now).allowed).toBe(false);
     expect(rateLimit("b", 1, 1000, now).allowed).toBe(true);
+  });
+});
+
+describe("enforceRateLimit (pluggable store)", () => {
+  it("routes through the in-memory store by default", async () => {
+    const now = 9_000;
+    expect((await enforceRateLimit("k", 1, 1000, now)).allowed).toBe(true);
+    expect((await enforceRateLimit("k", 1, 1000, now)).allowed).toBe(false);
+  });
+
+  it("delegates to a swapped-in store and forwards all arguments", async () => {
+    const calls: Array<[string, number, number]> = [];
+    const fakeStore: RateLimitStore = {
+      check: (key, limit, windowMs) => {
+        calls.push([key, limit, windowMs]);
+        return Promise.resolve({ allowed: false, retryAfterMs: 42 });
+      },
+    };
+    setRateLimitStore(fakeStore);
+
+    const result = await enforceRateLimit("lead:1.2.3.4", 5, 60_000, 1_000);
+    expect(result).toEqual({ allowed: false, retryAfterMs: 42 });
+    expect(calls).toEqual([["lead:1.2.3.4", 5, 60_000]]);
+  });
+
+  it("reverts to the in-memory store after __resetRateLimit", async () => {
+    setRateLimitStore({ check: () => Promise.resolve({ allowed: false, retryAfterMs: 1 }) });
+    __resetRateLimit();
+    // Back to the real sliding window: first hit on a fresh key is allowed.
+    expect((await enforceRateLimit("fresh", 1, 1000, 1_000)).allowed).toBe(true);
   });
 });
 

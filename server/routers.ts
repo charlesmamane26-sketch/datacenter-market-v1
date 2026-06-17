@@ -1,12 +1,15 @@
 import { COOKIE_NAME } from "@shared/const";
+import { parse as parseCookieHeader } from "cookie";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
+import { revokeJti } from "./_core/sessionRevocation";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import type { User } from "../drizzle/schema";
 import { matchOffers, type MatchCriteria } from "./matching";
 import { notifyOwner } from "./_core/notification";
-import { rateLimit, clientIp } from "./rateLimit";
+import { enforceRateLimit, clientIp } from "./rateLimit";
 import { createCheckoutSession, getStripe, getOrigin } from "./stripe";
 import { z } from "zod";
 import {
@@ -138,7 +141,18 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
+    logout: publicProcedure.mutation(async ({ ctx }) => {
+      // Server-side revocation: denylist this token's jti for its remaining
+      // lifetime so a copy stolen before logout can't be replayed. No-op without
+      // Redis (revocation disabled); clearing the cookie always happens.
+      const token = parseCookieHeader(ctx.req.headers.cookie ?? "")[COOKIE_NAME];
+      if (token) {
+        const session = await sdk.verifySession(token);
+        if (session?.jti && session.exp) {
+          const ttlMs = session.exp * 1000 - Date.now();
+          await revokeJti(session.jti, ttlMs);
+        }
+      }
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return {
@@ -166,7 +180,7 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         // Anti-abuse: throttle the public lead endpoint per client IP (5 / minute).
-        const limit = rateLimit(`lead:${clientIp(ctx.req)}`, 5, 60_000);
+        const limit = await enforceRateLimit(`lead:${clientIp(ctx.req)}`, 5, 60_000);
         if (!limit.allowed) {
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
@@ -301,6 +315,15 @@ export const appRouter = router({
     checkout: protectedProcedure
       .input(z.object({ leadId: z.number().int().positive(), offerId: z.number().int().positive() }))
       .mutation(async ({ input, ctx }) => {
+        // Anti-abuse: throttle checkout per authenticated user (10 / minute).
+        // Keying on the user id (not IP) is precise and unspoofable here.
+        const limit = await enforceRateLimit(`checkout:${ctx.user.id}`, 10, 60_000);
+        if (!limit.allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many checkout attempts. Please wait a moment and try again.",
+          });
+        }
         // Fail fast (before creating an order) if payments aren't configured.
         if (!getStripe()) {
           throw new TRPCError({

@@ -11,6 +11,8 @@ import { registerStorageProxy } from "./storageProxy";
 import { registerStripeWebhook } from "../stripe";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { buildCspDirectives } from "./csp";
+import { initRateLimitStore } from "./redisRateLimit";
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -62,10 +64,15 @@ async function startServer() {
     app.set("trust proxy", parseInt(process.env.TRUST_PROXY_HOPS || "1"));
   }
 
-  // Security headers (nosniff, frame-deny, HSTS, etc.). CSP is left off: the SPA
-  // relies on inline scripts/styles injected by Vite and the analytics snippet —
-  // enable it later with proper nonces if needed.
-  app.use(helmet({ contentSecurityPolicy: false }));
+  // Security headers (nosniff, frame-deny, HSTS, etc.) + a CSP tuned for this
+  // SPA. script-src stays strict (no 'unsafe-inline') in production; dev loosens
+  // it for Vite HMR. External origins beyond Google Fonts / the Forge maps proxy
+  // are injected via CSP_EXTRA_ORIGINS. See ./csp.ts.
+  app.use(
+    helmet({
+      contentSecurityPolicy: { directives: buildCspDirectives() },
+    }),
+  );
 
   if (process.env.SENTRY_DSN) {
     // The request handler must be the first middleware on the app
@@ -73,14 +80,19 @@ async function startServer() {
   }
   // Stripe webhook needs the raw request body — register it before the JSON body parser.
   registerStripeWebhook(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Body parser limit. tRPC payloads (leads, orders) are a few KB; keep this
+  // small to bound JSON-parse memory on unauthenticated routes. Raise per-route
+  // if a real upload path is ever added.
+  app.use(express.json({ limit: "200kb" }));
+  app.use(express.urlencoded({ limit: "200kb", extended: true }));
   // Lightweight liveness probe for load balancers / orchestrators.
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
   });
   registerStorageProxy(app);
+  // Activate the Redis-backed rate-limit store when REDIS_URL is set (multi-
+  // instance). No-op otherwise: the in-memory store stays in place.
+  await initRateLimitStore();
   registerOAuthRoutes(app);
   // tRPC API
   app.use(

@@ -3,6 +3,7 @@ import express, { type Express } from "express";
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./_core/env";
 import { updateOrder, getOrder, updateLead } from "./db";
+import { enforceRateLimit, clientIp } from "./rateLimit";
 import type { TrpcContext } from "./_core/context";
 
 let _stripe: Stripe | null = null;
@@ -14,8 +15,19 @@ export function getStripe(): Stripe | null {
   return _stripe;
 }
 
-/** Best-effort absolute origin for building Stripe success/cancel URLs. */
+/**
+ * Absolute origin used to build Stripe success/cancel URLs and to validate the
+ * OAuth state. When PUBLIC_BASE_URL is configured it is the single source of
+ * truth — request headers (Origin / Host / X-Forwarded-Proto) are attacker-
+ * influenceable and must not drive these URLs in production.
+ */
 export function getOrigin(req: TrpcContext["req"]): string {
+  if (ENV.publicBaseUrl) return ENV.publicBaseUrl.replace(/\/+$/, "");
+  // In production, refuse to fall back to request headers: a missing
+  // PUBLIC_BASE_URL is a misconfiguration, not a reason to trust the Host header.
+  if (ENV.isProduction) {
+    throw new Error("PUBLIC_BASE_URL must be set in production to derive a trusted origin.");
+  }
   const origin = req.headers.origin;
   if (typeof origin === "string" && origin.length > 0) return origin;
   const forwardedProto = req.headers["x-forwarded-proto"];
@@ -130,7 +142,16 @@ export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
  * is available for signature verification. The webhook is the source of truth for payment status.
  */
 export function registerStripeWebhook(app: Express) {
-  app.post("/api/stripe/webhook", express.raw({ type: "*/*" }), async (req, res) => {
+  app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    // Generous per-IP throttle: signature verification already gates real abuse,
+    // so this only blunts floods. Kept high enough not to drop Stripe's legitimate
+    // burst retries after an outage.
+    const limit = await enforceRateLimit(`stripe-webhook:${clientIp(req)}`, 100, 60_000);
+    if (!limit.allowed) {
+      res.status(429).send("Too many requests.");
+      return;
+    }
+
     const stripe = getStripe();
     if (!stripe || !ENV.stripeWebhookSecret) {
       res.status(503).send("Stripe is not configured.");
