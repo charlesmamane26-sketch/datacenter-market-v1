@@ -3,6 +3,7 @@ import { parse as parseCookieHeader } from "cookie";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { revokeJti } from "./_core/sessionRevocation";
+import { publishProvisioningEvent } from "./provisioningStream";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
@@ -411,12 +412,30 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input }) => {
-        return createProvisioningEvent({
+        const status = input.status || "pending";
+        const completedAt = status === "completed" ? new Date() : null;
+        const result = await createProvisioningEvent({
           orderId: input.orderId,
           eventType: input.eventType,
-          status: input.status || "pending",
+          status,
           description: input.description,
+          completedAt,
         });
+        // Broadcast to any open SSE stream for this order so the client timeline
+        // updates live. createProvisioningEvent returns the insert result, not the
+        // row, so reconstruct the payload from the input + insertId.
+        const insertId = Array.isArray(result)
+          ? (result[0] as { insertId?: number } | undefined)?.insertId
+          : undefined;
+        publishProvisioningEvent(input.orderId, {
+          id: insertId,
+          orderId: input.orderId,
+          eventType: input.eventType,
+          status,
+          description: input.description ?? null,
+          completedAt,
+        });
+        return result;
       }),
   }),
 

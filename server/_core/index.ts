@@ -10,6 +10,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerStripeWebhook } from "../stripe";
 import { registerTelemetryIngest } from "../telemetry";
+import { registerProvisioningStream } from "../provisioningStream";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { buildCspDirectives } from "./csp";
@@ -90,6 +91,9 @@ async function startServer() {
   // Provider-side telemetry ingestion (POST /api/telemetry/:orderId). Has its
   // own small JSON parser; disabled (503) unless TELEMETRY_INGEST_KEY is set.
   registerTelemetryIngest(app);
+  // Real-time provisioning timeline (SSE). Must be registered before Vite's
+  // catch-all so the stream route isn't swallowed by the SPA fallback.
+  registerProvisioningStream(app);
   // Activate the Redis-backed rate-limit store when REDIS_URL is set (multi-
   // instance). No-op otherwise: the in-memory store stays in place.
   await initRateLimitStore();
