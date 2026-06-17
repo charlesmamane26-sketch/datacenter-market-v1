@@ -39,8 +39,17 @@ class OAuthService {
   }
 
   private decodeState(state: string): string {
-    const redirectUri = atob(state);
-    return redirectUri;
+    // The state is base64 of either a bare redirect URI (legacy) or a JSON
+    // envelope { r: redirectUri, n: nonce } (CSRF nonce double-submit). Extract
+    // the redirect URI used for the code exchange in both cases.
+    const decoded = atob(state);
+    try {
+      const parsed = JSON.parse(decoded) as { r?: unknown };
+      if (parsed && typeof parsed.r === "string") return parsed.r;
+    } catch {
+      // Not JSON — fall through to the legacy bare-URI form.
+    }
+    return decoded;
   }
 
   async getTokenByCode(
@@ -218,6 +227,13 @@ class SDKServer {
         !isNonEmptyString(name)
       ) {
         console.warn("[Auth] Session payload missing required fields");
+        return null;
+      }
+
+      // Validate the token audience: a session signed for another app on the
+      // platform (shared JWT_SECRET) must not be accepted here.
+      if (appId !== ENV.appId) {
+        console.warn("[Auth] Session appId mismatch");
         return null;
       }
 

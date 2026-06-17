@@ -185,14 +185,6 @@ export async function getAllOffers() {
   return rows.map(normalizeOffer);
 }
 
-export async function getOffersByCategory(category: "best_value" | "fastest" | "cheapest") {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const rows = await db.select().from(offers).where(eq(offers.category, category));
-  return rows.map(normalizeOffer);
-}
-
 export async function getOffer(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

@@ -73,9 +73,11 @@ async function startServer() {
   }
   // Stripe webhook needs the raw request body — register it before the JSON body parser.
   registerStripeWebhook(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Body parser limit. tRPC payloads (leads, orders) are a few KB; keep this
+  // small to bound JSON-parse memory on unauthenticated routes. Raise per-route
+  // if a real upload path is ever added.
+  app.use(express.json({ limit: "200kb" }));
+  app.use(express.urlencoded({ limit: "200kb", extended: true }));
   // Lightweight liveness probe for load balancers / orchestrators.
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
