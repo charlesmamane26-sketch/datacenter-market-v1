@@ -65,8 +65,7 @@ export type InsertLead = typeof leads.$inferInsert;
 export const offers = mysqlTable("offers", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull(), // "Best Value", "Fastest", "Cheapest"
-  category: mysqlEnum("category", ["best_value", "fastest", "cheapest"]).notNull(),
-  
+
   // Technical specs
   gpuType: varchar("gpuType", { length: 100 }).notNull(),
   gpuCount: int("gpuCount").notNull(),
