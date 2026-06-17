@@ -473,6 +473,12 @@ export const appRouter = router({
         avgDealSize,
       };
     }),
+
+    // Full order list for the admin CSV export (leads are already available via
+    // leads.list). Admin-only; returns raw rows, the client builds the CSV.
+    exportOrders: adminProcedure.query(async () => {
+      return getAllOrders();
+    }),
   }),
 });
 
