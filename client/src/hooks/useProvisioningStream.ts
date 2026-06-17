@@ -19,9 +19,21 @@ type StreamEvent = {
   completedAt?: string | null;
 };
 
-export function useProvisioningStream(orderId: number | undefined): { connected: boolean } {
+export interface TelemetryAlert {
+  orderId: number;
+  kind: string;
+  severity: "warning" | "critical";
+  message: string;
+  value: number;
+  threshold: number;
+}
+
+export function useProvisioningStream(
+  orderId: number | undefined,
+): { connected: boolean; alerts: TelemetryAlert[] } {
   const utils = trpc.useUtils();
   const [connected, setConnected] = useState(false);
+  const [alerts, setAlerts] = useState<TelemetryAlert[]>([]);
 
   useEffect(() => {
     if (orderId == null || typeof EventSource === "undefined") {
@@ -60,11 +72,25 @@ export function useProvisioningStream(orderId: number | undefined): { connected:
       }
     });
 
+    es.addEventListener("alert", e => {
+      try {
+        const alert = JSON.parse((e as MessageEvent).data) as TelemetryAlert;
+        // De-dupe consecutive identical alerts (same kind) to limit noise.
+        setAlerts(prev =>
+          prev.length && prev[0].kind === alert.kind && prev[0].message === alert.message
+            ? prev
+            : [alert, ...prev].slice(0, 20),
+        );
+      } catch {
+        /* ignore malformed frame */
+      }
+    });
+
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false); // EventSource will retry automatically.
 
     return () => es.close();
   }, [orderId, utils]);
 
-  return { connected };
+  return { connected, alerts };
 }

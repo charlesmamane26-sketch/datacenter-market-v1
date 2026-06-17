@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { Cpu, Layers, DollarSign, Activity, LogOut } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useProvisioningStream } from "@/hooks/useProvisioningStream";
 
 const ACTIVE_STATUSES = ["processing", "provisioning", "active"];
 
@@ -50,6 +51,9 @@ export default function ClientDashboard() {
   const gpuUsage =
     latestMetrics?.gpuUsagePercent != null ? Number(latestMetrics.gpuUsagePercent) : null;
 
+  // Live threshold alerts pushed over SSE for the primary order.
+  const { alerts } = useProvisioningStream(primaryOrderId ?? undefined);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
@@ -82,6 +86,27 @@ export default function ClientDashboard() {
             Monitor your infrastructure and manage your subscriptions
           </p>
         </div>
+
+        {alerts.length > 0 && (
+          <div className="mb-8 space-y-2" role="status" aria-live="polite">
+            {alerts.slice(0, 5).map((a, i) => (
+              <div
+                key={`${a.kind}-${i}`}
+                className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${
+                  a.severity === "critical"
+                    ? "border-red-500/40 bg-red-500/10 text-red-200"
+                    : "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                }`}
+              >
+                <Activity className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm font-mono">{a.message}</span>
+                <span className="ml-auto text-xs uppercase tracking-wide opacity-70">
+                  {a.severity}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* KPI Cards */}
         <div className="grid md:grid-cols-4 gap-6 mb-12">
