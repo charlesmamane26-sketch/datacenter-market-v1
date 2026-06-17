@@ -4,6 +4,7 @@ import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getOrigin } from "../stripe";
 import { getSessionCookieOptions } from "./cookies";
+import { enforceRateLimit, clientIp } from "../rateLimit";
 import { sdk } from "./sdk";
 
 function getQueryParam(req: Request, key: string): string | undefined {
@@ -50,6 +51,14 @@ function isValidRedirect(redirectUri: string, req: Request): boolean {
 
 export function registerOAuthRoutes(app: Express) {
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
+    // Anti-abuse: throttle the code exchange per client IP (20 / minute) to
+    // blunt brute-forcing of the authorization code and callback spam.
+    const limit = await enforceRateLimit(`oauth:${clientIp(req)}`, 20, 60_000);
+    if (!limit.allowed) {
+      res.status(429).json({ error: "too many requests" });
+      return;
+    }
+
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
 

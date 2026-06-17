@@ -3,6 +3,7 @@ import express, { type Express } from "express";
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./_core/env";
 import { updateOrder, getOrder, updateLead } from "./db";
+import { enforceRateLimit, clientIp } from "./rateLimit";
 import type { TrpcContext } from "./_core/context";
 
 let _stripe: Stripe | null = null;
@@ -141,7 +142,16 @@ export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
  * is available for signature verification. The webhook is the source of truth for payment status.
  */
 export function registerStripeWebhook(app: Express) {
-  app.post("/api/stripe/webhook", express.raw({ type: "*/*" }), async (req, res) => {
+  app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    // Generous per-IP throttle: signature verification already gates real abuse,
+    // so this only blunts floods. Kept high enough not to drop Stripe's legitimate
+    // burst retries after an outage.
+    const limit = await enforceRateLimit(`stripe-webhook:${clientIp(req)}`, 100, 60_000);
+    if (!limit.allowed) {
+      res.status(429).send("Too many requests.");
+      return;
+    }
+
     const stripe = getStripe();
     if (!stripe || !ENV.stripeWebhookSecret) {
       res.status(503).send("Stripe is not configured.");

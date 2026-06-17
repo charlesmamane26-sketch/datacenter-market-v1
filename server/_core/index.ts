@@ -12,6 +12,7 @@ import { registerStripeWebhook } from "../stripe";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { buildCspDirectives } from "./csp";
+import { initRateLimitStore } from "./redisRateLimit";
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -89,6 +90,9 @@ async function startServer() {
     res.json({ status: "ok" });
   });
   registerStorageProxy(app);
+  // Activate the Redis-backed rate-limit store when REDIS_URL is set (multi-
+  // instance). No-op otherwise: the in-memory store stays in place.
+  await initRateLimitStore();
   registerOAuthRoutes(app);
   // tRPC API
   app.use(

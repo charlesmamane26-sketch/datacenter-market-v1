@@ -6,7 +6,7 @@ import { TRPCError } from "@trpc/server";
 import type { User } from "../drizzle/schema";
 import { matchOffers, type MatchCriteria } from "./matching";
 import { notifyOwner } from "./_core/notification";
-import { rateLimit, clientIp } from "./rateLimit";
+import { enforceRateLimit, clientIp } from "./rateLimit";
 import { createCheckoutSession, getStripe, getOrigin } from "./stripe";
 import { z } from "zod";
 import {
@@ -166,7 +166,7 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         // Anti-abuse: throttle the public lead endpoint per client IP (5 / minute).
-        const limit = rateLimit(`lead:${clientIp(ctx.req)}`, 5, 60_000);
+        const limit = await enforceRateLimit(`lead:${clientIp(ctx.req)}`, 5, 60_000);
         if (!limit.allowed) {
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
@@ -301,6 +301,15 @@ export const appRouter = router({
     checkout: protectedProcedure
       .input(z.object({ leadId: z.number().int().positive(), offerId: z.number().int().positive() }))
       .mutation(async ({ input, ctx }) => {
+        // Anti-abuse: throttle checkout per authenticated user (10 / minute).
+        // Keying on the user id (not IP) is precise and unspoofable here.
+        const limit = await enforceRateLimit(`checkout:${ctx.user.id}`, 10, 60_000);
+        if (!limit.allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many checkout attempts. Please wait a moment and try again.",
+          });
+        }
         // Fail fast (before creating an order) if payments aren't configured.
         if (!getStripe()) {
           throw new TRPCError({
