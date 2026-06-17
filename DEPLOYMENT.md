@@ -51,7 +51,10 @@ Copy `.env.example` to `.env` and fill it in. Two categories:
   **`PUBLIC_BASE_URL`** (required in prod — trusted origin), **`CSP_EXTRA_ORIGINS`** (optional —
   extra CSP origins, space-separated), **`REDIS_URL`** (optional — shared rate-limit + session
   revocation; needed for multi-instance), **`SENTRY_DSN`** (optional — server error monitoring),
-  **`TELEMETRY_INGEST_KEY`** (optional — enables the telemetry ingestion route, §11).
+  **`TELEMETRY_INGEST_KEY`** (optional — enables the telemetry ingestion route, §11),
+  **`EMAIL_API_URL`** + **`EMAIL_API_KEY`** (optional — client email notifications; unset = log only),
+  **`ALERT_GPU_USAGE_PCT`** / **`ALERT_CPU_USAGE_PCT`** / **`ALERT_GPU_MEMORY_PCT`** (optional —
+  telemetry alert thresholds, defaults 95/95/90).
 - **Build time (`VITE_*`)** — `VITE_APP_ID`, `VITE_OAUTH_PORTAL_URL`,
   `VITE_FRONTEND_FORGE_API_URL`, `VITE_FRONTEND_FORGE_API_KEY`, analytics (optional).
 
@@ -206,7 +209,22 @@ Sentry is **wired** (server + client); it activates when the DSN is set — no c
   Browser tracing + session replay are enabled; trace headers propagate to this deployment's own
   `/api` origin.
 
-## 13. Still simulated / absent
+## 13. Client notifications & alerting
 
-- Nothing outstanding from the original audit. Telemetry and Sentry above are now wired and only
-  need their respective keys/DSN to activate.
+- **Email notifications** (order confirmed, infra ready): set `EMAIL_API_URL` + `EMAIL_API_KEY`
+  to point at a transactional email API (the server POSTs `{from, to, subject, text}`). Unset, sends
+  are logged but not delivered — the funnel still works. Triggered best-effort from the Stripe webhook
+  (payment success) and `provisioning.createEvent` (`ready` + `completed`).
+- **Telemetry threshold alerting**: incoming metrics (§11) are checked against thresholds
+  (`ALERT_GPU_USAGE_PCT` / `ALERT_CPU_USAGE_PCT` / `ALERT_GPU_MEMORY_PCT`, plus cost-over-projection).
+  Alerts are pushed live to the client dashboard over the same SSE stream (`event: alert`) and emailed
+  for critical severity. No extra wiring needed beyond the thresholds + email vars.
+
+## 14. Admin CSV export
+
+- The admin dashboard exports leads and orders to CSV (client-side, from tRPC data). No configuration.
+
+## 15. Still simulated / absent
+
+- Nothing outstanding from the original audit. Telemetry, Sentry, email notifications, and alerting
+  are wired and only need their respective keys/DSN to activate.
