@@ -11,6 +11,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { registerStripeWebhook } from "../stripe";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { buildCspDirectives } from "./csp";
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -62,10 +63,15 @@ async function startServer() {
     app.set("trust proxy", parseInt(process.env.TRUST_PROXY_HOPS || "1"));
   }
 
-  // Security headers (nosniff, frame-deny, HSTS, etc.). CSP is left off: the SPA
-  // relies on inline scripts/styles injected by Vite and the analytics snippet —
-  // enable it later with proper nonces if needed.
-  app.use(helmet({ contentSecurityPolicy: false }));
+  // Security headers (nosniff, frame-deny, HSTS, etc.) + a CSP tuned for this
+  // SPA. script-src stays strict (no 'unsafe-inline') in production; dev loosens
+  // it for Vite HMR. External origins beyond Google Fonts / the Forge maps proxy
+  // are injected via CSP_EXTRA_ORIGINS. See ./csp.ts.
+  app.use(
+    helmet({
+      contentSecurityPolicy: { directives: buildCspDirectives() },
+    }),
+  );
 
   if (process.env.SENTRY_DSN) {
     // The request handler must be the first middleware on the app

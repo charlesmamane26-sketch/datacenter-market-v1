@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean, json } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean, json, index } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -48,10 +48,13 @@ export const leads = mysqlTable("leads", {
   
   // Selected offer reference
   selectedOfferId: int("selectedOfferId"),
-  
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [
+  // getLeadsByUser: WHERE userId
+  index("leads_userId_idx").on(table.userId),
+]);
 
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = typeof leads.$inferInsert;
@@ -118,10 +121,16 @@ export const orders = mysqlTable("orders", {
   
   // Contract
   contractUrl: varchar("contractUrl", { length: 500 }),
-  
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [
+  // getOrdersByUser: WHERE userId ORDER BY createdAt DESC (composite covers both)
+  index("orders_userId_createdAt_idx").on(table.userId, table.createdAt),
+  // Relational lookups / integrity for joins on lead and offer.
+  index("orders_leadId_idx").on(table.leadId),
+  index("orders_offerId_idx").on(table.offerId),
+]);
 
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = typeof orders.$inferInsert;
@@ -138,9 +147,12 @@ export const provisioningEvents = mysqlTable("provisioningEvents", {
   
   description: text("description"),
   completedAt: timestamp("completedAt"),
-  
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => [
+  // getProvisioningEventsByOrder: WHERE orderId
+  index("provisioningEvents_orderId_idx").on(table.orderId),
+]);
 
 export type ProvisioningEvent = typeof provisioningEvents.$inferSelect;
 export type InsertProvisioningEvent = typeof provisioningEvents.$inferInsert;
@@ -165,9 +177,12 @@ export const infrastructureMetrics = mysqlTable("infrastructureMetrics", {
   // Billing
   costThisMonth: decimal("costThisMonth", { precision: 12, scale: 2 }),
   costProjected: decimal("costProjected", { precision: 12, scale: 2 }),
-  
+
   recordedAt: timestamp("recordedAt").defaultNow().notNull(),
-});
+}, (table) => [
+  // getLatestMetricsForOrder: WHERE orderId ORDER BY recordedAt DESC (composite)
+  index("infrastructureMetrics_orderId_recordedAt_idx").on(table.orderId, table.recordedAt),
+]);
 
 export type InfrastructureMetrics = typeof infrastructureMetrics.$inferSelect;
 export type InsertInfrastructureMetrics = typeof infrastructureMetrics.$inferInsert;
