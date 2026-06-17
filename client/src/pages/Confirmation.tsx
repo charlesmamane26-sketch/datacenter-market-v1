@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle2, Clock, Zap } from "lucide-react";
+import { useProvisioningStream } from "@/hooks/useProvisioningStream";
 
 type EventType =
   | "order_received"
@@ -62,9 +63,21 @@ export default function Confirmation() {
         query.state.data?.paymentStatus === "pending" ? 4000 : false,
     },
   );
+  // Real-time provisioning updates via SSE; falls back to polling when the
+  // stream is down (or unsupported) so the timeline still advances.
+  const { connected } = useProvisioningStream(orderId ?? undefined);
   const { data: events } = trpc.provisioning.getEvents.useQuery(
     { orderId: orderId ?? 0 },
-    { enabled: orderId != null },
+    {
+      enabled: orderId != null,
+      refetchInterval: query => {
+        if (connected) return false; // SSE is pushing updates — no need to poll.
+        const evts = query.state.data ?? [];
+        const ready = evts.find(e => e.eventType === "ready");
+        const done = ready?.status === "completed";
+        return done ? false : 4000;
+      },
+    },
   );
   const { data: offer } = trpc.offers.get.useQuery(
     { id: order?.offerId ?? 0 },
