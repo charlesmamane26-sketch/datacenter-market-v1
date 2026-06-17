@@ -9,6 +9,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerStripeWebhook } from "../stripe";
+import { registerTelemetryIngest } from "../telemetry";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { buildCspDirectives } from "./csp";
@@ -74,10 +75,6 @@ async function startServer() {
     }),
   );
 
-  if (process.env.SENTRY_DSN) {
-    // The request handler must be the first middleware on the app
-    Sentry.setupExpressErrorHandler(app);
-  }
   // Stripe webhook needs the raw request body — register it before the JSON body parser.
   registerStripeWebhook(app);
   // Body parser limit. tRPC payloads (leads, orders) are a few KB; keep this
@@ -90,6 +87,9 @@ async function startServer() {
     res.json({ status: "ok" });
   });
   registerStorageProxy(app);
+  // Provider-side telemetry ingestion (POST /api/telemetry/:orderId). Has its
+  // own small JSON parser; disabled (503) unless TELEMETRY_INGEST_KEY is set.
+  registerTelemetryIngest(app);
   // Activate the Redis-backed rate-limit store when REDIS_URL is set (multi-
   // instance). No-op otherwise: the in-memory store stays in place.
   await initRateLimitStore();

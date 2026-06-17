@@ -19,7 +19,9 @@ if (import.meta.env.VITE_SENTRY_DSN) {
       Sentry.replayIntegration(),
     ],
     tracesSampleRate: 1.0,
-    tracePropagationTargets: ["localhost", /^https:\/\/yourserver\.io\/api/],
+    // The API is same-origin (/api/*), so propagate tracing headers to this
+    // deployment's own origin rather than a hard-coded host.
+    tracePropagationTargets: ["localhost", `${window.location.origin}/api`],
     replaysSessionSampleRate: 0.1,
     replaysOnErrorSampleRate: 1.0,
   });

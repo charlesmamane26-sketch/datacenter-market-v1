@@ -50,7 +50,8 @@ Copy `.env.example` to `.env` and fill it in. Two categories:
   `STRIPE_WEBHOOK_SECRET`, `PORT`, `LEAD_RETENTION_DAYS`,
   **`PUBLIC_BASE_URL`** (required in prod — trusted origin), **`CSP_EXTRA_ORIGINS`** (optional —
   extra CSP origins, space-separated), **`REDIS_URL`** (optional — shared rate-limit + session
-  revocation; needed for multi-instance).
+  revocation; needed for multi-instance), **`SENTRY_DSN`** (optional — server error monitoring),
+  **`TELEMETRY_INGEST_KEY`** (optional — enables the telemetry ingestion route, §11).
 - **Build time (`VITE_*`)** — `VITE_APP_ID`, `VITE_OAUTH_PORTAL_URL`,
   `VITE_FRONTEND_FORGE_API_URL`, `VITE_FRONTEND_FORGE_API_KEY`, analytics (optional).
 
@@ -174,8 +175,38 @@ webhook flips the order to `paymentStatus: succeeded` / `status: processing`. Un
 > Stripe API version rejects one-time items in subscription mode, move it to
 > `subscription_data.add_invoice_items`.
 
-## 11. Still simulated / absent
+## 11. Telemetry ingestion
 
-- **GPU/CPU telemetry**: the client dashboard shows "Awaiting telemetry" — nothing writes to
-  `infrastructureMetrics` yet (no provider ingestion).
-- **Error monitoring (Sentry)**: not wired (needs a DSN + dependency).
+The client dashboard reads `infrastructureMetrics`. Two ways to populate it:
+
+- **Production** — a provider-side agent POSTs samples to `POST /api/telemetry/:orderId`,
+  authenticated with `Authorization: Bearer $TELEMETRY_INGEST_KEY`. Set `TELEMETRY_INGEST_KEY`
+  (runtime) to enable the route; unset, it returns `503`. Body is a JSON metric sample (all fields
+  optional, validated by Zod): `gpuUsagePercent`, `gpuMemoryUsedGb`, `gpuMemoryTotalGb`,
+  `cpuUsagePercent`, `ramUsedGb`, `ramTotalGb`, `costThisMonth`, `costProjected`. Unknown orders
+  are rejected (`404`). Example:
+
+  ```bash
+  curl -X POST https://app.example.com/api/telemetry/42 \
+    -H "Authorization: Bearer $TELEMETRY_INGEST_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"gpuUsagePercent":87.5,"cpuUsagePercent":33,"gpuMemoryTotalGb":640}'
+  ```
+
+- **Dev / demo** — `pnpm db:telemetry` runs `simulate-telemetry.ts`, writing random samples for
+  active orders every 5s. Use it locally; do not run it in production.
+
+## 12. Error monitoring (Sentry)
+
+Sentry is **wired** (server + client); it activates when the DSN is set — no code change needed.
+
+- **Server**: set `SENTRY_DSN` (runtime). `Sentry.init` + the Express error handler (registered
+  after all controllers) come up automatically.
+- **Client**: set `VITE_SENTRY_DSN` (**build time** — `VITE_*` are inlined at `pnpm build`).
+  Browser tracing + session replay are enabled; trace headers propagate to this deployment's own
+  `/api` origin.
+
+## 13. Still simulated / absent
+
+- Nothing outstanding from the original audit. Telemetry and Sentry above are now wired and only
+  need their respective keys/DSN to activate.
