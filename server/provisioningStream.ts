@@ -134,7 +134,10 @@ export function registerProvisioningStream(app: Express) {
       res.write(": ping\n\n");
     }, HEARTBEAT_MS);
 
-    req.on("close", () => {
+    // Use res "close" (connection closed), NOT req "close": on a GET the request
+    // body ends immediately, which would fire req "close" right after subscribing
+    // and tear the stream down before any event is delivered.
+    res.on("close", () => {
       clearInterval(heartbeat);
       unsubscribe();
       res.end();

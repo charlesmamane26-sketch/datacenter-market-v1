@@ -20,7 +20,7 @@ vi.mock("./rateLimit", () => ({
 
 import { sdk } from "./_core/sdk";
 import { getOrder, getProvisioningEventsByOrder } from "./db";
-import { registerProvisioningStream } from "./provisioningStream";
+import { registerProvisioningStream, publishProvisioningEvent } from "./provisioningStream";
 
 // Capture the single registered GET handler.
 function getHandler() {
@@ -104,5 +104,46 @@ describe("SSE provisioning handler", () => {
     const res = makeRes();
     await handler(makeReq("42"), res);
     expect(res.statusCode).toBe(200);
+  });
+
+  it("delivers a live event published after the stream opened", async () => {
+    (sdk.authenticateRequest as any).mockResolvedValueOnce({ id: 7, role: "user" });
+    (getOrder as any).mockResolvedValueOnce({ id: 42, userId: 7 });
+    (getProvisioningEventsByOrder as any).mockResolvedValueOnce([]);
+    const handler = getHandler();
+    const res = makeRes();
+    await handler(makeReq("42"), res);
+
+    // Subscribed and still open — a published event must reach this stream.
+    publishProvisioningEvent(42, {
+      orderId: 42,
+      eventType: "ready",
+      status: "completed",
+      description: "live",
+    });
+    const live = res.writes.find((w: string) => w.startsWith("event: provisioning"));
+    expect(live).toBeTruthy();
+    expect(live).toContain("live");
+  });
+
+  it("stays subscribed when req emits 'close' (GET body ends), only res 'close' tears down", async () => {
+    // Regression guard: using req.on('close') tore the stream down immediately on
+    // a GET (the request body ends at once). Only res 'close' must unsubscribe.
+    (sdk.authenticateRequest as any).mockResolvedValueOnce({ id: 7, role: "user" });
+    (getOrder as any).mockResolvedValueOnce({ id: 42, userId: 7 });
+    (getProvisioningEventsByOrder as any).mockResolvedValueOnce([]);
+    const handler = getHandler();
+    const req = makeReq("42");
+    const res = makeRes();
+    await handler(req, res);
+
+    req.emit("close"); // must NOT unsubscribe
+    publishProvisioningEvent(42, { orderId: 42, eventType: "ready", status: "completed", description: "after-req-close" });
+    expect(res.writes.some((w: string) => w.includes("after-req-close"))).toBe(true);
+
+    res.emit("close"); // now it tears down
+    res.writes.length = 0;
+    publishProvisioningEvent(42, { orderId: 42, eventType: "ready", status: "completed", description: "after-res-close" });
+    expect(res.writes.some((w: string) => w.includes("after-res-close"))).toBe(false);
   });
 });
