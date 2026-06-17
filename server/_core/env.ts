@@ -20,4 +20,8 @@ export const ENV = {
   // infra ready, payment failed). Both unset -> notifications log only (no send).
   emailApiUrl: process.env.EMAIL_API_URL ?? "",
   emailApiKey: process.env.EMAIL_API_KEY ?? "",
+  // Telemetry alert thresholds (percent). Empty -> built-in defaults (95/95/90).
+  alertGpuUsagePct: process.env.ALERT_GPU_USAGE_PCT ?? "",
+  alertCpuUsagePct: process.env.ALERT_CPU_USAGE_PCT ?? "",
+  alertGpuMemoryPct: process.env.ALERT_GPU_MEMORY_PCT ?? "",
 };

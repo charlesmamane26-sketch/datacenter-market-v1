@@ -3,6 +3,7 @@ import { timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { ENV } from "./_core/env";
 import { createInfrastructureMetrics, getOrder } from "./db";
+import { processMetricAlerts } from "./telemetryAlerts";
 
 /**
  * Production telemetry ingestion. A provider-side agent POSTs metric samples for
@@ -95,6 +96,11 @@ export function registerTelemetryIngest(app: Express) {
     try {
       await createInfrastructureMetrics(toRow(orderId, parsed.data));
       res.status(202).json({ accepted: true });
+      // Threshold alerting — fire-and-forget so it never delays the 202 response
+      // and a failure can't turn a successful ingest into an error.
+      void processMetricAlerts(orderId, parsed.data).catch(err =>
+        console.warn("[Telemetry] Alert dispatch failed:", String(err)),
+      );
     } catch (error) {
       console.error("[Telemetry] Failed to persist metric:", error);
       res.status(500).json({ error: "Failed to persist metric." });

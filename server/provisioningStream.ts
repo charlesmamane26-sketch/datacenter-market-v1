@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { sdk } from "./_core/sdk";
 import { getOrder, getProvisioningEventsByOrder } from "./db";
 import { enforceRateLimit, clientIp } from "./rateLimit";
+import { subscribeAlerts } from "./telemetryAlerts";
 
 /**
  * Real-time provisioning timeline over Server-Sent Events.
@@ -127,6 +128,10 @@ export function registerProvisioningStream(app: Express) {
     const unsubscribe = subscribeProvisioning(orderId, event => {
       writeEvent(res, "provisioning", event);
     });
+    // Same stream also carries telemetry threshold alerts for this order.
+    const unsubscribeAlerts = subscribeAlerts(orderId, alert => {
+      writeEvent(res, "alert", alert);
+    });
 
     // Heartbeat (SSE comment) keeps the connection alive through idle proxy/LB
     // timeouts (commonly 30–60s).
@@ -140,6 +145,7 @@ export function registerProvisioningStream(app: Express) {
     res.on("close", () => {
       clearInterval(heartbeat);
       unsubscribe();
+      unsubscribeAlerts();
       res.end();
     });
   });
