@@ -14,8 +14,19 @@ export function getStripe(): Stripe | null {
   return _stripe;
 }
 
-/** Best-effort absolute origin for building Stripe success/cancel URLs. */
+/**
+ * Absolute origin used to build Stripe success/cancel URLs and to validate the
+ * OAuth state. When PUBLIC_BASE_URL is configured it is the single source of
+ * truth — request headers (Origin / Host / X-Forwarded-Proto) are attacker-
+ * influenceable and must not drive these URLs in production.
+ */
 export function getOrigin(req: TrpcContext["req"]): string {
+  if (ENV.publicBaseUrl) return ENV.publicBaseUrl.replace(/\/+$/, "");
+  // In production, refuse to fall back to request headers: a missing
+  // PUBLIC_BASE_URL is a misconfiguration, not a reason to trust the Host header.
+  if (ENV.isProduction) {
+    throw new Error("PUBLIC_BASE_URL must be set in production to derive a trusted origin.");
+  }
   const origin = req.headers.origin;
   if (typeof origin === "string" && origin.length > 0) return origin;
   const forwardedProto = req.headers["x-forwarded-proto"];

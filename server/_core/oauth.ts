@@ -1,4 +1,5 @@
-import { COOKIE_NAME, SESSION_TTL_MS } from "@shared/const";
+import { COOKIE_NAME, OAUTH_NONCE_COOKIE, SESSION_TTL_MS } from "@shared/const";
+import { parse as parseCookieHeader } from "cookie";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getOrigin } from "../stripe";
@@ -10,17 +11,38 @@ function getQueryParam(req: Request, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/** Decoded OAuth state: redirect URI plus the CSRF nonce (legacy: no nonce). */
+export function parseState(state: string): { redirectUri: string; nonce?: string } | null {
+  try {
+    const decoded = atob(state);
+    try {
+      const parsed = JSON.parse(decoded) as { r?: unknown; n?: unknown };
+      if (parsed && typeof parsed.r === "string") {
+        return {
+          redirectUri: parsed.r,
+          nonce: typeof parsed.n === "string" ? parsed.n : undefined,
+        };
+      }
+    } catch {
+      // Not JSON — legacy bare redirect URI.
+    }
+    return { redirectUri: decoded };
+  } catch {
+    return null;
+  }
+}
+
 /**
- * The state carries the base64-encoded redirect URI that will be sent back to the
- * OAuth server during the code exchange. Accept it only if it points at *this*
- * deployment: a forged state pointing elsewhere would hand the token exchange an
+ * The state carries the redirect URI that will be sent back to the OAuth server
+ * during the code exchange. Accept it only if it points at *this* deployment: a
+ * forged state pointing elsewhere would hand the token exchange an
  * attacker-controlled redirect URI.
  */
-function isValidState(state: string, req: Request): boolean {
+function isValidRedirect(redirectUri: string, req: Request): boolean {
   try {
-    const redirectUri = new URL(atob(state));
+    const url = new URL(redirectUri);
     const expectedOrigin = getOrigin(req);
-    return expectedOrigin != null && redirectUri.origin === expectedOrigin;
+    return expectedOrigin != null && expectedOrigin.length > 0 && url.origin === expectedOrigin;
   } catch {
     return false;
   }
@@ -36,7 +58,18 @@ export function registerOAuthRoutes(app: Express) {
       return;
     }
 
-    if (!isValidState(state, req)) {
+    const parsed = parseState(state);
+    if (!parsed || !isValidRedirect(parsed.redirectUri, req)) {
+      res.status(400).json({ error: "invalid state" });
+      return;
+    }
+
+    // CSRF double-submit: the nonce embedded in the state must match the nonce
+    // cookie set when the flow started in this browser. Always clear the cookie.
+    const nonceCookie = parseCookieHeader(req.headers.cookie ?? "")[OAUTH_NONCE_COOKIE];
+    const cookieOpts = getSessionCookieOptions(req);
+    res.clearCookie(OAUTH_NONCE_COOKIE, cookieOpts);
+    if (!parsed.nonce || typeof nonceCookie !== "string" || nonceCookie !== parsed.nonce) {
       res.status(400).json({ error: "invalid state" });
       return;
     }
