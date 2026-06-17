@@ -2,7 +2,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { BarChart3, Users, TrendingUp, DollarSign, LogOut } from "lucide-react";
+import { downloadCsv } from "@/lib/downloadCsv";
+import { BarChart3, Users, TrendingUp, DollarSign, LogOut, Download } from "lucide-react";
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
@@ -19,6 +20,36 @@ export default function AdminDashboard() {
     await logoutMutation.mutateAsync();
     logout();
     setLocation("/");
+  };
+
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  const exportLeads = () => {
+    downloadCsv(`leads-${today()}.csv`, leads ?? [], [
+      { header: "ID", value: l => l.id },
+      { header: "Company", value: l => l.company },
+      { header: "Contact", value: l => l.contactName },
+      { header: "Email", value: l => l.email },
+      { header: "Workload", value: l => l.workloadType },
+      { header: "GPU", value: l => l.gpuRequirement },
+      { header: "Monthly budget", value: l => l.monthlyBudget },
+      { header: "Status", value: l => l.status },
+      { header: "Created", value: l => l.createdAt },
+    ]);
+  };
+
+  const exportOrders = async () => {
+    const orders = await utils.admin.exportOrders.fetch();
+    downloadCsv(`orders-${today()}.csv`, orders ?? [], [
+      { header: "ID", value: o => o.id },
+      { header: "User ID", value: o => o.userId },
+      { header: "Offer ID", value: o => o.offerId },
+      { header: "Status", value: o => o.status },
+      { header: "Payment status", value: o => o.paymentStatus },
+      { header: "Total amount", value: o => o.totalAmount },
+      { header: "Monthly recurring", value: o => o.monthlyRecurring },
+      { header: "Created", value: o => o.createdAt },
+    ]);
   };
 
   const metrics = {
@@ -203,11 +234,22 @@ export default function AdminDashboard() {
 
         {/* Quick Actions */}
         <div className="grid md:grid-cols-3 gap-6 mt-12">
-          <Button variant="outline" className="font-semibold py-6">
-            Export Report
+          <Button
+            variant="outline"
+            className="font-semibold py-6"
+            onClick={exportLeads}
+            disabled={!leads || leads.length === 0}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export Leads (CSV)
           </Button>
-          <Button variant="outline" className="font-semibold py-6">
-            Send Campaign
+          <Button
+            variant="outline"
+            className="font-semibold py-6"
+            onClick={exportOrders}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export Orders (CSV)
           </Button>
           <Button variant="outline" className="font-semibold py-6">
             View Analytics
