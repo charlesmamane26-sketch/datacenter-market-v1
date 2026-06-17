@@ -4,6 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { revokeJti } from "./_core/sessionRevocation";
 import { publishProvisioningEvent } from "./provisioningStream";
+import { sendInfrastructureReady } from "./clientNotifications";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
@@ -435,6 +436,17 @@ export const appRouter = router({
           description: input.description ?? null,
           completedAt,
         });
+        // Best-effort: when provisioning completes, email the customer. Never let
+        // an email failure break the admin mutation.
+        if (input.eventType === "ready" && status === "completed") {
+          try {
+            const order = await getOrder(input.orderId);
+            const lead = order ? await getLead(order.leadId) : null;
+            if (lead?.email) await sendInfrastructureReady(lead.email, input.orderId);
+          } catch (error) {
+            console.warn("[Provisioning] infra-ready email failed:", String(error));
+          }
+        }
         return result;
       }),
   }),

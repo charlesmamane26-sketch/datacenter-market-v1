@@ -2,8 +2,9 @@ import Stripe from "stripe";
 import express, { type Express } from "express";
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./_core/env";
-import { updateOrder, getOrder, updateLead } from "./db";
+import { updateOrder, getOrder, updateLead, getLead } from "./db";
 import { enforceRateLimit, clientIp } from "./rateLimit";
+import { sendOrderConfirmed } from "./clientNotifications";
 import type { TrpcContext } from "./_core/context";
 
 let _stripe: Stripe | null = null;
@@ -134,6 +135,15 @@ export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
 
   // Payment succeeded — the lead is genuinely converted now (not at checkout start).
   await updateLead(order.leadId, { status: "converted", selectedOfferId: order.offerId });
+
+  // Best-effort: notify the customer their order is confirmed. Never let an email
+  // failure break the webhook (Stripe would retry and double-process otherwise).
+  try {
+    const lead = await getLead(order.leadId);
+    if (lead?.email) await sendOrderConfirmed(lead.email, orderId);
+  } catch (error) {
+    console.warn("[Stripe] order-confirmed email failed:", String(error));
+  }
   return true;
 }
 

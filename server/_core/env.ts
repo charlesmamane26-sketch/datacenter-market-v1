@@ -16,4 +16,8 @@ export const ENV = {
   // Shared bearer key a provider-side agent uses to POST real GPU/CPU telemetry
   // to /api/telemetry/:orderId. Unset -> ingestion route disabled (503).
   telemetryIngestKey: process.env.TELEMETRY_INGEST_KEY ?? "",
+  // Transactional email provider for client notifications (order confirmed,
+  // infra ready, payment failed). Both unset -> notifications log only (no send).
+  emailApiUrl: process.env.EMAIL_API_URL ?? "",
+  emailApiKey: process.env.EMAIL_API_KEY ?? "",
 };
