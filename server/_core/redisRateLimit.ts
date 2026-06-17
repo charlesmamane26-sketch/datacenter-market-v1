@@ -1,30 +1,17 @@
 import type { RateLimitResult, RateLimitStore } from "../rateLimit";
 import { setRateLimitStore } from "../rateLimit";
+import { getRedis, type SharedRedis } from "./redisClient";
 
 /**
- * Optional Redis-backed rate-limit store. Activated only when REDIS_URL is set,
- * so single-instance / dev deployments keep the in-memory store with zero extra
- * dependencies. `ioredis` is imported dynamically: it is an optional runtime
- * dependency — the app builds and runs without it.
+ * Optional Redis-backed rate-limit store. Activated only when REDIS_URL is set
+ * (via the shared client), so single-instance / dev deployments keep the
+ * in-memory store.
  *
  * The sliding window is a per-key sorted set keyed on timestamp (the distributed
  * equivalent of the in-memory timestamp array): drop entries older than the
  * window, count what remains, add the current hit, and expire the key lazily.
  */
-interface RedisMulti {
-  zremrangebyscore(key: string, min: number, max: number): RedisMulti;
-  zadd(key: string, score: number, member: string): RedisMulti;
-  zcard(key: string): RedisMulti;
-  pexpire(key: string, ms: number): RedisMulti;
-  exec(): Promise<Array<[Error | null, unknown]> | null>;
-}
-
-interface MinimalRedis {
-  multi(): RedisMulti;
-  zrange(key: string, start: number, stop: number, withScores: "WITHSCORES"): Promise<string[]>;
-}
-
-function makeRedisStore(redis: MinimalRedis): RateLimitStore {
+function makeRedisStore(redis: SharedRedis): RateLimitStore {
   return {
     async check(key, limit, windowMs, now): Promise<RateLimitResult> {
       const redisKey = `rl:${key}`;
@@ -60,24 +47,9 @@ function makeRedisStore(redis: MinimalRedis): RateLimitStore {
  * activated. Failures are non-fatal: the in-memory store stays in place.
  */
 export async function initRateLimitStore(): Promise<boolean> {
-  const url = process.env.REDIS_URL;
-  if (!url) return false;
-
-  try {
-    // Dynamic, optional import: only required when REDIS_URL is set. ioredis is
-    // an optional runtime dependency, so it may be absent at build time — the
-    // ts-ignore covers the missing module declaration in that case.
-    // @ts-ignore optional dependency, not installed unless Redis is used
-    const mod = (await import("ioredis")) as unknown as {
-      default: new (url: string, opts?: unknown) => MinimalRedis;
-    };
-    const Redis = mod.default;
-    const redis = new Redis(url, { maxRetriesPerRequest: 2, lazyConnect: false });
-    setRateLimitStore(makeRedisStore(redis));
-    console.log("[RateLimit] Redis store active");
-    return true;
-  } catch (error) {
-    console.error("[RateLimit] REDIS_URL set but Redis init failed; using in-memory store", String(error));
-    return false;
-  }
+  const redis = await getRedis();
+  if (!redis) return false;
+  setRateLimitStore(makeRedisStore(redis));
+  console.log("[RateLimit] Redis store active");
+  return true;
 }

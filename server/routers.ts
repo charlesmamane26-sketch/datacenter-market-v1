@@ -1,5 +1,8 @@
 import { COOKIE_NAME } from "@shared/const";
+import { parse as parseCookieHeader } from "cookie";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
+import { revokeJti } from "./_core/sessionRevocation";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
@@ -138,7 +141,18 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
+    logout: publicProcedure.mutation(async ({ ctx }) => {
+      // Server-side revocation: denylist this token's jti for its remaining
+      // lifetime so a copy stolen before logout can't be replayed. No-op without
+      // Redis (revocation disabled); clearing the cookie always happens.
+      const token = parseCookieHeader(ctx.req.headers.cookie ?? "")[COOKIE_NAME];
+      if (token) {
+        const session = await sdk.verifySession(token);
+        if (session?.jti && session.exp) {
+          const ttlMs = session.exp * 1000 - Date.now();
+          await revokeJti(session.jti, ttlMs);
+        }
+      }
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return {

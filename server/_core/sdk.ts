@@ -7,6 +7,7 @@ import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
+import { isJtiRevoked } from "./sessionRevocation";
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -202,13 +203,15 @@ class SDKServer {
       name: payload.name,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      // Unique token id so logout can revoke this specific session server-side.
+      .setJti(crypto.randomUUID())
       .setExpirationTime(expirationSeconds)
       .sign(secretKey);
   }
 
   async verifySession(
     cookieValue: string | undefined | null
-  ): Promise<{ openId: string; appId: string; name: string } | null> {
+  ): Promise<{ openId: string; appId: string; name: string; jti?: string; exp?: number } | null> {
     if (!cookieValue) {
       console.warn("[Auth] Missing session cookie");
       return null;
@@ -219,7 +222,7 @@ class SDKServer {
       const { payload } = await jwtVerify(cookieValue, secretKey, {
         algorithms: ["HS256"],
       });
-      const { openId, appId, name } = payload as Record<string, unknown>;
+      const { openId, appId, name, jti, exp } = payload as Record<string, unknown>;
 
       if (
         !isNonEmptyString(openId) ||
@@ -237,10 +240,18 @@ class SDKServer {
         return null;
       }
 
+      // Server-side revocation: reject tokens whose jti was denylisted at logout.
+      if (typeof jti === "string" && (await isJtiRevoked(jti))) {
+        console.warn("[Auth] Session token revoked");
+        return null;
+      }
+
       return {
         openId,
         appId,
         name,
+        jti: typeof jti === "string" ? jti : undefined,
+        exp: typeof exp === "number" ? exp : undefined,
       };
     } catch (error) {
       console.warn("[Auth] Session verification failed", String(error));
