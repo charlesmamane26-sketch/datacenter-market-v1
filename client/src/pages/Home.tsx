@@ -1,13 +1,46 @@
-import { useEffect } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { ArrowRight, Zap, Shield, TrendingUp, Cpu } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { clearCheckoutIntent, loadCheckoutIntent } from "@/lib/checkoutIntent";
+import { MarketBrand, MarketOpenChip, MarketTicker, MeterBar } from "@/components/market";
+
+// 30-day price history (hero cotation): 24 bars, the last 3 in growing lime.
+const HISTORY_BARS = [
+  78, 74, 80, 71, 69, 73, 66, 68, 62, 64, 59, 61, 57, 60, 54, 56, 52, 55, 50, 48, 51, 46, 44, 47,
+];
+
+const REGIONS = [
+  { code: "FRA — Francfort", load: 82, note: "8× H100 · dès 18 400 €/mois" },
+  { code: "PAR — Paris", load: 64, note: "8× H100 · provision 24 h" },
+  { code: "AMS — Amsterdam", load: 71, note: "16× H100 · InfiniBand 400 Gb/s" },
+  { code: "VAR — Varsovie", load: 90, note: "8× A100 · dès 9 600 €/mois" },
+];
+
+const HOW_IT_WORKS = [
+  { num: "01", title: "Décrivez", text: "GPU, région, budget, durée : votre workload en 2 minutes." },
+  { num: "02", title: "Comparez", text: "3 offres fermes et vérifiées, chiffrées côte à côte." },
+  { num: "03", title: "Provisionnez", text: "Contrat, paiement sécurisé et mise en service en 72 h." },
+];
+
+const MARKET_ACTIVITY = [
+  { when: "IL Y A 2 H", config: "8× H100 · Francfort, DE", price: "18 400 €/mois", tag: "PROVISIONNÉ EN 71 H" },
+  { when: "IL Y A 9 H", config: "16× H100 · Amsterdam, NL", price: "34 000 €/mois", tag: "PROVISIONNÉ EN 94 H" },
+  { when: "HIER", config: "8× L40S · Dublin, IE", price: "8 800 €/mois", tag: "PROVISIONNÉ EN 70 H" },
+];
+
+function utcNow(): string {
+  const d = new Date();
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
 
 export default function Home() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, loading } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const clock = utcNow();
 
   // Resume a checkout interrupted by login: OAuth returns the user to "/", so we
   // forward them back to the checkout they started (consuming the intent once).
@@ -21,237 +54,304 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Header Navigation */}
-      <header className="border-b border-border/50 bg-background/70 backdrop-blur-md sticky top-0 z-50">
-        <div className="container flex items-center justify-between h-16">
-          <div className="flex items-center gap-2">
-            <Cpu className="w-6 h-6 text-accent" />
-            <span className="font-bold text-lg">DatacenterMarket</span>
-          </div>
-          <nav className="hidden md:flex items-center gap-8">
-            <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Features
-            </a>
-            <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Pricing
-            </a>
-            <a href="#faq" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              FAQ
-            </a>
-          </nav>
+      {/* Chrome */}
+      <div className="mx-auto flex h-[60px] max-w-[1240px] items-center justify-between px-5 md:px-10">
+        <MarketBrand size={22} />
+        <div className="hidden md:flex items-center gap-[26px]">
+          <a href="#comment" className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground">
+            Catalogue
+          </a>
+          <a href="#activite" className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground">
+            Tarifs
+          </a>
+          <button
+            onClick={() => setLocation("/dashboard")}
+            className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Mon compte
+          </button>
+          <span className="font-mono text-[11.5px] tracking-[.08em] text-muted-foreground">{clock} UTC</span>
+          <MarketOpenChip />
         </div>
-      </header>
+        {/* Mobile: 48×48 burger target */}
+        <button
+          className="flex h-12 w-12 items-center justify-center md:hidden"
+          aria-label="Menu"
+          onClick={() => setMenuOpen(v => !v)}
+        >
+          {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+      </div>
+      {menuOpen && (
+        <div className="flex flex-col border-b border-border/60 px-5 pb-4 md:hidden">
+          <button
+            onClick={() => setLocation("/dashboard")}
+            className="flex min-h-12 items-center text-[14px] text-muted-foreground"
+          >
+            Mon compte
+          </button>
+          <div className="py-2">
+            <MarketOpenChip />
+          </div>
+        </div>
+      )}
 
-      {/* Hero Section */}
-      <section className="relative overflow-hidden py-20 md:py-32">
-        <div className="absolute inset-0 bg-grid pointer-events-none [mask-image:radial-gradient(ellipse_70%_60%_at_50%_40%,black,transparent)]" />
-        <div className="absolute inset-0 glow-halo pointer-events-none" />
+      <MarketTicker />
 
-        <div className="container relative z-10">
-          <div className="max-w-3xl mx-auto text-center space-y-8">
-            <div className="space-y-5">
-              <p className="tech-label">
-                <span className="inline-block w-2 h-2 rounded-full bg-accent mr-2 align-middle" />
-                EU sovereign GPU marketplace
-              </p>
-              <h1 className="text-4xl md:text-6xl font-bold tracking-tight">
-                Get AI Compute & Datacenter Capacity in <span className="text-accent">72h</span>
-              </h1>
-              <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
-                Instantly connect with GPU providers and datacenters across Europe. Compare infrastructure, get instant quotes, and provision in hours—not weeks.
-              </p>
+      {/* Hero — cotation */}
+      <div className="relative mx-auto max-w-[1240px] overflow-hidden px-5 pb-11 pt-10 md:px-10 md:pt-16">
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px)",
+            backgroundSize: "44px 44px",
+          }}
+        />
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse 80% 70% at 50% 45%,transparent 25%,var(--background) 80%)",
+          }}
+        />
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse 45% 55% at 25% 45%,color-mix(in oklch, var(--accent) 8%, transparent),transparent 70%)",
+          }}
+        />
+
+        <div className="relative grid items-end gap-10 md:grid-cols-2 md:gap-14">
+          <div className="flex flex-col gap-[18px]">
+            <span className="font-mono text-[11.5px] font-medium uppercase tracking-[.14em] text-accent">
+              Cotation — 8× NVIDIA H100 · moyenne UE
+            </span>
+            <div className="flex items-baseline gap-3">
+              <span className="font-mono text-[56px] font-bold leading-none tracking-[-0.04em] md:text-[84px]">
+                18 400 €
+              </span>
+              <span className="text-[17px] text-muted-foreground">/mois</span>
             </div>
+            <div className="flex flex-wrap items-center gap-4 font-mono text-[12px] tracking-[.06em]">
+              <span className="inline-flex items-center gap-[7px] rounded-md bg-accent/10 px-[11px] py-[5px] font-semibold text-accent">
+                ▼ −4,2 % SUR 30 JOURS
+              </span>
+              <span className="text-muted-foreground">MAJ {clock} UTC · 47 DATACENTERS</span>
+            </div>
+          </div>
 
-            {/* CTA Button */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
-              <Button
-                size="lg"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold px-8 py-6 text-base glow-accent"
-                onClick={() => setLocation("/workload")}
+          <div className="flex flex-col gap-2.5">
+            <div className="flex h-[120px] items-end gap-[3px]">
+              {HISTORY_BARS.map((h, i) => {
+                const fromEnd = HISTORY_BARS.length - 1 - i;
+                const isLast = fromEnd === 0;
+                const bg =
+                  fromEnd === 0
+                    ? "var(--accent)"
+                    : fromEnd === 1
+                      ? "color-mix(in oklch, var(--accent) 65%, transparent)"
+                      : fromEnd === 2
+                        ? "color-mix(in oklch, var(--accent) 35%, transparent)"
+                        : "var(--border)";
+                return (
+                  <div
+                    key={i}
+                    className="animate-grow-bar flex-1 rounded-t-[2px]"
+                    style={{
+                      height: `${h}%`,
+                      background: bg,
+                      animationDelay: `${(i + 1) * 20}ms`,
+                      boxShadow: isLast
+                        ? "0 0 16px color-mix(in oklch, var(--accent) 50%, transparent)"
+                        : undefined,
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <div className="flex justify-between border-t border-border/70 pt-2 font-mono text-[10px] tracking-[.1em] text-muted-foreground">
+              <span>IL Y A 30 JOURS</span>
+              <span className="text-accent">AUJOURD'HUI — 18 400 €</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative mt-12 grid items-end gap-6 md:grid-cols-[1.45fr_0.55fr] md:gap-12">
+          <div>
+            <div className="text-[42px] font-extrabold uppercase leading-none tracking-[-0.04em] md:text-[68px]">
+              Achetez la capacité
+            </div>
+            <div className="text-[42px] font-extrabold uppercase leading-[1.08] tracking-[-0.04em] text-accent md:text-[68px]">
+              au bon moment.
+            </div>
+          </div>
+          <p className="m-0 pb-1.5 text-[14.5px] leading-[1.65] text-muted-foreground [text-wrap:pretty]">
+            Les prix bougent chaque semaine. Décrivez votre workload, verrouillez une offre ferme
+            72 h — au cours du jour.
+          </p>
+        </div>
+      </div>
+
+      {/* CTA bar */}
+      <div className="mx-auto max-w-[1240px] px-5 md:px-10">
+        <button
+          onClick={() => setLocation("/workload")}
+          className="glow-accent flex w-full flex-col items-center justify-between gap-2 rounded-xl bg-accent px-[30px] py-[22px] text-accent-foreground transition-transform active:scale-[0.99] md:flex-row md:gap-0"
+        >
+          <span className="text-[18px] font-bold tracking-[-0.01em] md:text-[20px]">
+            Demander de la capacité →
+          </span>
+          <span className="font-mono text-[11px] font-semibold tracking-[.1em] md:text-[12.5px]">
+            DEVIS EN ~2 MIN · PROVISION EN 72 H
+          </span>
+        </button>
+      </div>
+
+      {/* Region capacity tiles */}
+      <div className="mx-auto grid max-w-[1240px] grid-cols-2 gap-3 px-5 pb-13 pt-9 md:grid-cols-4 md:gap-[22px] md:px-10">
+        {REGIONS.map(r => (
+          <div
+            key={r.code}
+            className="flex flex-col gap-3 rounded-[10px] border border-border bg-card p-4 md:p-5"
+          >
+            <div className="flex items-baseline justify-between">
+              <span className="font-mono text-[12.5px] font-semibold tracking-[.06em]">{r.code}</span>
+              <span className="font-mono text-[12px] text-accent">{r.load} %</span>
+            </div>
+            <MeterBar value={r.load} />
+            <span className="text-[12.5px] text-muted-foreground">{r.note}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* How it works */}
+      <div id="comment" className="border-t border-border/50">
+        <div className="mx-auto max-w-[1240px] px-5 py-13 md:px-10">
+          <div className="mb-[26px] font-mono text-[11.5px] font-medium uppercase tracking-[.14em] text-accent">
+            Comment ça marche
+          </div>
+          <div className="grid gap-[22px] md:grid-cols-3">
+            {HOW_IT_WORKS.map(s => (
+              <div
+                key={s.num}
+                className="flex min-h-12 flex-col gap-2.5 rounded-[10px] border border-border p-6 transition-colors hover:border-accent/50"
               >
-                Request Compute
-                <ArrowRight className="ml-2 w-5 h-5" />
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-border hover:bg-card hover:text-foreground px-8 py-6 text-base"
-                onClick={() => setLocation("/pricing")}
+                <span className="font-mono text-[26px] font-bold text-accent">{s.num}</span>
+                <span className="text-[16px] font-semibold uppercase tracking-[.02em]">{s.title}</span>
+                <span className="text-[13.5px] leading-[1.6] text-muted-foreground">{s.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Market activity */}
+      <div id="activite" className="border-t border-border/50">
+        <div className="mx-auto max-w-[1240px] px-5 pb-14 pt-13 md:px-10">
+          <div className="mb-6 flex items-baseline justify-between">
+            <div className="font-mono text-[11.5px] font-medium uppercase tracking-[.14em] text-accent">
+              Activité du marché
+            </div>
+            <span className="font-mono text-[11.5px] tracking-[.08em] text-muted-foreground">
+              500+ DEMANDES TRAITÉES
+            </span>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-border">
+            {MARKET_ACTIVITY.map((row, i) => (
+              <div
+                key={row.when}
+                className={`grid items-center gap-2 px-4 py-4 transition-colors hover:bg-card/50 md:grid-cols-[0.9fr_1.6fr_1fr_1.2fr] md:gap-4 md:px-[22px] ${
+                  i < MARKET_ACTIVITY.length - 1 ? "border-b border-border/70" : ""
+                }`}
               >
-                View Pricing
-              </Button>
-            </div>
-
-            {/* Trust badges */}
-            <div className="flex flex-wrap justify-center gap-6 pt-8 text-sm text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-accent" />
-                <span>EU Compliant</span>
+                <span className="font-mono text-[11.5px] tracking-[.08em] text-muted-foreground">
+                  {row.when}
+                </span>
+                <span className="text-[14px] font-semibold">{row.config}</span>
+                <span className="font-mono text-[13px] text-foreground">{row.price}</span>
+                <span className="justify-self-start rounded-[5px] bg-accent/10 px-2.5 py-1 font-mono text-[10.5px] font-semibold tracking-[.08em] text-accent md:justify-self-end">
+                  {row.tag}
+                </span>
               </div>
-              <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 text-accent" />
-                <span>Instant Quotes</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-accent" />
-                <span>99.9% SLA</span>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
-      </section>
-
-      {/* Features Section */}
-      <section id="features" className="py-20 border-t border-border/50">
-        <div className="container">
-          <div className="max-w-3xl mx-auto mb-16">
-            <p className="tech-label mb-3">Why us</p>
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Why DatacenterMarket?</h2>
-            <p className="text-lg text-muted-foreground">
-              Eliminate the complexity of infrastructure sourcing. We handle provider matching, contract generation, and provisioning so you can focus on your workloads.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {/* Feature 1 */}
-            <div className="tech-card">
-              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                <Zap className="w-6 h-6 text-accent" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Lightning Fast</h3>
-              <p className="text-muted-foreground">
-                From request to provisioning in 72 hours. No lengthy sales cycles or manual negotiations.
-              </p>
-            </div>
-
-            {/* Feature 2 */}
-            <div className="tech-card">
-              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                <Shield className="w-6 h-6 text-accent" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Fully Compliant</h3>
-              <p className="text-muted-foreground">
-                All infrastructure is EU-based with GDPR compliance, high availability, and bare metal options.
-              </p>
-            </div>
-
-            {/* Feature 3 */}
-            <div className="tech-card">
-              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                <TrendingUp className="w-6 h-6 text-accent" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Transparent Pricing</h3>
-              <p className="text-muted-foreground">
-                Compare 3 vetted options side-by-side. No hidden fees, no surprise costs. Pay what you see.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Social Proof Section */}
-      <section className="py-20 border-t border-border/50 bg-card/50">
-        <div className="container">
-          <div className="text-center mb-16">
-            <p className="tech-label mb-3">Track record</p>
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Trusted by AI Teams</h2>
-            <p className="text-lg text-muted-foreground">
-              Leading AI companies rely on DatacenterMarket for fast, reliable infrastructure
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border/60 rounded-xl overflow-hidden border border-border/60">
-            <div className="space-y-2 bg-card py-8 px-4 text-center">
-              <p className="text-3xl font-bold text-accent font-mono">500+</p>
-              <p className="text-sm text-muted-foreground">Infrastructure Requests</p>
-            </div>
-            <div className="space-y-2 bg-card py-8 px-4 text-center">
-              <p className="text-3xl font-bold text-accent font-mono">72h</p>
-              <p className="text-sm text-muted-foreground">Average Provisioning</p>
-            </div>
-            <div className="space-y-2 bg-card py-8 px-4 text-center">
-              <p className="text-3xl font-bold text-accent font-mono">99.9%</p>
-              <p className="text-sm text-muted-foreground">Uptime SLA</p>
-            </div>
-            <div className="space-y-2 bg-card py-8 px-4 text-center">
-              <p className="text-3xl font-bold text-accent font-mono">€2M+</p>
-              <p className="text-sm text-muted-foreground">Monthly Capacity</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 border-t border-border/50">
-        <div className="container">
-          <div className="max-w-2xl mx-auto text-center space-y-8">
-            <div className="space-y-4">
-              <h2 className="text-3xl md:text-4xl font-bold">Ready to Get Started?</h2>
-              <p className="text-lg text-muted-foreground">
-                Tell us about your workload and we'll find the perfect infrastructure match in minutes.
-              </p>
-            </div>
-            <Button
-              size="lg"
-              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold px-8 py-6 text-base glow-accent"
-              onClick={() => setLocation("/workload")}
-            >
-              Request Compute
-              <ArrowRight className="ml-2 w-5 h-5" />
-            </Button>
-          </div>
-        </div>
-      </section>
+      </div>
 
       {/* Footer */}
-      <footer className="border-t border-border/50 py-12 bg-card/30">
-        <div className="container">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
-            <div>
-              <h3 className="font-semibold mb-4">Product</h3>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="#" className="hover:text-foreground transition-colors">Features</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">Pricing</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">FAQ</a></li>
-              </ul>
+      <footer className="border-t border-border/50 bg-surface-sunken">
+        <div className="mx-auto max-w-[1240px] px-5 pb-[34px] pt-11 md:px-10">
+          <div className="mb-9 grid gap-8 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+            <div className="flex flex-col gap-3">
+              <MarketBrand size={20} />
+              <span className="text-[12.5px] leading-[1.6] text-muted-foreground">
+                Un service d'Anavim Advisory SAS
+                <br />
+                10 Rue du Colisée, 75008 Paris, France
+              </span>
             </div>
-            <div>
-              <h3 className="font-semibold mb-4">Company</h3>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="#" className="hover:text-foreground transition-colors">About</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">Blog</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">Contact</a></li>
-              </ul>
+            <div className="flex flex-col gap-2.5">
+              <span className="font-mono text-[10.5px] font-semibold tracking-[.12em] text-muted-foreground">
+                PRODUIT
+              </span>
+              <a href="#comment" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                Catalogue
+              </a>
+              <a href="#activite" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                Tarifs
+              </a>
+              <a href="#comment" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                FAQ
+              </a>
             </div>
-            <div>
-              <h3 className="font-semibold mb-4">Legal</h3>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="/privacy" className="hover:text-foreground transition-colors">Privacy</a></li>
-                <li><a href="/terms" className="hover:text-foreground transition-colors">Terms</a></li>
-                <li><a href="/legal" className="hover:text-foreground transition-colors">Legal Notice</a></li>
-              </ul>
+            <div className="flex flex-col gap-2.5">
+              <span className="font-mono text-[10.5px] font-semibold tracking-[.12em] text-muted-foreground">
+                SOCIÉTÉ
+              </span>
+              <a
+                href="https://www.anavimadvisory.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                À propos
+              </a>
+              <a
+                href="https://www.anavimadvisory.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Contact
+              </a>
             </div>
-            <div>
-              <h3 className="font-semibold mb-4">Connect</h3>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="#" className="hover:text-foreground transition-colors">Twitter</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">LinkedIn</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">GitHub</a></li>
-              </ul>
+            <div className="flex flex-col gap-2.5">
+              <span className="font-mono text-[10.5px] font-semibold tracking-[.12em] text-muted-foreground">
+                LÉGAL
+              </span>
+              <a href="/privacy" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                Confidentialité
+              </a>
+              <a href="/terms" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                CGV
+              </a>
+              <a href="/legal" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                Mentions légales
+              </a>
             </div>
           </div>
-          <div className="border-t border-border/50 pt-8 space-y-4">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-sm text-muted-foreground">
-              <div>
-                <p className="font-semibold text-foreground mb-1">DatacenterMarket</p>
-                <p className="text-xs">A service of Anavim Advisory SAS</p>
-                <p className="text-xs mt-2">10 Rue du Colisee, 75008 Paris, France</p>
-              </div>
-              <div className="text-right">
-                <p>&copy; 2026 DatacenterMarket. All rights reserved.</p>
-                <p className="text-xs mt-1"><a href="https://www.anavimadvisory.com" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Learn more about Anavim Advisory</a></p>
-              </div>
-            </div>
+          <div className="flex flex-col items-start justify-between gap-3 border-t border-border/50 pt-[22px] text-[12px] text-muted-foreground md:flex-row md:items-center">
+            <span>© 2026 DatacenterMarket. Tous droits réservés.</span>
+            <a
+              href="https://www.anavimadvisory.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent transition-colors hover:text-accent/80"
+            >
+              En savoir plus sur Anavim Advisory →
+            </a>
           </div>
         </div>
       </footer>

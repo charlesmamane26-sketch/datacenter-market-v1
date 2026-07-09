@@ -1,9 +1,9 @@
-import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle2, Clock, Zap } from "lucide-react";
 import { useProvisioningStream } from "@/hooks/useProvisioningStream";
+import { fmtEUR, orderRef } from "@/lib/format";
+import { JourneyStepper, MarketChrome, PanelLabel } from "@/components/market";
 
 type EventType =
   | "order_received"
@@ -14,24 +14,24 @@ type EventType =
 
 const EVENT_META: Record<EventType, { title: string; description: string }> = {
   order_received: {
-    title: "Order Received",
-    description: "Your infrastructure request has been confirmed",
+    title: "Commande reçue",
+    description: "Votre demande d'infrastructure est confirmée.",
   },
   provider_matching: {
-    title: "Provider Matching",
-    description: "Finding the best infrastructure provider for your needs",
+    title: "Matching fournisseur",
+    description: "Confirmation du datacenter partenaire.",
   },
   contract_generation: {
-    title: "Contract Generation",
-    description: "Generating your service contract",
+    title: "Génération du contrat",
+    description: "Votre contrat de service est en préparation.",
   },
   provisioning: {
-    title: "Provisioning",
-    description: "Setting up your infrastructure",
+    title: "Provisionnement",
+    description: "Mise en place de votre infrastructure.",
   },
   ready: {
-    title: "Ready",
-    description: "Your infrastructure is ready to use",
+    title: "Prêt",
+    description: "Votre infrastructure est opérationnelle.",
   },
 };
 
@@ -43,11 +43,36 @@ const EVENT_ORDER: EventType[] = [
   "ready",
 ];
 
+const FAILURE_CAUSES = [
+  "Plafond de paiement de la carte atteint — contactez votre banque ou utilisez une autre carte.",
+  "Validation 3-D Secure interrompue — relancez le paiement et confirmez dans votre app bancaire.",
+  "Fonds insuffisants ou carte expirée — vérifiez le moyen de paiement utilisé.",
+];
+
 function readQueryNumber(key: string): number | undefined {
   const raw = new URLSearchParams(window.location.search).get(key);
   if (!raw) return undefined;
   const n = Number(raw);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function frDateUTC(d: Date): string {
+  const months = [
+    "JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN",
+    "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE",
+  ];
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]}, ${hh}:${mm} UTC`;
+}
+
+function deploymentHours(deploymentTime: string | undefined): number {
+  if (!deploymentTime) return 72;
+  const h = deploymentTime.match(/(\d+)\s*h/i);
+  if (h) return Number(h[1]);
+  const d = deploymentTime.match(/(\d+)(?:\s*[–-]\s*\d+)?\s*j/i);
+  if (d) return Number(d[1]) * 24;
+  return 72;
 }
 
 export default function Confirmation() {
@@ -92,186 +117,290 @@ export default function Confirmation() {
 
   if (orderId == null) {
     return (
-      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Order not found</h1>
-          <p className="text-muted-foreground mb-6">
-            We couldn't find the order you're looking for.
+      <div className="min-h-screen bg-background text-foreground">
+        <MarketChrome onBrandClick={() => setLocation("/")} />
+        <div className="flex flex-col items-center px-5 py-24 text-center">
+          <h1 className="mb-3 text-[30px] font-extrabold uppercase tracking-[-0.035em]">
+            Commande introuvable<span className="text-accent">.</span>
+          </h1>
+          <p className="mb-6 text-muted-foreground">
+            Impossible de retrouver la commande demandée.
           </p>
-          <Button onClick={() => setLocation("/")} className="bg-accent hover:bg-accent/90">
-            Back to Home
-          </Button>
+          <button
+            onClick={() => setLocation("/")}
+            className="glow-accent rounded-[9px] bg-accent px-5 py-3 text-[14px] font-semibold text-accent-foreground"
+          >
+            Retour à l'accueil
+          </button>
         </div>
       </div>
     );
   }
 
+  const failed = order?.paymentStatus === "failed";
+  const succeeded = order?.paymentStatus === "succeeded";
+  const eta = order?.createdAt
+    ? frDateUTC(
+        new Date(
+          new Date(order.createdAt).getTime() +
+            deploymentHours(offer?.deploymentTime) * 3600 * 1000,
+        ),
+      )
+    : "SOUS 72 H";
+
   return (
-    <div className="min-h-screen bg-background text-foreground py-12">
-      <div className="container max-w-3xl">
-        {/* Success Header */}
-        <div className="text-center mb-12">
-          <div className="flex justify-center mb-6">
-            <CheckCircle2 className="w-16 h-16 text-lime-400 animate-pulse" />
+    <div className="min-h-screen bg-background text-foreground">
+      <MarketChrome
+        onBrandClick={() => setLocation("/")}
+        center={<JourneyStepper current={4} allDone={succeeded} failed={failed} />}
+        right={
+          <span className="font-mono text-[11px] tracking-[.08em] text-muted-foreground">
+            {orderRef(orderId)}
+          </span>
+        }
+      />
+
+      <div className="mx-auto flex max-w-[900px] flex-col items-center px-5 pb-16 pt-14 md:px-10">
+        {/* Status header */}
+        {failed ? (
+          <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border-2 border-destructive bg-destructive/10 text-[26px] font-bold text-destructive">
+            ✗
           </div>
-          <h1 className="text-4xl font-bold mb-4">Order Confirmed!</h1>
-          <p className="text-lg text-muted-foreground">
-            Your infrastructure is being provisioned. You'll receive email updates as we progress.
-          </p>
-          {order?.paymentStatus === "succeeded" ? (
-            <p className="mt-4 inline-block rounded-lg bg-lime-400/10 px-4 py-2 text-sm font-semibold text-lime-600">
-              Payment confirmed
-            </p>
-          ) : order?.paymentStatus === "failed" ? (
-            <div className="mt-4 flex flex-col items-center gap-3">
-              <p className="inline-block rounded-lg bg-red-100 px-4 py-2 text-sm font-semibold text-red-700">
-                Payment failed.
-              </p>
-              <Button
+        ) : (
+          <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border-2 border-accent bg-accent/10 text-[26px] font-bold text-accent">
+            ✓
+          </div>
+        )}
+        <h1 className="mb-3 text-center text-[30px] font-extrabold uppercase leading-none tracking-[-0.035em] md:text-[40px]">
+          {failed ? "Paiement refusé" : "Commande confirmée"}
+          <span className={failed ? "text-destructive" : "text-accent"}>.</span>
+        </h1>
+        <p className="mb-4 max-w-[540px] text-center text-[15.5px] text-muted-foreground">
+          {failed
+            ? "Aucune somme n'a été débitée. Votre offre reste verrouillée — vous pouvez relancer le paiement."
+            : "Votre infrastructure est en cours de provisionnement. Vous recevrez un e-mail à chaque étape."}
+        </p>
+        <div className="mb-9 flex flex-wrap justify-center gap-2.5">
+          {failed ? (
+            <>
+              <span className="inline-flex items-center gap-2 rounded-full border border-destructive/40 bg-destructive/10 px-[15px] py-[7px] font-mono text-[11px] font-semibold tracking-[.1em] text-destructive">
+                <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+                PAIEMENT ÉCHOUÉ
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-accent/35 bg-accent/10 px-[15px] py-[7px] font-mono text-[11px] font-semibold tracking-[.1em] text-accent">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent animate-live-dot" />
+                OFFRE MAINTENUE 72 H
+              </span>
+            </>
+          ) : succeeded ? (
+            <span className="inline-flex items-center gap-2 rounded-full border border-accent/35 bg-accent/10 px-[15px] py-[7px] font-mono text-[11px] font-semibold tracking-[.1em] text-accent">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+              PAIEMENT CONFIRMÉ — STRIPE
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-2 rounded-full border border-chart-5/40 bg-chart-5/10 px-[15px] py-[7px] font-mono text-[11px] font-semibold tracking-[.1em] text-chart-5">
+              <span className="h-1.5 w-1.5 rounded-full bg-chart-5 animate-live-dot-fast" />
+              PAIEMENT EN COURS DE CONFIRMATION…
+            </span>
+          )}
+        </div>
+
+        {/* Order cells */}
+        <div className="mb-[22px] grid w-full grid-cols-1 gap-px overflow-hidden rounded-xl border border-border/60 bg-border/60 sm:grid-cols-3">
+          {orderLoading || !order ? (
+            [1, 2, 3].map(i => (
+              <div key={i} className="bg-card p-5">
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ))
+          ) : (
+            <>
+              <div className="flex flex-col gap-1 bg-card px-5 py-[18px]">
+                <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">
+                  COMMANDE
+                </span>
+                <span className="font-mono text-[14px] font-semibold">{orderRef(order.id)}</span>
+              </div>
+              <div className="flex flex-col gap-1 bg-card px-5 py-[18px]">
+                <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">
+                  INFRASTRUCTURE
+                </span>
+                <span className="font-mono text-[14px] font-semibold">
+                  {offer ? `${offer.gpuCount}× ${offer.gpuType}` : "—"}
+                </span>
+              </div>
+              <div className="flex flex-col gap-1 bg-card px-5 py-[18px]">
+                <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">
+                  MENSUEL
+                </span>
+                <span className="font-mono text-[14px] font-semibold text-accent">
+                  {fmtEUR(Number(order.monthlyRecurring))}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {failed ? (
+          <>
+            {/* Common failure causes */}
+            <div className="mb-[26px] w-full rounded-xl border border-border bg-card p-[26px]">
+              <PanelLabel className="mb-5">Causes fréquentes</PanelLabel>
+              <ul className="m-0 flex list-none flex-col gap-3 p-0 text-[13.5px] leading-[1.55] text-muted-foreground">
+                {FAILURE_CAUSES.map(cause => (
+                  <li key={cause} className="flex gap-[9px]">
+                    <span className="font-bold text-destructive">·</span>
+                    <span>{cause}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="flex w-full flex-col gap-3.5 md:flex-row">
+              <button
                 onClick={() =>
                   setLocation(`/checkout?offerId=${order?.offerId}&leadId=${order?.leadId}`)
                 }
-                className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                className="glow-accent flex flex-1 items-center justify-center gap-2 rounded-[9px] bg-accent p-[13px] text-[14px] font-semibold text-accent-foreground transition-transform active:scale-[0.98]"
               >
-                Retry payment
-              </Button>
+                Réessayer le paiement →
+              </button>
+              <button
+                onClick={() =>
+                  setLocation(`/checkout?offerId=${order?.offerId}&leadId=${order?.leadId}`)
+                }
+                className="flex flex-1 items-center justify-center rounded-[9px] border border-border p-[13px] text-[14px] font-medium text-foreground transition-colors hover:bg-card"
+              >
+                Changer de moyen de paiement
+              </button>
             </div>
-          ) : (
-            <p className="mt-4 inline-block rounded-lg bg-amber-100 px-4 py-2 text-sm font-semibold text-amber-700">
-              Finalizing your payment… this page updates automatically.
-            </p>
-          )}
-        </div>
+            <a
+              href="https://www.anavimadvisory.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 text-[13px] text-accent hover:underline"
+            >
+              Parler à un conseiller
+            </a>
+          </>
+        ) : (
+          <>
+            {/* ETA banner */}
+            <div className="mb-[22px] flex w-full flex-col items-start justify-between gap-2 rounded-[10px] border border-accent/35 bg-accent/7 px-5 py-3.5 md:flex-row md:items-center">
+              <span className="font-mono text-[11px] font-semibold tracking-[.08em]">
+                MISE EN SERVICE ESTIMÉE — {eta}
+              </span>
+              <span className="font-mono text-[11px] tracking-[.08em] text-accent">
+                SLA {offer?.sla ?? "99,9 %"}
+              </span>
+            </div>
 
-        {/* Order Details */}
-        <div className="tech-card mb-8">
-          {orderLoading || !order ? (
-            <div className="grid md:grid-cols-3 gap-6">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-3 gap-6">
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Order ID</p>
-                <p className="font-mono font-semibold text-sm">
-                  ORD-{String(order.id).padStart(6, "0")}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Infrastructure</p>
-                <p className="font-semibold">
-                  {offer ? `${offer.gpuCount}x ${offer.gpuType}` : "—"}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Monthly Cost</p>
-                <p className="font-semibold text-accent">
-                  €{Number(order.monthlyRecurring).toLocaleString()}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Timeline */}
-        <div className="tech-card">
-          <h2 className="text-2xl font-bold mb-8">Provisioning Timeline</h2>
-
-          {timeline.length === 0 ? (
-            <div className="space-y-4">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {timeline.map((event, idx) => {
-                const meta = EVENT_META[event.eventType as EventType] ?? {
-                  title: event.eventType,
-                  description: event.description ?? "",
-                };
-                return (
-                  <div key={event.id} className="flex gap-4">
-                    {/* Timeline Dot */}
-                    <div className="flex flex-col items-center">
-                      <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                          event.status === "completed"
-                            ? "bg-lime-400/20 text-lime-400"
-                            : event.status === "in_progress"
-                            ? "bg-accent/20 text-accent animate-pulse"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {event.status === "completed" ? (
-                          <CheckCircle2 className="w-5 h-5" />
-                        ) : event.status === "in_progress" ? (
-                          <Zap className="w-5 h-5" />
-                        ) : (
-                          <Clock className="w-5 h-5" />
-                        )}
+            {/* Provisioning timeline */}
+            <div className="mb-[26px] w-full rounded-xl border border-border bg-card p-[26px]">
+              <PanelLabel className="mb-5">Timeline de provisionnement</PanelLabel>
+              {timeline.length === 0 ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              ) : (
+                <div className="flex flex-col">
+                  {timeline.map((event, idx) => {
+                    const meta = EVENT_META[event.eventType as EventType] ?? {
+                      title: event.eventType,
+                      description: event.description ?? "",
+                    };
+                    const done = event.status === "completed";
+                    const running = event.status === "in_progress";
+                    const last = idx === timeline.length - 1;
+                    return (
+                      <div key={event.id} className="flex gap-4">
+                        <div className="flex flex-col items-center">
+                          {done ? (
+                            <div className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-full bg-accent/15 text-[13px] font-bold text-accent">
+                              ✓
+                            </div>
+                          ) : running ? (
+                            <div className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-full border-2 border-accent animate-live-dot-fast">
+                              <span className="h-2 w-2 rounded-full bg-accent" />
+                            </div>
+                          ) : (
+                            <div className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-full bg-muted text-[12px] text-muted-foreground">
+                              ○
+                            </div>
+                          )}
+                          {!last && (
+                            <div
+                              className={`my-1.5 w-0.5 flex-1 ${done ? "bg-accent/40" : "bg-border"}`}
+                            />
+                          )}
+                        </div>
+                        <div className={`flex flex-col gap-[3px] ${last ? "" : "pb-5"}`}>
+                          <span
+                            className={`text-[14.5px] font-semibold ${
+                              done || running ? "" : "text-muted-foreground"
+                            }`}
+                          >
+                            {meta.title}
+                            {running && (
+                              <span className="ml-2 rounded bg-accent/10 px-[7px] py-0.5 align-[2px] font-mono text-[10px] font-semibold tracking-[.08em] text-accent">
+                                EN COURS
+                              </span>
+                            )}
+                          </span>
+                          {(done || running) && (
+                            <span className="text-[12.5px] text-muted-foreground">
+                              {event.description ?? meta.description}
+                            </span>
+                          )}
+                          {event.completedAt && (
+                            <span className="font-mono text-[11px] text-muted-foreground">
+                              {new Date(event.completedAt).toLocaleString("fr-FR")}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      {idx < timeline.length - 1 && (
-                        <div className="w-0.5 h-12 bg-border my-2" />
-                      )}
-                    </div>
-
-                    {/* Event Content */}
-                    <div className="flex-1 pt-1">
-                      <h3 className="font-semibold mb-1">{meta.title}</h3>
-                      <p className="text-sm text-muted-foreground mb-2">
-                        {event.description ?? meta.description}
-                      </p>
-                      {event.completedAt && (
-                        <p className="text-xs text-muted-foreground font-mono">
-                          {new Date(event.completedAt).toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* Next Steps */}
-        <div className="grid md:grid-cols-2 gap-6 mt-8">
-          <div className="tech-card">
-            <h3 className="font-bold mb-3">What's Next?</h3>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li>✓ Monitor provisioning progress here</li>
-              <li>✓ Check your email for updates</li>
-              <li>✓ Access your dashboard once ready</li>
-              <li>✓ Contact support if you have questions</li>
-            </ul>
-          </div>
+            {/* Next steps */}
+            <div className="mb-[26px] grid w-full gap-5 md:grid-cols-2">
+              <div className="rounded-xl border border-border bg-card p-[26px]">
+                <h3 className="mb-3 text-[15px] font-semibold">Et maintenant ?</h3>
+                <ul className="m-0 flex list-none flex-col gap-2 p-0 text-[13.5px] text-muted-foreground">
+                  <li>✓ Suivez le provisionnement sur cette page</li>
+                  <li>✓ Un e-mail vous informe à chaque étape</li>
+                  <li>✓ Le dashboard s'active dès la mise en service</li>
+                </ul>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-[26px]">
+                <h3 className="mb-3 text-[15px] font-semibold">Support</h3>
+                <p className="m-0 text-[13.5px] text-muted-foreground">
+                  Notre équipe est disponible 24/7 pour toute question sur votre commande.
+                </p>
+              </div>
+            </div>
 
-          <div className="tech-card">
-            <h3 className="font-bold mb-3">Support</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Need help? Our team is available 24/7 to assist you.
-            </p>
-            <Button variant="outline" className="w-full">
-              Contact Support
-            </Button>
-          </div>
-        </div>
-
-        {/* CTA Buttons */}
-        <div className="flex gap-4 mt-8">
-          <Button variant="outline" className="flex-1" onClick={() => setLocation("/")}>
-            Back to Home
-          </Button>
-          <Button
-            className="flex-1 bg-accent hover:bg-accent/90 text-accent-foreground font-semibold"
-            onClick={() => setLocation("/dashboard")}
-          >
-            Go to Dashboard
-          </Button>
-        </div>
+            <div className="flex w-full flex-col gap-3.5 md:flex-row">
+              <button
+                onClick={() => setLocation("/")}
+                className="flex flex-1 items-center justify-center rounded-[9px] border border-border p-[13px] text-[14px] font-medium text-foreground transition-colors hover:bg-card"
+              >
+                Retour à l'accueil
+              </button>
+              <button
+                onClick={() => setLocation("/dashboard")}
+                className="glow-accent flex flex-1 items-center justify-center gap-2 rounded-[9px] bg-accent p-[13px] text-[14px] font-semibold text-accent-foreground transition-transform active:scale-[0.98]"
+              >
+                Accéder au dashboard →
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

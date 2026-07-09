@@ -1,14 +1,21 @@
-import { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { ChevronLeft, Check, Zap, DollarSign, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { fmtEUR, leadRef } from "@/lib/format";
+import {
+  JourneyStepper,
+  MarketChrome,
+  MeterBar,
+  PageTitle,
+} from "@/components/market";
+import { loadWorkloadRecap } from "@/lib/workloadRecap";
+
+type Category = "best_value" | "fastest" | "cheapest";
 
 interface OfferCard {
   id: number;
   name: string;
-  category: "best_value" | "fastest" | "cheapest";
+  category: Category;
   gpuType: string;
   gpuCount: number;
   cpuCores: number;
@@ -23,262 +30,293 @@ interface OfferCard {
   features: string[] | null;
 }
 
+const CATEGORY_META: Record<
+  Category,
+  { badge: string; text: string; bg: string; barTone: "lime" | "cyan" | "violet" }
+> = {
+  best_value: { badge: "MEILLEUR RAPPORT", text: "text-accent", bg: "bg-accent/10", barTone: "lime" },
+  fastest: { badge: "LE PLUS RAPIDE", text: "text-chart-2", bg: "bg-chart-2/10", barTone: "cyan" },
+  cheapest: { badge: "LE PLUS ÉCONOMIQUE", text: "text-chart-3", bg: "bg-chart-3/15", barTone: "violet" },
+};
+
+function hoursOf(deploymentTime: string): number {
+  const h = deploymentTime.match(/(\d+)\s*h/i);
+  if (h) return Number(h[1]);
+  const d = deploymentTime.match(/(\d+)(?:\s*[–-]\s*\d+)?\s*j/i);
+  if (d) return Number(d[1]) * 24;
+  return 24 * 7;
+}
+
+function gpuSpecScore(o: OfferCard): number {
+  const tier = /h100/i.test(o.gpuType) ? 100 : /a100/i.test(o.gpuType) ? 78 : /l40s/i.test(o.gpuType) ? 70 : 60;
+  const ram = Math.min(1, o.ramGb / 512);
+  return Math.round(tier * 0.7 + ram * 100 * 0.3);
+}
+
+function slaScore(sla: string): number {
+  const pct = Number((sla.match(/99[.,]?(\d*)/)?.[0] ?? "99").replace(",", "."));
+  return pct >= 99.99 ? 100 : pct >= 99.9 ? 100 : 95;
+}
+
+/**
+ * Client-side explainable scores (the matching API doesn't expose numbers):
+ * price and delay are normalized across the displayed pool, specs from GPU tier
+ * + RAM, conformity from the SLA. Global = 40 % budget · 30 % délai · 30 % specs.
+ */
+function computeScores(offers: OfferCard[]) {
+  const prices = offers.map(o => Number(o.monthlyPrice));
+  const hours = offers.map(o => hoursOf(o.deploymentTime));
+  const minP = Math.min(...prices);
+  const maxP = Math.max(...prices);
+  const minH = Math.min(...hours);
+  const maxH = Math.max(...hours);
+  return offers.map((o, i) => {
+    const prix = maxP === minP ? 90 : Math.round(58 + 42 * ((maxP - prices[i]) / (maxP - minP)));
+    const delai = maxH === minH ? 90 : Math.round(58 + 42 * ((maxH - hours[i]) / (maxH - minH)));
+    const specs = gpuSpecScore(o);
+    const conformite = slaScore(o.sla);
+    const global = Math.round(prix * 0.4 + delai * 0.3 + specs * 0.3);
+    return { prix, delai, specs, conformite, global };
+  });
+}
+
+function verdictFor(
+  offer: OfferCard,
+  all: OfferCard[],
+): { headline: string; detail: string } {
+  const price = Number(offer.monthlyPrice);
+  const fastest = all.find(o => o.category === "fastest");
+  const best = all.find(o => o.category === "best_value");
+  const bestPrice = best ? Number(best.monthlyPrice) : price;
+  const fastestPrice = fastest ? Number(fastest.monthlyPrice) : price;
+  switch (offer.category) {
+    case "fastest": {
+      const premium = bestPrice ? Math.round(((price - bestPrice) / bestPrice) * 100) : 0;
+      return {
+        headline: `EN LIGNE DEMAIN — PREMIUM +${premium} %`,
+        detail: "Des jours de calcul gagnés vs l'offre recommandée.",
+      };
+    }
+    case "cheapest": {
+      const cut = bestPrice ? Math.round(((bestPrice - price) / bestPrice) * 100) : 0;
+      const yearly = Math.max(0, (bestPrice - price) * 12);
+      return {
+        headline: `−${cut} % — MAIS ${offer.gpuType.toUpperCase()} ET ${offer.deploymentTime.toUpperCase()}`,
+        detail: `~${fmtEUR(yearly)} économisés par an, si le délai convient.`,
+      };
+    }
+    default: {
+      const yearly = Math.max(0, (fastestPrice - price) * 12);
+      const cut = fastestPrice ? Math.round(((fastestPrice - price) / fastestPrice) * 100) : 0;
+      return {
+        headline: `MEILLEUR €/GPU DU POOL — ÉCONOMIE ${fmtEUR(yearly)}/AN`,
+        detail: `−${cut} % vs l'offre la plus rapide à specs équivalentes.`,
+      };
+    }
+  }
+}
+
+const SCORE_ROWS: { key: "prix" | "delai" | "specs" | "conformite"; label: string }[] = [
+  { key: "prix", label: "PRIX" },
+  { key: "delai", label: "DÉLAI" },
+  { key: "specs", label: "SPECS" },
+  { key: "conformite", label: "CONFORMITÉ" },
+];
+
 export default function ResultsScreen() {
   const [, setLocation] = useLocation();
-  const [selectedOffer, setSelectedOffer] = useState<number | null>(null);
   const leadIdParam = new URLSearchParams(window.location.search).get("leadId");
   const leadId =
-    leadIdParam && Number.isFinite(Number(leadIdParam))
-      ? Number(leadIdParam)
-      : undefined;
+    leadIdParam && Number.isFinite(Number(leadIdParam)) ? Number(leadIdParam) : undefined;
   const { data: offers, isLoading } = trpc.offers.match.useQuery(
     leadId != null ? { leadId } : {},
   );
+  const recap = loadWorkloadRecap();
 
-  const categoryLabels: Record<"best_value" | "fastest" | "cheapest", string> = {
-    best_value: "Best Value",
-    fastest: "Fastest",
-    cheapest: "Cheapest",
-  };
+  const bestValueOffer = offers?.find(o => o.category === "best_value");
+  const fastestOffer = offers?.find(o => o.category === "fastest");
+  const cheapestOffer = offers?.find(o => o.category === "cheapest");
+  // Recommended card in the middle, as in the design.
+  const displayOffers = [fastestOffer, bestValueOffer, cheapestOffer].filter(Boolean) as OfferCard[];
+  const scores = computeScores(displayOffers);
 
-  const categoryColors: Record<"best_value" | "fastest" | "cheapest", string> = {
-    best_value: "border-accent",
-    fastest: "border-lime-400",
-    cheapest: "border-blue-400",
-  };
+  const goDetail = (offer: OfferCard) =>
+    setLocation(`/offer-detail/${offer.id}` + (leadId != null ? `?leadId=${leadId}` : ""));
 
-  const categoryBadges: Record<"best_value" | "fastest" | "cheapest", string> = {
-    best_value: "bg-accent/10 text-accent",
-    fastest: "bg-lime-400/10 text-lime-400",
-    cheapest: "bg-blue-400/10 text-blue-400",
-  };
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <MarketChrome
+        onBrandClick={() => setLocation("/")}
+        center={<JourneyStepper current={2} />}
+        right={
+          <span className="font-mono text-[11px] tracking-[.08em] text-muted-foreground">
+            {leadId != null ? leadRef(leadId) : "47 DC ANALYSÉS"}
+          </span>
+        }
+      />
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background text-foreground py-12">
-        <div className="container max-w-6xl">
-          <div className="mb-12">
-            <button
-              onClick={() => setLocation("/workload")}
-              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-8"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Back to Workload
-            </button>
-            <h1 className="text-4xl font-bold mb-4">Loading offers...</h1>
+      <div className="mx-auto max-w-[1240px] px-5 pb-16 pt-10 md:px-10">
+        <button
+          onClick={() => setLocation("/workload")}
+          className="mb-[22px] inline-flex items-center gap-[7px] text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          ‹ Modifier ma demande
+        </button>
+
+        <div className="mb-[18px] flex flex-wrap items-end justify-between gap-6">
+          <div className="flex flex-col gap-2.5">
+            <PageTitle>Vos options</PageTitle>
+            <p className="m-0 text-[16px] text-muted-foreground">
+              3 offres fermes — chaque score est décomposé, vous savez pourquoi une offre sort du
+              lot.
+            </p>
           </div>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="tech-card space-y-4">
-                <Skeleton className="h-8 w-24" />
-                <Skeleton className="h-12 w-32" />
+          <span className="whitespace-nowrap font-mono text-[11.5px] tracking-[.08em] text-muted-foreground">
+            {leadId != null ? `${leadRef(leadId)} · ` : ""}47 DC ANALYSÉS
+          </span>
+        </div>
+
+        <div className="mb-[34px] flex flex-wrap items-center gap-2.5">
+          {(recap?.chips ?? ["RÉGION UE", "OFFRES FERMES 72 H"]).map(chip => (
+            <span
+              key={chip}
+              className="rounded-full border border-border bg-card px-3.5 py-[7px] font-mono text-[11px] tracking-[.08em] text-foreground"
+            >
+              {chip}
+            </span>
+          ))}
+          <button
+            onClick={() => setLocation("/workload")}
+            className="rounded-full border border-accent/40 px-3.5 py-[7px] font-mono text-[11px] tracking-[.08em] text-accent transition-colors hover:bg-accent/10"
+          >
+            MODIFIER
+          </button>
+          <span className="ml-auto hidden font-mono text-[10.5px] tracking-[.08em] text-muted-foreground md:block">
+            PONDÉRATION : BUDGET 40 % · DÉLAI 30 % · SPECS 30 %
+          </span>
+        </div>
+
+        {isLoading ? (
+          <div className="grid gap-[22px] md:grid-cols-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="space-y-4 rounded-xl border border-border bg-card p-[26px]">
+                <Skeleton className="h-6 w-32" />
+                <Skeleton className="h-14 w-full" />
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-24 w-full" />
               </div>
             ))}
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  const bestValueOffer = offers?.find((o) => o.category === "best_value");
-  const fastestOffer = offers?.find((o) => o.category === "fastest");
-  const cheapestOffer = offers?.find((o) => o.category === "cheapest");
-
-  const displayOffers = [bestValueOffer, fastestOffer, cheapestOffer].filter(
-    Boolean
-  ) as OfferCard[];
-
-  return (
-    <div className="min-h-screen bg-background text-foreground py-12">
-      <div className="container max-w-6xl">
-        {/* Header */}
-        <div className="mb-12">
-          <button
-            onClick={() => setLocation("/workload")}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-8"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Back to Workload
-          </button>
-
-          <h1 className="text-4xl font-bold mb-4">Your Infrastructure Options</h1>
-          <p className="text-lg text-muted-foreground">
-            We found 3 perfect matches. Compare and choose the one that best fits your needs.
-          </p>
-        </div>
-
-        {/* Offers Grid */}
-        <div className="grid md:grid-cols-3 gap-8 mb-12">
-          {displayOffers.map((offer) => (
-            <div
-              key={offer.category}
-              className={`tech-card border-2 transition-all cursor-pointer hover:shadow-lg ${
-                selectedOffer === offer.id
-                  ? categoryColors[offer.category]
-                  : "border-border"
-              }`}
-              onClick={() => setSelectedOffer(offer.id)}
-            >
-              {/* Header */}
-              <div className="mb-6">
+        ) : (
+          <div className="grid items-stretch gap-[22px] pt-3 md:grid-cols-3">
+            {displayOffers.map((offer, idx) => {
+              const meta = CATEGORY_META[offer.category];
+              const s = scores[idx];
+              const recommended = offer.category === "best_value";
+              const verdict = verdictFor(offer, displayOffers);
+              return (
                 <div
-                  className={`inline-block px-3 py-1 rounded-lg text-sm font-semibold mb-3 ${
-                    categoryBadges[offer.category]
+                  key={offer.category}
+                  className={`relative flex flex-col gap-[18px] rounded-xl border bg-card p-[26px] transition-colors duration-200 ${
+                    recommended
+                      ? "border-accent/65 shadow-[0_0_0_1px_color-mix(in_oklch,var(--accent)_20%,transparent),0_0_44px_color-mix(in_oklch,var(--accent)_10%,transparent)]"
+                      : offer.category === "fastest"
+                        ? "border-border hover:border-chart-2/60"
+                        : "border-border hover:border-chart-3/60"
                   }`}
                 >
-                  {categoryLabels[offer.category]}
-                </div>
-                <h3 className="text-2xl font-bold mb-2">{offer.gpuType}</h3>
-                <p className="text-muted-foreground text-sm">{offer.location}</p>
-              </div>
+                  {recommended && (
+                    <span className="absolute -top-[11px] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-[5px] bg-accent px-3 py-1 font-mono text-[10px] font-bold tracking-[.12em] text-accent-foreground">
+                      RECOMMANDÉ · MATCH {s.global} %
+                    </span>
+                  )}
 
-              {/* Pricing */}
-              <div className="mb-6 p-4 bg-card/50 rounded-lg border border-border">
-                <div className="flex items-baseline gap-2 mb-2">
-                  <span className="text-3xl font-bold text-accent">
-                    €{Number(offer.monthlyPrice).toLocaleString()}
-                  </span>
-                  <span className="text-muted-foreground">/month</span>
-                </div>
-                {Number(offer.setupFee) > 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    Setup: €{Number(offer.setupFee).toLocaleString()}
-                  </p>
-                )}
-              </div>
-
-              {/* Specs */}
-              <div className="space-y-3 mb-6">
-                <div className="flex items-center gap-3">
-                  <Zap className="w-4 h-4 text-accent flex-shrink-0" />
-                  <span className="text-sm">
-                    {offer.gpuCount}x {offer.gpuType} GPUs
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <DollarSign className="w-4 h-4 text-accent flex-shrink-0" />
-                  <span className="text-sm">
-                    {offer.cpuCores} CPU cores, {offer.ramGb}GB RAM
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Clock className="w-4 h-4 text-accent flex-shrink-0" />
-                  <span className="text-sm">{offer.deploymentTime}</span>
-                </div>
-              </div>
-
-              {/* Features */}
-              {offer.features && offer.features.length > 0 && (
-                <div className="mb-6 space-y-2">
-                  {offer.features.slice(0, 3).map((feature, idx) => (
-                    <div key={idx} className="flex items-start gap-2 text-sm">
-                      <Check className="w-4 h-4 text-lime-400 flex-shrink-0 mt-0.5" />
-                      <span>{feature}</span>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-2">
+                      <span
+                        className={`self-start rounded-md px-2.5 py-[5px] font-mono text-[10.5px] font-semibold tracking-[.1em] ${meta.text} ${meta.bg}`}
+                      >
+                        {meta.badge}
+                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <h3 className="m-0 text-[20px] font-bold">{offer.name}</h3>
+                        <span className="font-mono text-[10.5px] uppercase tracking-[.08em] text-muted-foreground">
+                          {offer.location} · {offer.gpuCount}× {offer.gpuType} · {offer.ramGb} Go ·
+                          SLA {offer.sla}
+                        </span>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <span className={`font-mono text-[24px] font-bold ${meta.text}`}>{s.global}</span>
+                  </div>
 
-              {/* SLA */}
-              <div className="p-3 bg-muted/30 rounded-lg border border-border mb-6">
-                <p className="text-xs text-muted-foreground mb-1">SLA</p>
-                <p className="font-semibold">{offer.sla}</p>
-              </div>
-
-              {/* CTA */}
-              <Button
-                className="w-full bg-accent hover:bg-accent/90 text-accent-foreground font-semibold"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLocation(
-                    `/offer-detail/${offer.id}` +
-                      (leadId != null ? `?leadId=${leadId}` : ""),
-                  );
-                }}
-              >
-                View Details
-              </Button>
-            </div>
-          ))}
-        </div>
-
-        {/* Comparison Table */}
-        <div className="tech-card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left py-3 px-4 font-semibold">Criteria</th>
-                {displayOffers.map((offer) => (
-                  <th
-                    key={offer.category}
-                    className="text-left py-3 px-4 font-semibold text-accent"
+                  <div
+                    className={`flex items-baseline justify-between rounded-[10px] border bg-background px-4 py-3.5 ${
+                      recommended ? "border-accent/35" : "border-border"
+                    }`}
                   >
-                    {categoryLabels[offer.category]}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-border hover:bg-card/50">
-                <td className="py-3 px-4 font-medium">GPU Type</td>
-                {displayOffers.map((offer) => (
-                  <td key={offer.category} className="py-3 px-4">
-                    {offer.gpuType}
-                  </td>
-                ))}
-              </tr>
-              <tr className="border-b border-border hover:bg-card/50">
-                <td className="py-3 px-4 font-medium">GPU Count</td>
-                {displayOffers.map((offer) => (
-                  <td key={offer.category} className="py-3 px-4">
-                    {offer.gpuCount}x
-                  </td>
-                ))}
-              </tr>
-              <tr className="border-b border-border hover:bg-card/50">
-                <td className="py-3 px-4 font-medium">CPU Cores</td>
-                {displayOffers.map((offer) => (
-                  <td key={offer.category} className="py-3 px-4">
-                    {offer.cpuCores}
-                  </td>
-                ))}
-              </tr>
-              <tr className="border-b border-border hover:bg-card/50">
-                <td className="py-3 px-4 font-medium">RAM</td>
-                {displayOffers.map((offer) => (
-                  <td key={offer.category} className="py-3 px-4">
-                    {offer.ramGb}GB
-                  </td>
-                ))}
-              </tr>
-              <tr className="border-b border-border hover:bg-card/50">
-                <td className="py-3 px-4 font-medium">Monthly Price</td>
-                {displayOffers.map((offer) => (
-                  <td key={offer.category} className="py-3 px-4 font-semibold text-accent">
-                    €{Number(offer.monthlyPrice).toLocaleString()}
-                  </td>
-                ))}
-              </tr>
-              <tr className="border-b border-border hover:bg-card/50">
-                <td className="py-3 px-4 font-medium">Deployment Time</td>
-                {displayOffers.map((offer) => (
-                  <td key={offer.category} className="py-3 px-4">
-                    {offer.deploymentTime}
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-card/50">
-                <td className="py-3 px-4 font-medium">SLA</td>
-                {displayOffers.map((offer) => (
-                  <td key={offer.category} className="py-3 px-4">
-                    {offer.sla}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
+                    <span
+                      className={`font-mono text-[24px] font-bold ${recommended ? "text-accent" : "text-foreground"}`}
+                    >
+                      {fmtEUR(Number(offer.monthlyPrice))}
+                      <span className="text-[12px] font-medium text-muted-foreground">/mois HT</span>
+                    </span>
+                    <span className={`font-mono text-[12px] ${meta.text}`}>{offer.deploymentTime}</span>
+                  </div>
+
+                  <div className="flex flex-col gap-2.5">
+                    {SCORE_ROWS.map(row => (
+                      <div key={row.key} className="flex items-center gap-2.5">
+                        <span className="w-[78px] font-mono text-[10px] tracking-[.08em] text-muted-foreground">
+                          {row.label}
+                        </span>
+                        <MeterBar value={s[row.key]} tone={meta.barTone} height={4} className="flex-1" />
+                        <span className="w-[26px] text-right font-mono text-[10.5px]">{s[row.key]}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 border-t border-border/70 pt-3.5">
+                    <span className={`font-mono text-[10.5px] tracking-[.08em] ${meta.text}`}>
+                      {verdict.headline}
+                    </span>
+                    <span className="text-[12.5px] leading-[1.55] text-muted-foreground">
+                      {verdict.detail}
+                    </span>
+                  </div>
+
+                  <div className="mt-auto">
+                    {recommended ? (
+                      <button
+                        onClick={() => goDetail(offer)}
+                        className="glow-accent flex w-full items-center justify-center gap-2 rounded-[9px] bg-accent p-[13px] text-[14px] font-semibold text-accent-foreground transition-transform active:scale-[0.98]"
+                      >
+                        Choisir cette offre →
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => goDetail(offer)}
+                        className="flex w-full items-center justify-center rounded-[9px] border border-border p-[13px] text-[14px] font-semibold text-foreground transition-colors hover:bg-input"
+                      >
+                        Voir le détail
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="mt-[30px] flex flex-wrap items-center justify-center gap-3 text-[13px] text-muted-foreground md:gap-5">
+          <span>Prix HT · offres fermes valables 72 h</span>
+          <span className="hidden h-[3px] w-[3px] rounded-full bg-border md:block" />
+          <button
+            onClick={() => setLocation("/workload")}
+            className="text-accent transition-colors hover:text-accent/80"
+          >
+            Ajuster la pondération
+          </button>
         </div>
       </div>
     </div>
