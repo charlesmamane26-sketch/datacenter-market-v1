@@ -6,64 +6,29 @@ settings:
 
 overrides:
   tailwindcss>nanoid: 3.3.7
-  esbuild@<=0.24.2: '>=0.25.0'
-  vite@>=5.2.6 <=5.4.20: '>=5.4.21'
-  vite@>=7.1.0 <=7.1.10: '>=7.1.11'
-  tar@=7.5.1: '>=7.5.2'
-  '@trpc/server@>=11.0.0 <11.8.0': '>=11.8.0'
-  pnpm@>=10.0.0 <10.26.0: '>=10.26.0'
-  pnpm@<10.26.0: '>=10.26.0'
   '@smithy/config-resolver@<4.4.0': '>=4.4.0'
-  lodash-es@>=4.0.0 <=4.17.22: '>=4.17.23'
-  lodash@>=4.0.0 <=4.17.22: '>=4.17.23'
-  pnpm@<10.28.2: '>=10.28.2'
-  pnpm@<10.28.1: '>=10.28.1'
-  tar@<7.5.7: '>=7.5.7'
-  mdast-util-to-hast@>=13.0.0 <13.2.1: '>=13.2.1'
-  fast-xml-parser@>=5.0.9 <=5.3.3: '>=5.3.4'
-  qs@>=6.7.0 <=6.14.1: '>=6.14.2'
-  tar@<=7.5.2: '>=7.5.3'
-  tar@<7.5.8: '>=7.5.8'
-  rollup@>=4.0.0 <4.59.0: '>=4.59.0'
-  fast-xml-parser@>=5.0.0 <5.3.5: '>=5.3.5'
-  fast-xml-parser@>=5.0.0 <5.3.6: '>=5.3.6'
-  qs@<6.14.1: '>=6.14.1'
-  fast-xml-parser@>=5.0.0 <5.3.8: '>=5.3.8'
-  tar@<=7.5.9: '>=7.5.10'
-  tar@<=7.5.10: '>=7.5.11'
-  tar@<=7.5.3: '>=7.5.4'
-  fast-xml-parser@>=5.0.0 <5.5.6: '>=5.5.6'
+  '@trpc/server@<11.8.0': '>=11.8.0'
+  axios@<1.16.0: '>=1.16.0'
+  dompurify@<3.4.0: '>=3.4.0'
+  drizzle-orm@<0.45.2: '>=0.45.2'
+  esbuild@<=0.24.2: '>=0.25.0'
+  fast-xml-parser@<5.7.0: '>=5.7.0'
+  follow-redirects@<=1.15.11: '>=1.16.0'
+  lodash@<=4.17.23: '>=4.18.0'
+  lodash-es@<=4.17.23: '>=4.18.0'
+  mdast-util-to-hast@<13.2.1: '>=13.2.1'
+  mermaid@<=11.14.0: '>=11.15.0'
   path-to-regexp@<0.1.13: '>=0.1.13 <0.2.0'
   picomatch@>=4.0.0 <4.0.4: '>=4.0.4'
-  dompurify@>=3.1.3 <=3.3.1: '>=3.3.2'
-  lodash-es@>=4.0.0 <=4.17.23: '>=4.18.0'
-  lodash@>=4.0.0 <=4.17.23: '>=4.18.0'
-  lodash-es@<=4.17.23: '>=4.18.0'
-  lodash@<=4.17.23: '>=4.18.0'
-  dompurify@<=3.3.1: '>=3.3.2'
+  pnpm@<10.28.2: '>=10.28.2'
+  postcss@<8.5.10: '>=8.5.10'
+  qs@<=6.15.1: '>=6.15.2'
+  rollup@>=4.0.0 <4.59.0: '>=4.59.0'
+  tar@<=7.5.10: '>=7.5.11'
+  uuid@<11.1.1: '>=11.1.1'
+  vite@>=5.2.6 <=5.4.20: '>=5.4.21'
   vite@<=6.4.1: '>=6.4.2'
   vite@>=7.0.0 <=7.3.1: '>=7.3.2'
-  vite@>=7.1.0 <=7.3.1: '>=7.3.2'
-  drizzle-orm@<0.45.2: '>=0.45.2'
-  fast-xml-parser@>=5.0.0 <5.5.7: '>=5.5.7'
-  follow-redirects@<=1.15.11: '>=1.16.0'
-  dompurify@<=3.3.3: '>=3.4.0'
-  axios@>=1.0.0 <1.15.0: '>=1.15.0'
-  postcss@<8.5.10: '>=8.5.10'
-  dompurify@<3.4.0: '>=3.4.0'
-  dompurify@>=1.0.10 <3.4.0: '>=3.4.0'
-  dompurify@>=3.0.1 <3.4.0: '>=3.4.0'
-  pnpm@>=6.25.0 <10.27.0: '>=10.27.0'
-  axios@>=1.0.0 <1.15.1: '>=1.15.1'
-  axios@>=1.0.0 <1.15.2: '>=1.15.2'
-  dompurify@<3.3.2: '>=3.3.2'
-  axios@>=1.0.0 <=1.13.4: '>=1.13.5'
-  fast-xml-parser@<5.7.0: '>=5.7.0'
-  mermaid@>=11.0.0-alpha.1 <=11.14.0: '>=11.15.0'
-  uuid@<11.1.1: '>=11.1.1'
-  qs@>=6.11.1 <=6.15.1: '>=6.15.2'
-  axios@>=1.0.0 <1.16.0: '>=1.16.0'
-  axios@>=1.7.0 <1.16.0: '>=1.16.0'
   vitest@<3.2.6: '>=3.2.6'
 
 patchedDependencies:
@@ -307,9 +272,6 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^5.0.4
         version: 5.0.4(vite@8.0.16(@types/node@24.7.0)(esbuild@0.25.10)(jiti@2.6.1)(tsx@4.20.6))
-      add:
-        specifier: ^2.0.6
-        version: 2.0.6
       autoprefixer:
         specifier: ^10.4.20
         version: 10.4.21(postcss@8.5.15)
@@ -322,9 +284,6 @@ importers:
       esbuild:
         specifier: ^0.25.0
         version: 0.25.10
-      pnpm:
-        specifier: '>=10.27.0'
-        version: 11.5.2
       postcss:
         specifier: '>=8.5.10'
         version: 8.5.15
@@ -352,6 +311,10 @@ importers:
       vitest:
         specifier: '>=3.2.6'
         version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@24.7.0)(vite@8.0.16(@types/node@24.7.0)(esbuild@0.25.10)(jiti@2.6.1)(tsx@4.20.6))
+    optionalDependencies:
+      ioredis:
+        specifier: ^5.4.1
+        version: 5.11.1
 
 packages:
 
@@ -821,6 +784,9 @@ packages:
 
   '@iconify/utils@3.0.2':
     resolution: {integrity: sha512-EfJS0rLfVuRuJRn4psJHtK2A9TqVnkxPpHY6lYHiB9+8eSuudsxbwMiavocG45ujOo6FJ+CIRlRnlOGinzkaGQ==}
+
+  '@ioredis/commands@1.10.0':
+    resolution: {integrity: sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q==}
 
   '@isaacs/fs-minipass@4.0.1':
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
@@ -2027,7 +1993,7 @@ packages:
   '@tailwindcss/vite@4.1.14':
     resolution: {integrity: sha512-BoFUoU0XqgCUS1UXWhmDJroKKhNXeDzD7/XwabjkDIAbMnc4ULn5e2FuEuBbhZ6ENZoSYzKlzvZ44Yr6EUDUSA==}
     peerDependencies:
-      vite: '>=5.4.21'
+      vite: '>=6.4.2'
 
   '@tanstack/query-core@5.90.2':
     resolution: {integrity: sha512-k/TcR3YalnzibscALLwxeiLUub6jN5EDLwKDiO7q5f4ICEoptJ+n9+7vcEFy5/x/i6Q+Lb/tXrsKCggf5uQJXQ==}
@@ -2263,7 +2229,7 @@ packages:
     resolution: {integrity: sha512-La0KD0vGkVkSk6K+piWDKRUyg8Rl5iAIKRMH0vMJI0Eg47bq1eOxmoObAaQG37WMW9MSyk7Cs8EIWwJC1PtzKA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     peerDependencies:
-      vite: '>=5.4.21'
+      vite: '>=6.4.2'
 
   '@vitest/expect@4.1.8':
     resolution: {integrity: sha512-h3nDO677RDLEGlBxyQ5CW8RlMThSKSRLUePLOx09gNIWRL40edgA1GCZSZgf1W55MFAG6/Sw14KeaAnqv0NKdQ==}
@@ -2272,7 +2238,7 @@ packages:
     resolution: {integrity: sha512-LEiN/xe4OSIbKe9HQIp5OC24agGD9J5CnmMgsLohVVoOPWL9a2sBoR6VBx43jQZb7Kr1l4RCuyCJzcAa0+dojw==}
     peerDependencies:
       msw: ^2.4.9
-      vite: '>=7.1.11'
+      vite: '>=6.4.2'
     peerDependenciesMeta:
       msw:
         optional: true
@@ -2307,9 +2273,6 @@ packages:
     resolution: {integrity: sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==}
     engines: {node: '>=0.4.0'}
     hasBin: true
-
-  add@2.0.6:
-    resolution: {integrity: sha512-j5QzrmsokwWWp6kUcJQySpbG+xfOBqqKnup3OIk1pz+kB/80SLorZ9V8zHFLO92Lcd+hbvq8bT+zOGoPkmBV0Q==}
 
   agent-base@6.0.2:
     resolution: {integrity: sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ==}
@@ -2412,6 +2375,10 @@ packages:
   clsx@2.1.1:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
+
+  cluster-key-slot@1.1.1:
+    resolution: {integrity: sha512-rwHwUfXL40Chm1r08yrhU3qpUvdVlgkKNeyeGPOxnW8/SyVDvgRaed/Uz54AqWNaTCAThlj6QAs3TZcKI0xDEw==}
+    engines: {node: '>=0.10.0'}
 
   cmdk@1.1.1:
     resolution: {integrity: sha512-Vsv7kFaXm+ptHDMZ7izaRsP70GgrW9NBNGswt9OZaVBLlE0SNpDq8eu/VGXyF9r7M0azK3Wy7OlYXsuyYLFzHg==}
@@ -3135,6 +3102,10 @@ packages:
     resolution: {integrity: sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg==}
     engines: {node: '>=12'}
 
+  ioredis@5.11.1:
+    resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
+    engines: {node: '>=12.22.0'}
+
   ipaddr.js@1.9.1:
     resolution: {integrity: sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==}
     engines: {node: '>= 0.10'}
@@ -3692,11 +3663,6 @@ packages:
   pkg-types@2.3.0:
     resolution: {integrity: sha512-SIqCzDRg0s9npO5XQ3tNZioRY1uK06lA41ynBC1YmFTmnY6FjUjVt6s4LoADmwoig1qqD0oK8h1p/8mlMx8Oig==}
 
-  pnpm@11.5.2:
-    resolution: {integrity: sha512-ccYx44IGbvwlYl1c8CkHXeB7YbN/bic1D72Esb2lhkyMGWetwoB3a0XDCnFcA1mjvgj+9C1bsJ4rmQKZeWkpFg==}
-    engines: {node: '>=22.13'}
-    hasBin: true
-
   points-on-curve@0.2.0:
     resolution: {integrity: sha512-0mYKnYYe9ZcqMCWhUjItv/oHjvgEsfKvnUTg8sAtnHr3GVy7rGkXCb6d5cSyqrWqL4k81b9CPg3urd+T7aop3A==}
 
@@ -3846,6 +3812,14 @@ packages:
       react: ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
+  redis-errors@1.2.0:
+    resolution: {integrity: sha512-1qny3OExCf0UvUV/5wpYKf2YwPcOqXzkwKKSmKHiE6ZMQs5heeE/c8eXK+PNllPvmjgAbfnsbpkGZWy8cBpn9w==}
+    engines: {node: '>=4'}
+
+  redis-parser@3.0.0:
+    resolution: {integrity: sha512-DJnGAeenTdpMEH6uAJRK/uiyEIH9WVsUmoLwzudwGJUwZPp80PDBWPHXSAGNPwNvIXAbe7MSUB1zQFugFml66A==}
+    engines: {node: '>=4'}
+
   regex-recursion@6.0.2:
     resolution: {integrity: sha512-0YCaSCq2VRIebiaUviZNs0cBz1kg5kVS2UKUfNIx8YVs1cN3AV7NTctO5FOKBA+UT2BPJIWZauYHPqJODG50cg==}
 
@@ -3992,6 +3966,9 @@ packages:
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
+
+  standard-as-callback@2.1.0:
+    resolution: {integrity: sha512-qoRRSyROncaz1z0mvYqIE4lCd9p2R90i6GxW3uZv5ucSu8tU7B5HXUP1gG8pVZsYNVaXjk8ClXHPttLyxAL48A==}
 
   statuses@2.0.1:
     resolution: {integrity: sha512-RwNA9Z/7PrK06rYLIzFMlaF+l73iwpzsqRIFgbMLbTcLD6cOao82TaWefPXQvB2fOC4AjuYSEndS7N/mTCbkdQ==}
@@ -4271,7 +4248,7 @@ packages:
       '@vitest/ui': 4.1.8
       happy-dom: '*'
       jsdom: '*'
-      vite: '>=7.1.11'
+      vite: '>=6.4.2'
     peerDependenciesMeta:
       '@edge-runtime/vm':
         optional: true
@@ -5088,6 +5065,9 @@ snapshots:
       mlly: 1.8.0
     transitivePeerDependencies:
       - supports-color
+
+  '@ioredis/commands@1.10.0':
+    optional: true
 
   '@isaacs/fs-minipass@4.0.1':
     dependencies:
@@ -6752,8 +6732,6 @@ snapshots:
 
   acorn@8.15.0: {}
 
-  add@2.0.6: {}
-
   agent-base@6.0.2:
     dependencies:
       debug: 4.4.3
@@ -6860,6 +6838,9 @@ snapshots:
       clsx: 2.1.1
 
   clsx@2.1.1: {}
+
+  cluster-key-slot@1.1.1:
+    optional: true
 
   cmdk@1.1.1(@types/react-dom@19.2.1(@types/react@19.2.1))(@types/react@19.2.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1):
     dependencies:
@@ -7606,6 +7587,19 @@ snapshots:
 
   internmap@2.0.3: {}
 
+  ioredis@5.11.1:
+    dependencies:
+      '@ioredis/commands': 1.10.0
+      cluster-key-slot: 1.1.1
+      debug: 4.4.3
+      denque: 2.1.0
+      redis-errors: 1.2.0
+      redis-parser: 3.0.0
+      standard-as-callback: 2.1.0
+    transitivePeerDependencies:
+      - supports-color
+    optional: true
+
   ipaddr.js@1.9.1: {}
 
   is-alphabetical@2.0.1: {}
@@ -8323,8 +8317,6 @@ snapshots:
       exsolve: 1.0.7
       pathe: 2.0.3
 
-  pnpm@11.5.2: {}
-
   points-on-curve@0.2.0: {}
 
   points-on-path@0.2.1:
@@ -8486,6 +8478,14 @@ snapshots:
       recharts-scale: 0.4.5
       tiny-invariant: 1.3.3
       victory-vendor: 36.9.2
+
+  redis-errors@1.2.0:
+    optional: true
+
+  redis-parser@3.0.0:
+    dependencies:
+      redis-errors: 1.2.0
+    optional: true
 
   regex-recursion@6.0.2:
     dependencies:
@@ -8708,6 +8708,9 @@ snapshots:
   sqlstring@2.3.3: {}
 
   stackback@0.0.2: {}
+
+  standard-as-callback@2.1.0:
+    optional: true
 
   statuses@2.0.1: {}
 
