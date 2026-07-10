@@ -39,6 +39,7 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-surface-sunken: var(--surface-sunken);
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
@@ -68,6 +69,7 @@
   --border: oklch(0.27 0.02 260);
   --input: oklch(0.21 0.018 260);
   --ring: oklch(0.87 0.21 130);
+  --surface-sunken: oklch(0.125 0.015 260);
   --radius: 0.625rem;
   --chart-1: oklch(0.87 0.21 130);
   --chart-2: oklch(0.8 0.13 210);
@@ -104,6 +106,7 @@
   --border: oklch(0.27 0.02 260);
   --input: oklch(0.21 0.018 260);
   --ring: oklch(0.87 0.21 130);
+  --surface-sunken: oklch(0.125 0.015 260);
 }
 
 @layer base {
@@ -266,5 +269,91 @@
     padding: 0.5rem 0.75rem;
     color: var(--foreground);
     transition: all 0.2s;
+  }
+
+  /* ---- "Place de marché" identity (design handoff 7a/7b) ---- */
+
+  /* Live dot: slow opacity pulse (market-open chip, status dots). */
+  .animate-live-dot {
+    animation: dcm-pulse 2s ease-in-out infinite;
+  }
+
+  .animate-live-dot-fast {
+    animation: dcm-pulse 1.4s ease-in-out infinite;
+  }
+
+  /* Quote ticker: content duplicated x2 for a seamless loop. */
+  .animate-ticker {
+    animation: dcm-ticker 38s linear infinite;
+  }
+
+  @media (max-width: 640px) {
+    .animate-ticker {
+      animation-duration: 30s;
+    }
+  }
+
+  /* 30-day price history bars (hero cotation). */
+  .animate-grow-bar {
+    transform-origin: bottom;
+    animation: dcm-grow 0.5s ease-out both;
+  }
+
+  /* Terminal block cursor. */
+  .animate-cursor-blink {
+    animation: dcm-blink 1.1s steps(1) infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-ticker,
+    .animate-live-dot,
+    .animate-live-dot-fast,
+    .animate-grow-bar,
+    .animate-cursor-blink {
+      animation: none;
+    }
+
+    .animate-grow-bar {
+      transform: scaleY(1);
+    }
+  }
+}
+
+@keyframes dcm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes dcm-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes dcm-ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes dcm-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
   }
 }

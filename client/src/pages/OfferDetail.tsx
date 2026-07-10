@@ -1,29 +1,46 @@
-import { useParams } from "wouter";
-import { Button } from "@/components/ui/button";
-import { useLocation } from "wouter";
+import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { ChevronLeft, Check, AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { JourneyStepper, MarketChrome } from "@/components/market";
+import {
+  ComplianceCard,
+  HelpCard,
+  OfferHeader,
+  RecapSidebar,
+  ServiceTermsCard,
+  TechSummaryCard,
+  useOfferCountdown,
+} from "@/components/market/offerPurchase";
 
 export default function OfferDetail() {
   const { offerId } = useParams<{ offerId: string }>();
   const [, setLocation] = useLocation();
-  const leadId = new URLSearchParams(window.location.search).get("leadId");
+  const leadIdRaw = new URLSearchParams(window.location.search).get("leadId");
+  const leadId =
+    leadIdRaw && Number.isFinite(Number(leadIdRaw)) ? Number(leadIdRaw) : undefined;
   const { data: offer, isLoading } = trpc.offers.get.useQuery({
     id: parseInt(offerId || "0"),
   });
+  const countdown = useOfferCountdown(leadId ?? offerId);
+
+  const chrome = (
+    <MarketChrome
+      onBrandClick={() => setLocation("/")}
+      center={<JourneyStepper current={3} />}
+      right={
+        <span className="inline-flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[.1em] text-accent">
+          <span className="h-1.5 w-1.5 rounded-full bg-accent animate-live-dot" />
+          OFFRE VALABLE {countdown}
+        </span>
+      }
+    />
+  );
 
   if (isLoading || !offer) {
     return (
-      <div className="min-h-screen bg-background text-foreground py-12">
-        <div className="container max-w-4xl">
-          <button
-            onClick={() => setLocation("/results")}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-8"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Back to Results
-          </button>
+      <div className="min-h-screen bg-background text-foreground">
+        {chrome}
+        <div className="mx-auto max-w-[1240px] px-5 pt-9 md:px-10">
           <div className="space-y-4">
             <Skeleton className="h-12 w-64" />
             <Skeleton className="h-6 w-full" />
@@ -34,149 +51,49 @@ export default function OfferDetail() {
     );
   }
 
-  const monthlyPrice = Number(offer.monthlyPrice);
-  const setupFee = Number(offer.setupFee);
-  const totalFirstMonth = monthlyPrice + setupFee;
-
   return (
-    <div className="min-h-screen bg-background text-foreground py-12">
-      <div className="container max-w-4xl">
+    <div className="min-h-screen bg-background text-foreground">
+      {chrome}
+
+      <div className="mx-auto max-w-[1240px] px-5 pb-16 pt-9 md:px-10">
         <button
-          onClick={() => setLocation("/results")}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-8"
+          onClick={() => setLocation("/results" + (leadId != null ? `?leadId=${leadId}` : ""))}
+          className="mb-5 inline-flex items-center gap-[7px] text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ChevronLeft className="w-4 h-4" />
-          Back to Results
+          ‹ Retour aux résultats
         </button>
 
-        <div className="grid md:grid-cols-3 gap-8">
-          <div className="md:col-span-2 space-y-8">
-            <div>
-              <h1 className="text-4xl font-bold mb-2">{offer.name}</h1>
-              <p className="text-lg text-muted-foreground">{offer.location}</p>
-            </div>
+        <OfferHeader offer={offer} leadId={leadId} />
 
-            <div className="tech-card">
-              <h2 className="text-2xl font-bold mb-6">Technical Summary</h2>
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">GPU Configuration</p>
-                  <p className="text-lg font-semibold">
-                    {Number(offer.gpuCount)}x {offer.gpuType}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">CPU Cores</p>
-                  <p className="text-lg font-semibold">{Number(offer.cpuCores)} cores</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Memory</p>
-                  <p className="text-lg font-semibold">{Number(offer.ramGb)}GB RAM</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Storage</p>
-                  <p className="text-lg font-semibold">{Number(offer.storageGb)}GB</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="tech-card">
-              <h2 className="text-2xl font-bold mb-6">Service Terms</h2>
-              <div className="space-y-4">
-                <div className="p-4 bg-card/50 rounded-lg border border-border">
-                  <p className="text-sm text-muted-foreground mb-1">SLA Guarantee</p>
-                  <p className="text-lg font-semibold">{offer.sla}</p>
-                </div>
-                <div className="p-4 bg-card/50 rounded-lg border border-border">
-                  <p className="text-sm text-muted-foreground mb-1">Deployment Time</p>
-                  <p className="text-lg font-semibold">{offer.deploymentTime}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="tech-card border-lime-400/30">
-              <div className="flex items-start gap-3 mb-4">
-                <AlertCircle className="w-5 h-5 text-lime-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="font-semibold">Contract & Compliance</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    EU GDPR compliant infrastructure with standard enterprise SLA and support terms.
-                  </p>
-                </div>
-              </div>
-              <ul className="space-y-2 text-sm">
-                <li>✓ GDPR compliant data processing</li>
-                <li>✓ EU data residency guaranteed</li>
-                <li>✓ High availability architecture</li>
-                <li>✓ 24/7 technical support included</li>
-              </ul>
-            </div>
+        <div className="grid items-start gap-6 md:grid-cols-[2fr_1fr]">
+          <div className="flex flex-col gap-5">
+            <TechSummaryCard offer={offer} />
+            <ServiceTermsCard offer={offer} />
+            <ComplianceCard />
           </div>
 
-          <div className="space-y-6">
-            <div className="tech-card sticky top-8">
-              <h3 className="text-lg font-bold mb-6">Pricing Breakdown</h3>
-
-              <div className="space-y-4 mb-6 pb-6 border-b border-border">
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Monthly</span>
-                  <span className="font-semibold">€{monthlyPrice.toLocaleString()}</span>
-                </div>
-                {setupFee > 0 && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Setup Fee</span>
-                    <span className="font-semibold">€{setupFee.toLocaleString()}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="mb-6 p-4 bg-accent/10 rounded-lg border border-accent/30">
-                <p className="text-sm text-muted-foreground mb-2">First Month Total</p>
-                <p className="text-3xl font-bold text-accent">
-                  €{totalFirstMonth.toLocaleString()}
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Then €{monthlyPrice.toLocaleString()}/month
-                </p>
-              </div>
-
-              <div className="space-y-3 mb-6 text-sm">
-                <div className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-lime-400 flex-shrink-0 mt-0.5" />
-                  <span>No long-term contract required</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-lime-400 flex-shrink-0 mt-0.5" />
-                  <span>Cancel anytime</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-lime-400 flex-shrink-0 mt-0.5" />
-                  <span>Transparent billing</span>
-                </div>
-              </div>
-
-              <Button
-                className="w-full bg-accent hover:bg-accent/90 text-accent-foreground font-semibold py-6"
-                onClick={() =>
-                  setLocation(
-                    `/checkout?offerId=${offer.id}` +
-                      (leadId ? `&leadId=${leadId}` : ""),
-                  )
-                }
-              >
-                Proceed to Checkout
-              </Button>
-            </div>
-
-            <div className="tech-card text-sm">
-              <h4 className="font-semibold mb-3">Need Help?</h4>
-              <p className="text-muted-foreground mb-4">
-                Our team is ready to answer any questions about this infrastructure.
-              </p>
-              <Button variant="outline" className="w-full">
-                Talk to an Advisor
-              </Button>
-            </div>
+          <div className="flex flex-col gap-[18px]">
+            <RecapSidebar
+              offer={offer}
+              cta={
+                <button
+                  onClick={() =>
+                    setLocation(
+                      `/checkout?offerId=${offer.id}` + (leadId != null ? `&leadId=${leadId}` : ""),
+                    )
+                  }
+                  className="glow-accent flex w-full items-center justify-center gap-2 rounded-[9px] bg-accent p-[13px] text-[14px] font-semibold text-accent-foreground transition-transform active:scale-[0.98]"
+                >
+                  Procéder au paiement →
+                </button>
+              }
+              hint={
+                <span className="text-center text-[11.5px] leading-[1.55] text-muted-foreground">
+                  L'acceptation des CGV et le paiement sécurisé se font à l'étape suivante.
+                </span>
+              }
+            />
+            <HelpCard />
           </div>
         </div>
       </div>

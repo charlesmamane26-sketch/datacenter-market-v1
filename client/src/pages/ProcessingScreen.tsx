@@ -1,136 +1,129 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { Loader2, CheckCircle2 } from "lucide-react";
-
-interface LogEntry {
-  id: string;
-  text: string;
-  timestamp: string;
-  status: "pending" | "completed" | "processing";
-}
+import { leadRef } from "@/lib/format";
+import { JourneyStepper, MarketChrome } from "@/components/market";
 
 const SIMULATION_LOGS = [
-  { text: "Validating workload specifications...", duration: 1000 },
-  { text: "Scanning 500+ GPU providers in EU...", duration: 1500 },
-  { text: "Matching infrastructure requirements...", duration: 1200 },
-  { text: "Generating compliance reports...", duration: 1000 },
-  { text: "Calculating optimal configurations...", duration: 1500 },
-  { text: "Preparing 3 best offers...", duration: 800 },
+  { text: "Validation des spécifications du workload", duration: 1000 },
+  { text: "Analyse de 47 datacenters européens", duration: 1500 },
+  { text: "Filtrage RGPD & résidence des données UE", duration: 1200 },
+  { text: "Calcul des configurations optimales", duration: 1000 },
+  { text: "Cotation au cours du jour", duration: 1500 },
+  { text: "Préparation de vos 3 offres fermes", duration: 800 },
 ];
+
+function timeNow(): string {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+}
 
 export default function ProcessingScreen() {
   const [, setLocation] = useLocation();
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  // Index of the line currently "running"; lines before it are done.
+  const [currentLine, setCurrentLine] = useState(0);
+  const [timestamps, setTimestamps] = useState<string[]>([]);
   const [isComplete, setIsComplete] = useState(false);
   const leadId = new URLSearchParams(window.location.search).get("leadId");
 
   useEffect(() => {
-    let currentTime = 0;
-    const logTimers: NodeJS.Timeout[] = [];
+    let elapsed = 0;
+    const timers: NodeJS.Timeout[] = [];
 
     SIMULATION_LOGS.forEach((log, index) => {
-      // Add log as pending
-      const pendingTimer = setTimeout(() => {
-        setLogs(prev => [
-          ...prev,
-          {
-            id: `log-${index}`,
-            text: log.text,
-            timestamp: new Date().toLocaleTimeString(),
-            status: "processing",
-          },
-        ]);
-      }, currentTime);
-      logTimers.push(pendingTimer);
-
-      // Mark as completed
-      const completedTimer = setTimeout(() => {
-        setLogs(prev =>
-          prev.map(l =>
-            l.id === `log-${index}` ? { ...l, status: "completed" } : l
-          )
-        );
-      }, currentTime + log.duration);
-      logTimers.push(completedTimer);
-
-      currentTime += log.duration + 200;
+      elapsed += log.duration + 200;
+      timers.push(
+        setTimeout(() => {
+          setTimestamps(prev => [...prev, timeNow()]);
+          setCurrentLine(index + 1);
+        }, elapsed),
+      );
     });
 
-    // Mark as complete and redirect
-    const completeTimer = setTimeout(() => {
-      setIsComplete(true);
-      // Redirect to results after 2 seconds, carrying the lead id forward.
+    // Mark as complete and redirect, carrying the lead id forward.
+    timers.push(
       setTimeout(() => {
-        setLocation(leadId ? `/results?leadId=${leadId}` : "/results");
-      }, 2000);
-    }, currentTime);
-    logTimers.push(completeTimer);
+        setIsComplete(true);
+        setTimeout(() => {
+          setLocation(leadId ? `/results?leadId=${leadId}` : "/results");
+        }, 1500);
+      }, elapsed + 400),
+    );
 
     return () => {
-      logTimers.forEach(timer => clearTimeout(timer));
+      timers.forEach(t => clearTimeout(t));
     };
   }, [setLocation, leadId]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex items-center justify-center py-12">
-      <div className="container max-w-2xl">
-        <div className="space-y-8">
-          {/* Header */}
-          <div className="text-center space-y-4">
-            <div className="flex justify-center">
-              {isComplete ? (
-                <CheckCircle2 className="w-16 h-16 text-lime-400 animate-pulse" />
-              ) : (
-                <Loader2 className="w-16 h-16 text-accent animate-spin" />
-              )}
-            </div>
-            <h1 className="text-3xl md:text-4xl font-bold">
-              {isComplete ? "Offers Ready!" : "Processing Your Request"}
-            </h1>
-            <p className="text-lg text-muted-foreground">
-              {isComplete
-                ? "We found 3 perfect infrastructure matches for you."
-                : "Our AI is analyzing providers and generating custom offers..."}
-            </p>
-          </div>
+    <div className="min-h-screen bg-background text-foreground">
+      <MarketChrome
+        center={<JourneyStepper current={2} pulsing />}
+        right={
+          <span className="font-mono text-[11px] tracking-[.08em] text-muted-foreground">
+            {leadId ? leadRef(Number(leadId)) : "MATCHING"}
+          </span>
+        }
+      />
 
-          {/* Logs Terminal */}
-          <div className="tech-card bg-black/50 border border-lime-400/30 font-mono text-sm">
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {logs.length === 0 ? (
-                <div className="text-lime-400 opacity-50">
-                  $ Initializing DatacenterMarket AI Engine...
+      <div className="flex flex-col items-center gap-[26px] px-5 py-14 md:px-10 md:py-20">
+        {/* Spinner: 46px ring, lime quarter */}
+        <div
+          className="h-[46px] w-[46px] animate-spin rounded-full border-[3px] border-border"
+          style={{ borderTopColor: "var(--accent)", animationDuration: "0.9s" }}
+        />
+
+        <div className="flex flex-col items-center gap-2.5 text-center">
+          <h1 className="m-0 text-[30px] font-extrabold uppercase leading-none tracking-[-0.035em] md:text-[38px]">
+            {isComplete ? "Offres prêtes" : "Analyse en cours"}
+            <span className="text-accent">.</span>
+          </h1>
+          <p className="m-0 max-w-[540px] text-[15px] text-muted-foreground">
+            {isComplete
+              ? "3 offres fermes vous attendent — redirection…"
+              : "Notre moteur analyse les fournisseurs européens et génère vos offres personnalisées."}
+          </p>
+        </div>
+
+        {/* Matching console */}
+        <div className="w-full max-w-[720px] overflow-hidden rounded-xl border border-accent/30 bg-surface-sunken shadow-[0_24px_60px_rgba(0,0,0,.5)]">
+          <div className="flex items-center gap-2 border-b border-border/70 px-[18px] py-3">
+            <span className="h-2.5 w-2.5 rounded-full bg-border" />
+            <span className="h-2.5 w-2.5 rounded-full bg-border" />
+            <span className="h-2.5 w-2.5 rounded-full bg-border" />
+            <span className="ml-2.5 font-mono text-[11.5px] tracking-[.08em] text-muted-foreground">
+              dcm · matching{leadId ? ` — lead #${leadId}` : ""}
+            </span>
+          </div>
+          <div className="flex flex-col px-[22px] py-5 font-mono text-[13px] leading-[2]">
+            {SIMULATION_LOGS.map((log, i) => {
+              const done = i < currentLine;
+              const running = i === currentLine && !isComplete;
+              return (
+                <div key={i} className="flex justify-between gap-4">
+                  <span
+                    className={
+                      done ? "text-accent" : running ? "text-foreground" : "text-muted-foreground/60"
+                    }
+                  >
+                    {done ? "✓" : running ? "→" : "○"} {log.text}
+                    {running && (
+                      <span className="ml-1 inline-block h-4 w-2 translate-y-[3px] bg-accent animate-cursor-blink" />
+                    )}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {done ? timestamps[i] : ""}
+                  </span>
                 </div>
-              ) : (
-                logs.map((log) => (
-                  <div key={log.id} className="flex items-start gap-3">
-                    <span className="text-lime-400 opacity-75 flex-shrink-0">
-                      {log.status === "completed" ? "✓" : "→"}
-                    </span>
-                    <div className="flex-1">
-                      <span className="text-lime-400">{log.text}</span>
-                      {log.status === "processing" && (
-                        <span className="ml-2 inline-block animate-pulse">▌</span>
-                      )}
-                    </div>
-                    <span className="text-lime-400/50 text-xs flex-shrink-0">
-                      {log.timestamp}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Progress Info */}
-          <div className="text-center text-muted-foreground">
-            <p className="text-sm">
-              {isComplete
-                ? "Redirecting to results..."
-                : `Processing: ${logs.length} / ${SIMULATION_LOGS.length} steps`}
-            </p>
+              );
+            })}
           </div>
         </div>
+
+        <span className="font-mono text-[11px] tracking-[.1em] text-muted-foreground">
+          {isComplete
+            ? "REDIRECTION VERS VOS OPTIONS…"
+            : `MATCHING ${Math.min(currentLine, SIMULATION_LOGS.length)}/${SIMULATION_LOGS.length} · OFFRES FERMES 72 H`}
+        </span>
       </div>
     </div>
   );
