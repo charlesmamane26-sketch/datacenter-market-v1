@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { saveCheckoutIntent, clearCheckoutIntent } from "@/lib/checkoutIntent";
+import { loadLeadClaim } from "@/lib/leadClaim";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2 } from "lucide-react";
 import { JourneyStepper, MarketChrome } from "@/components/market";
@@ -60,7 +61,13 @@ export default function Checkout() {
     }
     setIsProcessing(true);
     try {
-      const { url } = await checkout.mutateAsync({ leadId: leadId!, offerId: offerId! });
+      // Present the claim token if this lead was created anonymously in this
+      // browser; ignored server-side once the lead is owned by the logged-in user.
+      const { url } = await checkout.mutateAsync({
+        leadId: leadId!,
+        offerId: offerId!,
+        claimToken: loadLeadClaim(leadId!),
+      });
       clearCheckoutIntent();
       if (url) {
         // Redirect to Stripe's hosted checkout page.

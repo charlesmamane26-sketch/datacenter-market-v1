@@ -63,26 +63,32 @@ async function main() {
   const catalogue = await db.select().from(offersTable);
   assert(catalogue.length > 0, `offers catalogue is seeded (${catalogue.length} offers)`);
 
-  // 1. Lead capture (public) — exercises insert + insertId extraction.
+  // 1. Lead capture (public) — exercises insert + insertId extraction. Consent is
+  // mandatory (RGPD) and the response carries the claim token for later steps.
   const lead = await appRouter.createCaller(publicCtx).leads.create({
     email: "integration+lead@example.com",
     contactName: "Integration Test",
     workloadType: "inference",
     gpuRequirement: "h100",
     monthlyBudget: 25000,
+    consent: true,
   });
   assert(typeof lead.id === "number", `lead created (id=${lead.id})`);
+  assert(typeof lead.claimToken === "string", "lead capture returned a claim token");
   const leadId = lead.id!;
+  const claimToken = lead.claimToken;
 
-  // 2. Matching reads the real catalogue and ranks it.
-  const matched = await appRouter.createCaller(publicCtx).offers.match({ leadId });
+  // 2. Matching reads the real catalogue and ranks it (claim token authorizes
+  // tailoring to the anonymous lead's criteria).
+  const matched = await appRouter.createCaller(publicCtx).offers.match({ leadId, claimToken });
   assert(matched.length === 3, `matched 3 offers`);
   const cats = matched.map(o => o.category).sort().join(",");
   assert(cats === "best_value,cheapest,fastest", `matched one offer per view (${cats})`);
 
   // 3. Order creation (authed) — server-side pricing, provisioning timeline, lead -> offered.
+  // The lead was created anonymously, so ordering against it requires its claim token.
   const offerId = matched[0].id;
-  const order = await appRouter.createCaller(authedCtx(1)).orders.create({ leadId, offerId });
+  const order = await appRouter.createCaller(authedCtx(1)).orders.create({ leadId, offerId, claimToken });
   assert(typeof order.id === "number", `order created (id=${order.id})`);
   const orderId = order.id!;
   assert(Number(order.monthlyRecurring) > 0, `order priced from the offer (${order.monthlyRecurring} EUR/mo)`);
@@ -94,7 +100,13 @@ async function main() {
   // 4. Payment webhook -> order paid + lead converted.
   const event = {
     type: "checkout.session.completed",
-    data: { object: { metadata: { orderId: String(orderId) }, subscription: "sub_integration" } },
+    data: {
+      object: {
+        metadata: { orderId: String(orderId) },
+        subscription: "sub_integration",
+        payment_status: "paid",
+      },
+    },
   } as unknown as Stripe.Event;
   const handled = await applyStripeEvent(event);
   assert(handled, "webhook handled checkout.session.completed");

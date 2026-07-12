@@ -1,5 +1,6 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, CONSENT_POLICY_VERSION } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
+import { signLeadClaim, verifyLeadClaim } from "./leadClaim";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { revokeJti } from "./_core/sessionRevocation";
@@ -70,7 +71,7 @@ const INITIAL_PROVISIONING_EVENTS = [
  * (plus the resolved offer). Throws NOT_FOUND if the offer or lead is missing.
  */
 async function createPendingOrder(
-  input: { leadId: number; offerId: number },
+  input: { leadId: number; offerId: number; claimToken?: string },
   userId: number,
 ) {
   const offer = await getOffer(input.offerId);
@@ -79,9 +80,20 @@ async function createPendingOrder(
   }
   const lead = await getLead(input.leadId);
   // A lead may be created anonymously (before login), then claimed at checkout.
-  // Only its owner — or the user claiming an anonymous lead — may order against it.
-  // NOT_FOUND for both missing and unauthorized so callers cannot probe lead IDs.
-  if (!lead || (lead.userId != null && lead.userId !== userId)) {
+  //  - Owned lead: only its owner may order against it.
+  //  - Anonymous lead: the caller must present the signed claim token issued to
+  //    the lead's creator (leads.create). A lead ID alone is NOT sufficient —
+  //    otherwise any authenticated user could claim an arbitrary anonymous lead
+  //    by enumerating IDs and then read its PII via leads.get once it is theirs.
+  // NOT_FOUND for every failure so callers cannot probe which lead IDs exist.
+  if (!lead) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Lead not found" });
+  }
+  if (lead.userId != null) {
+    if (lead.userId !== userId) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Lead not found" });
+    }
+  } else if (!verifyLeadClaim(lead.id, input.claimToken)) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Lead not found" });
   }
 
@@ -178,6 +190,10 @@ export const appRouter = router({
           monthlyBudget: z.number().positive().max(9_999_999_999).optional(),
           deploymentDuration: z.string().max(100).optional(),
           infrastructureConstraints: z.string().max(10_000).optional(),
+          // RGPD: explicit consent is mandatory to capture the lead's PII and is
+          // recorded server-side (consentedAt + policy version) as proof of
+          // consent. z.literal(true) rejects a missing or false value.
+          consent: z.literal(true),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -201,6 +217,8 @@ export const appRouter = router({
           monthlyBudget: input.monthlyBudget ? String(input.monthlyBudget) : undefined,
           deploymentDuration: input.deploymentDuration,
           infrastructureConstraints: input.infrastructureConstraints,
+          consentedAt: new Date(),
+          consentPolicyVersion: CONSENT_POLICY_VERSION,
         });
         const insertId = Array.isArray(result)
           ? (result[0] as { insertId?: number } | undefined)?.insertId
@@ -218,7 +236,12 @@ export const appRouter = router({
           console.warn("[Lead] Owner notification failed:", err);
         }
 
-        return { id: insertId };
+        // Issue the claim token so this browser can later order against — or match
+        // on — the anonymous lead it just created (see createPendingOrder / offers.match).
+        return {
+          id: insertId,
+          claimToken: insertId != null ? signLeadClaim(insertId) : undefined,
+        };
       }),
 
     get: protectedProcedure
@@ -274,13 +297,28 @@ export const appRouter = router({
     // (best_value / fastest / cheapest). Public: the funnel runs before login.
     // Returns offers only — never lead PII.
     match: publicProcedure
-      .input(z.object({ leadId: z.number().int().positive().optional() }))
-      .query(async ({ input }) => {
+      .input(
+        z.object({
+          leadId: z.number().int().positive().optional(),
+          claimToken: z.string().optional(),
+        })
+      )
+      .query(async ({ input, ctx }) => {
         const catalogue = await getAllOffers();
         let criteria: MatchCriteria = {};
         if (input.leadId != null) {
           const lead = await getLead(input.leadId);
-          if (lead) {
+          // A lead's GPU/budget criteria are as sensitive as the PII behind
+          // leads.get: only fold them into the ranking if the caller proves they
+          // may see them — owner/admin, or holder of the lead's claim token.
+          // Otherwise ignore leadId (rank the full catalogue) so enumerating IDs
+          // can't infer a prospect's requirements.
+          const authorized =
+            lead != null &&
+            ((ctx.user != null &&
+              (ctx.user.role === "admin" || lead.userId === ctx.user.id)) ||
+              verifyLeadClaim(lead.id, input.claimToken));
+          if (lead && authorized) {
             criteria = {
               gpuRequirement: lead.gpuRequirement,
               monthlyBudget:
@@ -307,15 +345,39 @@ export const appRouter = router({
   // Orders router
   orders: router({
     create: protectedProcedure
-      .input(z.object({ leadId: z.number().int().positive(), offerId: z.number().int().positive() }))
+      .input(
+        z.object({
+          leadId: z.number().int().positive(),
+          offerId: z.number().int().positive(),
+          // Proof the caller may claim an anonymous lead (see createPendingOrder).
+          claimToken: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
+        // Anti-abuse: throttle per user (10 / minute). Each call fans out to ~8 DB
+        // writes (order + 5 provisioning events + lead update), so keep it bounded
+        // even though the client funnel goes through orders.checkout.
+        const limit = await enforceRateLimit(`order-create:${ctx.user.id}`, 10, 60_000);
+        if (!limit.allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many requests. Please wait a moment and try again.",
+          });
+        }
         return createPendingOrder(input, ctx.user.id);
       }),
 
     // Creates the pending order and a Stripe-hosted Checkout session; returns the payment URL.
     // The webhook (POST /api/stripe/webhook) is the source of truth for payment status.
     checkout: protectedProcedure
-      .input(z.object({ leadId: z.number().int().positive(), offerId: z.number().int().positive() }))
+      .input(
+        z.object({
+          leadId: z.number().int().positive(),
+          offerId: z.number().int().positive(),
+          // Proof the caller may claim an anonymous lead (see createPendingOrder).
+          claimToken: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         // Anti-abuse: throttle checkout per authenticated user (10 / minute).
         // Keying on the user id (not IP) is precise and unspoofable here.
@@ -373,10 +435,20 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input }) => {
+        const order = await getOrder(input.id);
+        if (!order) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+        }
+        // Only advance a still-pending order to processing on success. Never derive
+        // status from paymentStatus unconditionally: doing so would drag an already
+        // advanced order (provisioning/active/completed) back to "pending" when a
+        // later paymentStatus (e.g. a chargeback marked "failed") is recorded.
+        const advanceToProcessing =
+          input.paymentStatus === "succeeded" && order.status === "pending";
         await updateOrder(input.id, {
           paymentStatus: input.paymentStatus,
           stripePaymentIntentId: input.stripePaymentIntentId,
-          status: input.paymentStatus === "succeeded" ? "processing" : "pending",
+          ...(advanceToProcessing ? { status: "processing" as const } : {}),
         });
         return getOrder(input.id);
       }),

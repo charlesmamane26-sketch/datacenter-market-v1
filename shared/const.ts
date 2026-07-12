@@ -9,5 +9,9 @@ export const ONE_YEAR_MS = 1000 * 60 * 60 * 24 * 365;
 // a stolen JWT stays valid until it expires (logout only clears the cookie).
 export const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 export const AXIOS_TIMEOUT_MS = 30_000;
+// Version of the privacy policy a lead consents to at capture. Stored with the
+// lead (consentPolicyVersion) as proof of consent (RGPD Art. 7-1); bump it when
+// the policy materially changes so older consents are distinguishable.
+export const CONSENT_POLICY_VERSION = "2026-07-12";
 export const UNAUTHED_ERR_MSG = 'Please login (10001)';
 export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';

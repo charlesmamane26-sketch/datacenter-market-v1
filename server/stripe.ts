@@ -102,35 +102,38 @@ export async function createCheckoutSession(params: CheckoutParams): Promise<str
   return session.url;
 }
 
-/**
- * Applies a verified Stripe event. Handles checkout.session.completed by marking the referenced
- * order paid. Returns true if it acted on the event. Pure of HTTP/raw-body concerns so it can be
- * unit-tested with a constructed event.
- */
-export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
-  if (event.type !== "checkout.session.completed") return false;
-
-  const session = event.data.object as Stripe.Checkout.Session;
+/** Resolves the order id a session refers to, or null if it carries none/invalid. */
+function sessionOrderId(session: Stripe.Checkout.Session): number | null {
   const orderId = Number(session.metadata?.orderId ?? session.client_reference_id);
-  if (!Number.isFinite(orderId) || orderId <= 0) return false;
+  return Number.isFinite(orderId) && orderId > 0 ? orderId : null;
+}
 
-  const reference =
-    typeof session.subscription === "string"
-      ? session.subscription
-      : typeof session.payment_intent === "string"
-        ? session.payment_intent
-        : session.id;
+/** A payment reference to persist (subscription > payment_intent > session id). */
+function sessionReference(session: Stripe.Checkout.Session): string {
+  return typeof session.subscription === "string"
+    ? session.subscription
+    : typeof session.payment_intent === "string"
+      ? session.payment_intent
+      : session.id;
+}
+
+/**
+ * Marks the referenced order paid, converts its lead, and emails the customer.
+ * Idempotent: a re-delivery for an already-paid order is a no-op so later
+ * transitions (provisioning, etc.) aren't clobbered.
+ */
+async function markSessionPaid(session: Stripe.Checkout.Session): Promise<boolean> {
+  const orderId = sessionOrderId(session);
+  if (orderId == null) return false;
 
   const order = await getOrder(orderId);
   if (!order) return false;
-  // Stripe retries webhooks on non-2xx responses: re-deliveries of an already-paid
-  // order must be no-ops so later transitions (provisioning, etc.) aren't clobbered.
   if (order.paymentStatus === "succeeded") return true;
 
   await updateOrder(orderId, {
     paymentStatus: "succeeded",
     status: "processing",
-    stripePaymentIntentId: reference,
+    stripePaymentIntentId: sessionReference(session),
   });
 
   // Payment succeeded — the lead is genuinely converted now (not at checkout start).
@@ -145,6 +148,53 @@ export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
     console.warn("[Stripe] order-confirmed email failed:", String(error));
   }
   return true;
+}
+
+/**
+ * Applies a verified Stripe event. Returns true if it acted on the event. Pure of
+ * HTTP/raw-body concerns so it can be unit-tested with a constructed event.
+ *
+ * Payment is confirmed by `session.payment_status`, NOT by the session merely
+ * completing: for asynchronous methods (SEPA debit, etc.) `checkout.session.
+ * completed` fires immediately with `payment_status: "unpaid"`, and the real
+ * outcome arrives later as `checkout.session.async_payment_succeeded/failed`.
+ * Treating "completed" as paid would provision infrastructure and book revenue
+ * for a debit that may never clear.
+ */
+export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
+  switch (event.type) {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      // "paid" (card, immediate) or "no_payment_required" (100%-off) → fulfil.
+      // "unpaid" here means an async method is still pending; wait for the
+      // async_payment_succeeded/failed event and acknowledge this one as a no-op.
+      if (session.payment_status === "paid" || session.payment_status === "no_payment_required") {
+        return markSessionPaid(session);
+      }
+      // Async payment still pending: nothing to do yet. Acknowledge only if it
+      // references a known order (mirrors the unknown-order/no-reference guards).
+      const orderId = sessionOrderId(session);
+      if (orderId == null) return false;
+      const order = await getOrder(orderId);
+      return order != null;
+    }
+
+    case "checkout.session.async_payment_failed": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const orderId = sessionOrderId(session);
+      if (orderId == null) return false;
+      const order = await getOrder(orderId);
+      if (!order || order.paymentStatus === "succeeded") return order != null;
+      // The deferred payment did not clear: mark the order failed and cancel it so
+      // no infrastructure is provisioned for it. The lead stays "offered".
+      await updateOrder(orderId, { paymentStatus: "failed", status: "cancelled" });
+      return true;
+    }
+
+    default:
+      return false;
+  }
 }
 
 /**

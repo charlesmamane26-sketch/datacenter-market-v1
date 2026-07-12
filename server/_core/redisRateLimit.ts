@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import type { RateLimitResult, RateLimitStore } from "../rateLimit";
 import { setRateLimitStore } from "../rateLimit";
 import { getRedis, type SharedRedis } from "./redisClient";
@@ -16,8 +17,12 @@ function makeRedisStore(redis: SharedRedis): RateLimitStore {
     async check(key, limit, windowMs, now): Promise<RateLimitResult> {
       const redisKey = `rl:${key}`;
       const cutoff = now - windowMs;
-      // A unique member so concurrent hits in the same millisecond don't collide.
-      const member = `${now}-${Math.round(now % 1000)}-${key.length}`;
+      // Member must be unique per hit: `now` alone (or anything derived from it,
+      // like now%1000) collides for same-millisecond hits, and ZADD would then
+      // update the score instead of inserting, so ZCARD undercounts and the limit
+      // can be bypassed under bursts. Use a random suffix; `now` stays the score
+      // that drives the sliding window.
+      const member = `${now}-${randomUUID()}`;
 
       const results = await redis
         .multi()

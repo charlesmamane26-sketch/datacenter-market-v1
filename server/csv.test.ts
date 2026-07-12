@@ -23,6 +23,22 @@ describe("escapeCsvField", () => {
   it("quotes values with newlines", () => {
     expect(escapeCsvField("line1\nline2")).toBe('"line1\nline2"');
   });
+
+  it("neutralizes formula-trigger prefixes by quoting and apostrophe-escaping", () => {
+    // =, +, -, @ and leading tab/CR are formula triggers in Excel/Sheets.
+    expect(escapeCsvField('=HYPERLINK("http://evil","x")')).toBe(
+      '"\'=HYPERLINK(""http://evil"",""x"")"',
+    );
+    expect(escapeCsvField("+1234567890")).toBe('"\'+1234567890"');
+    expect(escapeCsvField("-2+3")).toBe("\"'-2+3\"");
+    expect(escapeCsvField("@SUM(A1:A9)")).toBe('"\'@SUM(A1:A9)"');
+    expect(escapeCsvField("\tTabbed")).toBe('"\'\tTabbed"');
+  });
+
+  it("does not treat an interior formula character as a trigger", () => {
+    // '=' is not at the start, and there is no comma/quote/newline -> plain.
+    expect(escapeCsvField("Acme = Corp")).toBe("Acme = Corp");
+  });
 });
 
 describe("toCsv", () => {
