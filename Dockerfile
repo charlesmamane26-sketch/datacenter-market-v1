@@ -20,6 +20,10 @@ ARG VITE_FRONTEND_FORGE_API_URL
 ARG VITE_FRONTEND_FORGE_API_KEY
 ARG VITE_ANALYTICS_ENDPOINT
 ARG VITE_ANALYTICS_WEBSITE_ID
+# Canonical public origin (SEO: canonicals, Open Graph, sitemap.xml, robots.txt,
+# prerendered pages). Falls back to https://www.datacentermarket.fr if unset.
+ARG VITE_SITE_URL
+ARG VITE_SENTRY_DSN
 
 COPY . .
 RUN pnpm build
