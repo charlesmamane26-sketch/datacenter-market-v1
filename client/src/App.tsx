@@ -18,6 +18,7 @@ const ResultsScreen = lazy(() => import("@/pages/ResultsScreen"));
 const OfferDetail = lazy(() => import("@/pages/OfferDetail"));
 const Checkout = lazy(() => import("@/pages/Checkout"));
 const Confirmation = lazy(() => import("@/pages/Confirmation"));
+const Login = lazy(() => import("@/pages/Login"));
 const ClientDashboard = lazy(() => import("@/pages/ClientDashboard"));
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 const TermsOfService = lazy(() => import("@/pages/TermsOfService"));
@@ -47,6 +48,7 @@ function Router() {
         <Route path={"/offer-detail/:offerId"} component={OfferDetail} />
         <Route path={"/checkout"} component={Checkout} />
         <Route path={"/confirmation"} component={Confirmation} />
+        <Route path={"/login"} component={Login} />
         <Route path={"/dashboard"} component={ClientDashboard} />
         <Route path={"/admin"} component={AdminDashboard} />
         <Route path={"/terms"} component={TermsOfService} />

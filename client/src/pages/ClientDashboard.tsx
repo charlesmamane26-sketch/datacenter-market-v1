@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -23,7 +25,7 @@ const STATUS_META: Record<string, { tone: StatusTone; label: string; pulse?: boo
 };
 
 export default function ClientDashboard() {
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
   const [, setLocation] = useLocation();
   const { data: orders } = trpc.orders.list.useQuery();
   const { data: offers } = trpc.offers.list.useQuery();
@@ -70,6 +72,21 @@ export default function ClientDashboard() {
     { label: "RAM", value: ramUsage, tone: "cyan" },
   ];
   const hasTelemetry = telemetryRows.some(r => r.value != null);
+
+  // Route guard: send unauthenticated visitors to the login page (server authz
+  // already protects the data; this is the UX-level gate). A logged-in user of
+  // any role may view their own client dashboard.
+  useEffect(() => {
+    if (!loading && !user) setLocation("/login");
+  }, [loading, user, setLocation]);
+
+  if (loading || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-accent" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">

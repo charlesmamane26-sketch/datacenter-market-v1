@@ -2,6 +2,9 @@ import { OAUTH_NONCE_COOKIE, OAUTH_NONCE_TTL_MS } from "@shared/const";
 
 export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 
+/** Social providers the Manus portal federates (see server/_core/sdk.ts deriveLoginMethod). */
+export type OAuthProvider = "google" | "github";
+
 /** Cryptographically-random URL-safe nonce for the OAuth double-submit check. */
 const generateNonce = (): string => {
   const bytes = new Uint8Array(16);
@@ -10,7 +13,9 @@ const generateNonce = (): string => {
 };
 
 // Generate login URL at runtime so redirect URI reflects the current origin.
-export const getLoginUrl = () => {
+// `provider` is an optional hint to deep-link straight to Google/GitHub on the
+// Manus portal instead of its method picker.
+export const getLoginUrl = (provider?: OAuthProvider) => {
   const oauthPortalUrl = import.meta.env.VITE_OAUTH_PORTAL_URL;
   const appId = import.meta.env.VITE_APP_ID;
   const redirectUri = `${window.location.origin}/api/oauth/callback`;
@@ -34,6 +39,12 @@ export const getLoginUrl = () => {
   url.searchParams.set("redirectUri", redirectUri);
   url.searchParams.set("state", state);
   url.searchParams.set("type", "signIn");
+  // Best-effort provider hint. If the Manus portal honors it, the user lands
+  // directly on Google/GitHub; if not, it is ignored and the portal shows its
+  // normal method picker (where Google/GitHub are already offered). Either way
+  // the flow, session and security are unchanged — the provider is otherwise
+  // only reported back after login (sdk.deriveLoginMethod).
+  if (provider) url.searchParams.set("provider", provider);
 
   return url.toString();
 };

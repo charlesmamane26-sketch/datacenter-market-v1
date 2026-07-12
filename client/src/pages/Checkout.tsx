@@ -2,9 +2,9 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
 import { saveCheckoutIntent, clearCheckoutIntent } from "@/lib/checkoutIntent";
 import { loadLeadClaim } from "@/lib/leadClaim";
+import { SocialLoginButtons } from "@/components/auth/SocialLoginButtons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2 } from "lucide-react";
 import { JourneyStepper, MarketChrome } from "@/components/market";
@@ -42,16 +42,6 @@ export default function Checkout() {
   );
   const checkout = trpc.orders.checkout.useMutation();
   const countdown = useOfferCountdown(leadId ?? offerId);
-
-  const handleSignIn = () => {
-    if (missingContext) {
-      setError("Contexte de commande introuvable. Retournez aux résultats et choisissez une offre.");
-      return;
-    }
-    // Persist intent across the OAuth redirect (which returns the user to "/").
-    saveCheckoutIntent({ offerId: offerId!, leadId: leadId! });
-    window.location.href = getLoginUrl();
-  };
 
   const handleConfirm = async () => {
     setError(null);
@@ -181,9 +171,13 @@ export default function Checkout() {
                         )}
                       </button>
                     ) : (
-                      <button onClick={handleSignIn} className={ctaClass}>
-                        Se connecter pour commander →
-                      </button>
+                      <SocialLoginButtons
+                        onBeforeRedirect={() =>
+                          // Persist intent across the OAuth redirect (returns to "/"),
+                          // so the funnel resumes at this checkout after login.
+                          saveCheckoutIntent({ offerId: offerId!, leadId: leadId! })
+                        }
+                      />
                     )
                   }
                   hint={
