@@ -22,9 +22,21 @@ export interface EmailProvider {
 
 const FROM = "DatacenterMarket <no-reply@datacentermarket>";
 
+/**
+ * Redacts a recipient address for logging: keeps the first local char and the
+ * domain so a log line stays useful for debugging without writing full customer
+ * PII to server logs (which are outside db:purge / leads.delete scope).
+ * "alice@corp.com" -> "a***@corp.com".
+ */
+function maskEmail(address: string): string {
+  const at = address.indexOf("@");
+  if (at <= 0) return "***";
+  return `${address[0]}***${address.slice(at)}`;
+}
+
 const noopProvider: EmailProvider = {
   async send(message) {
-    console.log(`[Email] (disabled) would send "${message.subject}" to ${message.to}`);
+    console.log(`[Email] (disabled) would send "${message.subject}" to ${maskEmail(message.to)}`);
     return false;
   },
 };

@@ -1,5 +1,15 @@
 # RGPD maintenance crons — runs for free on GitHub Actions (no paid host cron needed).
 # Requires the DATABASE_URL repository secret (Settings → Secrets and variables → Actions).
+#
+# SECURITY / OPS NOTE: these jobs run destructive DB commands (db:purge deletes
+# leads permanently) from GitHub-hosted runners with a long-lived, delete-capable
+# DATABASE_URL. That secret is only as safe as the DB's network exposure — do NOT
+# leave the production database reachable from 0.0.0.0/0 to satisfy this workflow.
+# Prefer one of:
+#   - run these from inside the deployment's network (a host cron or a self-hosted
+#     runner in the same VPC), and drop DATABASE_URL from Actions entirely; or
+#   - keep this workflow but restrict DB ingress to GitHub's published runner IP
+#     ranges and scope the credential to only the tables these jobs touch.
 name: RGPD crons
 on:
   schedule:

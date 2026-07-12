@@ -4,10 +4,21 @@
  *
  * A field is quoted when it contains a comma, double quote, or newline; inner
  * double quotes are doubled. null/undefined become empty cells.
+ *
+ * Formula-injection defense: a cell whose text begins with `= + - @` or a
+ * tab/CR is a formula trigger in Excel/Sheets/LibreOffice. Lead fields are
+ * attacker-controlled (public leads.create) and land in the admin's export, so
+ * such a cell is prefixed with an apostrophe (and force-quoted) to neutralize it
+ * while displaying the original text.
  */
+const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
+
 export function escapeCsvField(value: unknown): string {
   if (value === null || value === undefined) return "";
   const s = typeof value === "string" ? value : String(value);
+  if (FORMULA_TRIGGER.test(s)) {
+    return `"'${s.replace(/"/g, '""')}"`;
+  }
   if (/[",\r\n]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }
