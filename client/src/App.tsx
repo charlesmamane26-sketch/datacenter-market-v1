@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import ErrorBoundary from "./components/ErrorBoundary";
+import SeoManager from "./components/SeoManager";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
 // Pages are code-split per route so heavy dependencies (charts, etc.) only load when needed.
@@ -57,6 +58,7 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
+          <SeoManager />
           <Toaster />
           <Router />
         </TooltipProvider>
