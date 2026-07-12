@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { MarketBrand } from "@/components/market";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { setLangPref } from "@/lib/langPref";
 import { GAAS_FAQ_EN } from "@shared/seo-content";
 
 /**
@@ -31,6 +33,7 @@ const CATALOGUE = [
 
 export default function LandingEn() {
   const [, setLocation] = useLocation();
+  useEffect(() => setLangPref("en"), []);
 
   return (
     <div className="min-h-screen bg-background text-foreground">

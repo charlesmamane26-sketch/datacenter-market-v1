@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { MarketBrand } from "@/components/market";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { setLangPref } from "@/lib/langPref";
 
 /** English marketing header (mirrors SiteHeader) used by the /en/* content pages. */
 const NAV_LINKS = [
@@ -12,6 +14,9 @@ const NAV_LINKS = [
 
 export default function SiteHeaderEn() {
   const [, setLocation] = useLocation();
+  // Landing on an English page is a strong "I want English" signal — remember it
+  // so the home page keeps this visitor on the English side (see Home).
+  useEffect(() => setLangPref("en"), []);
 
   return (
     <header className="border-b border-border/50 bg-background/80 backdrop-blur-sm sticky top-0 z-50">

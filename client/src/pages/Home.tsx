@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { clearCheckoutIntent, loadCheckoutIntent } from "@/lib/checkoutIntent";
 import { consumeRoleRedirect } from "@/lib/postLoginRedirect";
+import { getLangPref } from "@/lib/langPref";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { MarketBrand, MarketOpenChip, MarketTicker, type TickerQuote } from "@/components/market";
 
@@ -64,28 +65,35 @@ function utcNow(): string {
   return `${hh}:${mm}`;
 }
 
-// Post-login routing: OAuth returns the user to "/". Two one-shot intents may be
-// pending (both survive the redirect via storage):
-//   1. a checkout interrupted by login → resume it (takes precedence);
-//   2. an explicit login (flag armed by the login buttons) → route by role.
-// A logged-in user simply browsing "/" triggers neither.
-// Kept in a client-only child because useAuth touches localStorage during render,
+// Redirects that can fire when landing on "/" (in priority order):
+//   1. a checkout interrupted by login → resume it (authenticated, takes precedence);
+//   2. a fresh explicit login (flag armed by the login buttons) → route by role;
+//   3. a sticky English preference → keep the visitor on the English home (/en).
+// A logged-in FR visitor simply browsing "/" triggers none.
+// Kept in a client-only child because useAuth/localStorage run during render,
 // which would crash the build-time prerender (see scripts/prerender.ts).
-function PostLoginRedirect() {
+function HomeRedirect() {
   const [, setLocation] = useLocation();
   const { user, isAuthenticated, loading } = useAuth();
 
   useEffect(() => {
-    if (loading || !isAuthenticated) return;
+    if (loading) return;
     const intent = loadCheckoutIntent();
-    if (intent) {
+    if (isAuthenticated && intent) {
       clearCheckoutIntent();
       consumeRoleRedirect(); // checkout wins; discard any armed role redirect
       setLocation(`/checkout?offerId=${intent.offerId}&leadId=${intent.leadId}`);
       return;
     }
-    if (consumeRoleRedirect()) {
+    if (isAuthenticated && consumeRoleRedirect()) {
       setLocation(user?.role === "admin" ? "/admin" : "/dashboard");
+      return;
+    }
+    // Sticky language: a visitor who chose English (or entered via an /en page)
+    // is kept on the English home. Keyed on an explicit stored choice only, so
+    // crawlers (no storage) stay on the French canonical — no SEO auto-redirect.
+    if (!intent && getLangPref() === "en") {
+      setLocation("/en");
     }
   }, [loading, isAuthenticated, user, setLocation]);
 
@@ -104,7 +112,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {mounted && <PostLoginRedirect />}
+      {mounted && <HomeRedirect />}
 
       {/* Chrome */}
       <div className="mx-auto flex h-[60px] max-w-[1240px] items-center justify-between px-5 md:px-10">
