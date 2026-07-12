@@ -6,7 +6,7 @@
  * Ce module doit rester agnostique de l'environnement : pas de `window`,
  * pas de `process`, pas de `import.meta`.
  */
-import { GAAS_FAQ, faqJsonLd, serviceJsonLd } from "./seo-content";
+import { GAAS_FAQ, GAAS_FAQ_EN, faqJsonLd, serviceJsonLd, serviceJsonLdEn } from "./seo-content";
 
 export const SITE_NAME = "DatacenterMarket";
 
@@ -46,7 +46,22 @@ export type RouteSeo = {
   extraJsonLd?: (base: string) => object[];
   /** Image OG spécifique à la route (sinon DEFAULT_OG_IMAGE). Chemin sous /public. */
   ogImage?: string;
+  /** Langue de la page (défaut "fr"). Pilote <html lang> et og:locale. */
+  lang?: "fr" | "en";
+  /**
+   * Alternates hreflang du cluster de langue (réciproques, identiques entre
+   * versions fr/en d'une même page). Défaut si absent : fr-FR + x-default
+   * auto-référents (comportement mono-langue).
+   */
+  hreflang?: { hreflang: string; path: string }[];
 };
+
+/** Alternates hreflang partagés par l'accueil FR (/) et EN (/en/). */
+const HOME_HREFLANG: { hreflang: string; path: string }[] = [
+  { hreflang: "fr-FR", path: "/" },
+  { hreflang: "en", path: "/en/" },
+  { hreflang: "x-default", path: "/" },
+];
 
 export const SEO_ROUTES: RouteSeo[] = [
   {
@@ -56,7 +71,20 @@ export const SEO_ROUTES: RouteSeo[] = [
     description:
       "Location GPU dédiée : comparez jusqu'à trois offres de fournisseurs européens et mobilisez votre capacité de calcul IA en 72 h. Hébergement UE, RGPD.",
     indexable: true,
+    lang: "fr",
+    hreflang: HOME_HREFLANG,
     extraJsonLd: base => [webSiteJsonLd(base)],
+  },
+  {
+    pattern: "/en",
+    canonicalPath: "/en/",
+    title: "GPU as a Service in Europe — rent H100 GPUs | DatacenterMarket",
+    description:
+      "European GPU-as-a-Service marketplace: compare up to three quotes from EU providers and get dedicated H100/A100 capacity in 72 h. EU-hosted, GDPR-compliant.",
+    indexable: true,
+    lang: "en",
+    hreflang: HOME_HREFLANG,
+    extraJsonLd: base => [webSiteJsonLdEn(base), serviceJsonLdEn(base), faqJsonLd(GAAS_FAQ_EN)],
   },
   {
     pattern: "/gpu-as-a-service",
@@ -256,6 +284,50 @@ export function webSiteJsonLd(base: string): object {
     inLanguage: "fr-FR",
     publisher: { "@id": absoluteUrl(base, "/#organization") },
   };
+}
+
+/** WebSite JSON-LD (version anglaise, émis sur /en). */
+export function webSiteJsonLdEn(base: string): object {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "@id": absoluteUrl(base, "/en/#website"),
+    name: SITE_NAME,
+    url: absoluteUrl(base, "/en/"),
+    inLanguage: "en",
+    publisher: { "@id": absoluteUrl(base, "/#organization") },
+  };
+}
+
+// ---- Internationalisation : hreflang / lang / og:locale par route ----
+
+/** `<html lang>` de la route (défaut fr). */
+export function htmlLang(route: RouteSeo): string {
+  return route.lang ?? "fr";
+}
+
+/** `og:locale` de la route. */
+export function ogLocale(route: RouteSeo): string {
+  return route.lang === "en" ? "en_US" : "fr_FR";
+}
+
+/**
+ * Liens hreflang à émettre pour une route. Si le cluster est déclaré
+ * (route.hreflang), on l'utilise tel quel (réciproque fr/en/x-default) ; sinon
+ * on retombe sur fr-FR + x-default auto-référents (pages mono-langue).
+ */
+export function hreflangAlternates(
+  route: RouteSeo,
+  base: string,
+): { hreflang: string; href: string }[] {
+  const canonical = absoluteUrl(base, route.canonicalPath);
+  if (route.hreflang?.length) {
+    return route.hreflang.map(a => ({ hreflang: a.hreflang, href: absoluteUrl(base, a.path) }));
+  }
+  return [
+    { hreflang: route.lang === "en" ? "en" : "fr-FR", href: canonical },
+    { hreflang: "x-default", href: canonical },
+  ];
 }
 
 export function breadcrumbJsonLd(base: string, items: BreadcrumbItem[]): object {

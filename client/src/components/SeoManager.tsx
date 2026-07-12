@@ -5,8 +5,11 @@ import {
   DEFAULT_SITE_URL,
   SITE_NAME,
   absoluteUrl,
+  hreflangAlternates,
+  htmlLang,
   jsonLdForRoute,
   matchRouteSeo,
+  ogLocale,
 } from "@shared/seo";
 
 const JSONLD_ATTR = "data-seo-jsonld";
@@ -51,7 +54,7 @@ export default function SeoManager() {
     const canonical = absoluteUrl(base, route.canonicalPath);
     const ogImage = absoluteUrl(base, route.ogImage ?? DEFAULT_OG_IMAGE);
 
-    document.documentElement.lang = "fr";
+    document.documentElement.lang = htmlLang(route);
     document.title = route.title;
     upsertMeta("name", "description", route.description);
     upsertMeta("name", "robots", route.noindex ? "noindex,nofollow" : "index,follow");
@@ -64,18 +67,23 @@ export default function SeoManager() {
     }
     link.href = canonical;
 
-    // hreflang : le site est en français. On référence explicitement la version
-    // fr et un x-default pointant sur la même URL — base propre pour ajouter une
-    // version /en plus tard (il suffira d'ajouter les alternates correspondants).
-    upsertAlternate("fr-FR", canonical);
-    upsertAlternate("x-default", canonical);
+    // hreflang : réutilise le cluster déclaré dans shared/seo.ts (réciproque
+    // fr/en/x-default sur l'accueil ; fr-FR + x-default auto sur les pages
+    // mono-langue). On repart de zéro pour ne pas laisser d'alternate périmé en
+    // naviguant entre des routes de clusters différents.
+    document.head
+      .querySelectorAll('link[rel="alternate"][hreflang]')
+      .forEach(el => el.remove());
+    for (const alt of hreflangAlternates(route, base)) {
+      upsertAlternate(alt.hreflang, alt.href);
+    }
 
     upsertMeta("property", "og:title", route.title);
     upsertMeta("property", "og:description", route.description);
     upsertMeta("property", "og:url", canonical);
     upsertMeta("property", "og:type", "website");
     upsertMeta("property", "og:site_name", SITE_NAME);
-    upsertMeta("property", "og:locale", "fr_FR");
+    upsertMeta("property", "og:locale", ogLocale(route));
     upsertMeta("property", "og:image", ogImage);
     upsertMeta("property", "og:image:alt", route.title);
     upsertMeta("name", "twitter:card", "summary_large_image");

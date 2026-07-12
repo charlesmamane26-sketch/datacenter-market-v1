@@ -58,6 +58,35 @@ export const GAAS_FAQ: FaqItem[] = [
   },
 ];
 
+/** FAQ anglaise pour la landing /en — balisée FAQPage. */
+export const GAAS_FAQ_EN: FaqItem[] = [
+  {
+    question: "What is GPU as a Service?",
+    answer:
+      "It is renting datacenter-hosted GPU compute on a monthly subscription instead of buying servers. You access dedicated infrastructure provisioned by a provider and pay for it as an operating cost. On DatacenterMarket, several European providers compete on your workload.",
+  },
+  {
+    question: "How much does it cost to rent an H100 GPU?",
+    answer:
+      "On our catalogue, the hourly equivalent derived from monthly prices is roughly €2.9–3.8 per H100 80 GB per hour (based on 730 h/month, excluding setup fees). These are orders of magnitude by configuration and commitment, not guaranteed prices.",
+  },
+  {
+    question: "How fast can I get GPUs?",
+    answer:
+      "From 24 hours to 7 days depending on the configuration: as fast as 24 h on some H100 clusters, 48–72 h on flagship configurations, 6–7 days for A100 pods. Our product promise: capacity mobilised within 72 h via a market call.",
+  },
+  {
+    question: "Can I host GPUs in the EU under GDPR?",
+    answer:
+      "Yes. Every offer in our catalogue is hosted in the EU and GDPR-compliant, including a configuration in Paris. Sovereign, single-country hosting (e.g. 100% France) can be sourced via a market call, subject to partner-provider availability.",
+  },
+  {
+    question: "Is DatacenterMarket a cloud provider?",
+    answer:
+      "No. DatacenterMarket is a marketplace operated by Anavim Advisory SAS: we neither own nor run infrastructure. We put partner providers in competition and return up to three quotes, ordered and paid online.",
+  },
+];
+
 /** JSON-LD Service pour la page pilier. */
 export function serviceJsonLd(base: string): object {
   return {
@@ -71,6 +100,23 @@ export function serviceJsonLd(base: string): object {
     provider: { "@id": absoluteUrl(base, "/#organization") },
     areaServed: "Europe",
     url: absoluteUrl(base, "/gpu-as-a-service/"),
+  };
+}
+
+/** JSON-LD Service (version anglaise) pour la landing /en. */
+export function serviceJsonLdEn(base: string): object {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    "@id": absoluteUrl(base, "/en/#service"),
+    name: "GPU as a Service",
+    serviceType: "Datacenter GPU capacity rental (marketplace)",
+    description:
+      "European GPU capacity marketplace: EU providers put in competition, up to three quotes compared, capacity mobilised within 72 h via a market call.",
+    provider: { "@id": absoluteUrl(base, "/#organization") },
+    areaServed: "Europe",
+    url: absoluteUrl(base, "/en/"),
+    inLanguage: "en",
   };
 }
 
