@@ -1,4 +1,3 @@
-import * as Sentry from "@sentry/react";
 import { trpc } from "@/lib/trpc";
 import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -11,19 +10,23 @@ import "./index.css";
 
 const queryClient = new QueryClient();
 
+// Import dynamique : le SDK Sentry (~100 ko) sort du bundle critique et n'est
+// chargé qu'aux builds où un DSN est configuré (perf Lighthouse, lot 4 SEO).
 if (import.meta.env.VITE_SENTRY_DSN) {
-  Sentry.init({
-    dsn: import.meta.env.VITE_SENTRY_DSN,
-    integrations: [
-      Sentry.browserTracingIntegration(),
-      Sentry.replayIntegration(),
-    ],
-    tracesSampleRate: 1.0,
-    tracePropagationTargets: ["localhost", /^https:\/\/yourserver\.io\/api/],
-    replaysSessionSampleRate: 0.1,
-    replaysOnErrorSampleRate: 1.0,
+  import("@sentry/react").then(Sentry => {
+    Sentry.init({
+      dsn: import.meta.env.VITE_SENTRY_DSN,
+      integrations: [
+        Sentry.browserTracingIntegration(),
+        Sentry.replayIntegration(),
+      ],
+      tracesSampleRate: 1.0,
+      tracePropagationTargets: ["localhost", /^https:\/\/yourserver\.io\/api/],
+      replaysSessionSampleRate: 0.1,
+      replaysOnErrorSampleRate: 1.0,
+    });
+    console.log("[Sentry] Client monitoring initialized.");
   });
-  console.log("[Sentry] Client monitoring initialized.");
 }
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {

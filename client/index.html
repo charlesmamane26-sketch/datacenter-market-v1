@@ -5,25 +5,33 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+      content="width=device-width, initial-scale=1.0" />
     <title>GPU as a Service : capacité GPU en 72 h | DatacenterMarket</title>
     <meta
       name="description"
       content="Location GPU dédiée : comparez jusqu'à trois offres de fournisseurs européens et mobilisez votre capacité de calcul IA en 72 h. Hébergement UE, RGPD." />
-    <!-- THIS IS THE START OF A COMMENT BLOCK, BLOCK TO BE DELETED: Google Fonts here, example:
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    THIS IS THE END OF A COMMENT BLOCK, BLOCK TO BE DELETED -->
+    <!-- Inter est auto-hébergée via @fontsource (voir src/index.css) : graisses 400/500/600/700
+         uniquement, font-display: swap, aucune requête vers une origine externe. -->
+
   </head>
 
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script
-      defer
-      src="%VITE_ANALYTICS_ENDPOINT%/umami"
-      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+    <script>
+      // Umami (optionnel) : ne charge le script que si l'endpoint est configuré au
+      // build — sinon l'ancien tag statique requêtait une URL invalide (404) sur
+      // chaque page (le %VAR% de Vite reste littéral quand la variable est absente).
+      (function () {
+        var endpoint = "%VITE_ANALYTICS_ENDPOINT%";
+        if (!endpoint || endpoint.charAt(0) === "%") return;
+        var s = document.createElement("script");
+        s.defer = true;
+        s.src = endpoint + "/umami";
+        s.setAttribute("data-website-id", "%VITE_ANALYTICS_WEBSITE_ID%");
+        document.head.appendChild(s);
+      })();
+    </script>
   </body>
 
 </html>

@@ -1,3 +1,9 @@
+/* Inter auto-hébergée (@fontsource) : uniquement les graisses réellement utilisées
+   (400/500/600/700), font-display: swap inclus, pas d'origine externe. */
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
