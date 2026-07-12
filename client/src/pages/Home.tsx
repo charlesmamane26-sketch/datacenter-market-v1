@@ -1,32 +1,58 @@
 import { useEffect, useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Menu, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { clearCheckoutIntent, loadCheckoutIntent } from "@/lib/checkoutIntent";
-import { MarketBrand, MarketOpenChip, MarketTicker, MeterBar } from "@/components/market";
+import { MarketBrand, MarketOpenChip, MarketTicker, type TickerQuote } from "@/components/market";
 
-// 30-day price history (hero cotation): 24 bars, the last 3 in growing lime.
+/**
+ * Home fusionnée : design « place de marché » (handoff 7a/7b) + exigences SEO
+ * du lot 3 — H1/h2 sémantiques, contenu indexable français, maillage vers la
+ * page pilier et les satellites, SSR-safe pour le prérendu (scripts/prerender.ts).
+ * Véracité : toutes les données chiffrées affichées dérivent du catalogue réel
+ * (server/seed.ts) — pas de variations de prix, de taux de charge ni de volumes
+ * d'activité inventés.
+ */
+
+// Cotations réelles du catalogue (prix mensuels + délais de déploiement du seed).
+const TICKER_QUOTES: TickerQuote[] = [
+  { site: "FRA", config: "H100 ×8", price: "18 400 €/mois", suffix: "· 72 h" },
+  { site: "PAR", config: "H100 ×8", price: "22 000 €/mois", suffix: "· 24 h" },
+  { site: "AMS", config: "H100 ×16", price: "34 000 €/mois", suffix: "· 96 h" },
+  { site: "VAR", config: "A100 ×8", price: "9 600 €/mois", suffix: "· 6-7 j" },
+  { site: "MAD", config: "A100 ×4", price: "5 200 €/mois", suffix: "· 7 j" },
+  { site: "DUB", config: "L40S ×8", price: "8 800 €/mois", suffix: "· 72 h" },
+  { site: "STO", config: "RTX 4090 ×8", price: "7 200 €/mois", suffix: "· 48 h" },
+];
+
+// Barres décoratives du héro (aria-hidden) — aucune série temporelle réelle.
 const HISTORY_BARS = [
   78, 74, 80, 71, 69, 73, 66, 68, 62, 64, 59, 61, 57, 60, 54, 56, 52, 55, 50, 48, 51, 46, 44, 47,
 ];
 
+// Sites du catalogue : SLA et délais réels par configuration (server/seed.ts).
 const REGIONS = [
-  { code: "FRA — Francfort", load: 82, note: "8× H100 · dès 18 400 €/mois" },
-  { code: "PAR — Paris", load: 64, note: "8× H100 · provision 24 h" },
-  { code: "AMS — Amsterdam", load: 71, note: "16× H100 · InfiniBand 400 Gb/s" },
-  { code: "VAR — Varsovie", load: 90, note: "8× A100 · dès 9 600 €/mois" },
+  { code: "FRA — Francfort", note: "8× H100 · dès 18 400 €/mois", meta: "SLA 99,9 % · 72 H" },
+  { code: "PAR — Paris", note: "8× H100 · provision 24 h", meta: "SLA 99,99 % · 24 H" },
+  { code: "AMS — Amsterdam", note: "16× H100 · InfiniBand 400 Gb/s", meta: "SLA 99,9 % · 96 H" },
+  { code: "VAR — Varsovie", note: "8× A100 · dès 9 600 €/mois", meta: "SLA 99,5 % · 6-7 J" },
 ];
 
 const HOW_IT_WORKS = [
   { num: "01", title: "Décrivez", text: "GPU, région, budget, durée : votre workload en 2 minutes." },
-  { num: "02", title: "Comparez", text: "3 offres fermes et vérifiées, chiffrées côte à côte." },
-  { num: "03", title: "Provisionnez", text: "Contrat, paiement sécurisé et mise en service en 72 h." },
+  {
+    num: "02",
+    title: "Comparez",
+    text: "Jusqu'à 3 offres chiffrées côte à côte : meilleur rapport qualité/prix, plus rapide, moins chère.",
+  },
+  { num: "03", title: "Provisionnez", text: "Contrat, paiement sécurisé et mise en service en 72 h." },
 ];
 
-const MARKET_ACTIVITY = [
-  { when: "IL Y A 2 H", config: "8× H100 · Francfort, DE", price: "18 400 €/mois", tag: "PROVISIONNÉ EN 71 H" },
-  { when: "IL Y A 9 H", config: "16× H100 · Amsterdam, NL", price: "34 000 €/mois", tag: "PROVISIONNÉ EN 94 H" },
-  { when: "HIER", config: "8× L40S · Dublin, IE", price: "8 800 €/mois", tag: "PROVISIONNÉ EN 70 H" },
+// Extraits réels du catalogue (prix et délais de déploiement du seed).
+const CATALOGUE_EXTRACT = [
+  { family: "H100", config: "8× H100 · Francfort, DE", price: "18 400 €/mois", tag: "DÉPLOIEMENT 72 H" },
+  { family: "H100", config: "16× H100 · Amsterdam, NL", price: "34 000 €/mois", tag: "DÉPLOIEMENT 96 H" },
+  { family: "L40S", config: "8× L40S · Dublin, IE", price: "8 800 €/mois", tag: "DÉPLOIEMENT 72 H" },
 ];
 
 function utcNow(): string {
@@ -36,14 +62,14 @@ function utcNow(): string {
   return `${hh}:${mm}`;
 }
 
-export default function Home() {
+// Resume a checkout interrupted by login: OAuth returns the user to "/", so we
+// forward them back to the checkout they started (consuming the intent once).
+// Kept in a client-only child because useAuth touches localStorage during render,
+// which would crash the build-time prerender (see scripts/prerender.ts).
+function CheckoutResume() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, loading } = useAuth();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const clock = utcNow();
 
-  // Resume a checkout interrupted by login: OAuth returns the user to "/", so we
-  // forward them back to the checkout they started (consuming the intent once).
   useEffect(() => {
     if (loading || !isAuthenticated) return;
     const intent = loadCheckoutIntent();
@@ -52,18 +78,39 @@ export default function Home() {
     setLocation(`/checkout?offerId=${intent.offerId}&leadId=${intent.leadId}`);
   }, [loading, isAuthenticated, setLocation]);
 
+  return null;
+}
+
+export default function Home() {
+  const [, setLocation] = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const clock = utcNow();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {mounted && <CheckoutResume />}
+
       {/* Chrome */}
       <div className="mx-auto flex h-[60px] max-w-[1240px] items-center justify-between px-5 md:px-10">
         <MarketBrand size={22} />
         <div className="hidden md:flex items-center gap-[26px]">
           <a href="#comment" className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground">
-            Catalogue
+            Comment ça marche
           </a>
           <a href="#activite" className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground">
-            Tarifs
+            Catalogue
           </a>
+          <Link
+            href="/gpu-as-a-service/"
+            className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Guide GPU as a Service
+          </Link>
           <button
             onClick={() => setLocation("/dashboard")}
             className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
@@ -84,6 +131,12 @@ export default function Home() {
       </div>
       {menuOpen && (
         <div className="flex flex-col border-b border-border/60 px-5 pb-4 md:hidden">
+          <Link
+            href="/gpu-as-a-service/"
+            className="flex min-h-12 items-center text-[14px] text-muted-foreground"
+          >
+            Guide GPU as a Service
+          </Link>
           <button
             onClick={() => setLocation("/dashboard")}
             className="flex min-h-12 items-center text-[14px] text-muted-foreground"
@@ -96,7 +149,7 @@ export default function Home() {
         </div>
       )}
 
-      <MarketTicker />
+      <MarketTicker quotes={TICKER_QUOTES} />
 
       {/* Hero — cotation */}
       <div className="relative mx-auto max-w-[1240px] overflow-hidden px-5 pb-11 pt-10 md:px-10 md:pt-16">
@@ -126,23 +179,23 @@ export default function Home() {
         <div className="relative grid items-end gap-10 md:grid-cols-2 md:gap-14">
           <div className="flex flex-col gap-[18px]">
             <span className="font-mono text-[11.5px] font-medium uppercase tracking-[.14em] text-accent">
-              Cotation — 8× NVIDIA H100 · moyenne UE
+              Cotation — 8× NVIDIA H100 · Francfort
             </span>
             <div className="flex items-baseline gap-3">
               <span className="font-mono text-[56px] font-bold leading-none tracking-[-0.04em] md:text-[84px]">
-                18 400 €
+                18 400 €
               </span>
               <span className="text-[17px] text-muted-foreground">/mois</span>
             </div>
             <div className="flex flex-wrap items-center gap-4 font-mono text-[12px] tracking-[.06em]">
               <span className="inline-flex items-center gap-[7px] rounded-md bg-accent/10 px-[11px] py-[5px] font-semibold text-accent">
-                ▼ −4,2 % SUR 30 JOURS
+                CATALOGUE INDICATIF — SELON CONFIGURATION
               </span>
-              <span className="text-muted-foreground">MAJ {clock} UTC · 47 DATACENTERS</span>
+              <span className="text-muted-foreground">7 PLACES EUROPÉENNES · RÉSIDENCE UE</span>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2.5" aria-hidden="true">
             <div className="flex h-[120px] items-end gap-[3px]">
               {HISTORY_BARS.map((h, i) => {
                 const fromEnd = HISTORY_BARS.length - 1 - i;
@@ -172,24 +225,25 @@ export default function Home() {
               })}
             </div>
             <div className="flex justify-between border-t border-border/70 pt-2 font-mono text-[10px] tracking-[.1em] text-muted-foreground">
-              <span>IL Y A 30 JOURS</span>
-              <span className="text-accent">AUJOURD'HUI — 18 400 €</span>
+              <span>ÉQUIVALENT ≈ 3,15 €/GPU/H (730 H/MOIS)</span>
+              <span className="text-accent">8× H100 — 18 400 €/MOIS</span>
             </div>
           </div>
         </div>
 
         <div className="relative mt-12 grid items-end gap-6 md:grid-cols-[1.45fr_0.55fr] md:gap-12">
-          <div>
-            <div className="text-[42px] font-extrabold uppercase leading-none tracking-[-0.04em] md:text-[68px]">
-              Achetez la capacité
-            </div>
-            <div className="text-[42px] font-extrabold uppercase leading-[1.08] tracking-[-0.04em] text-accent md:text-[68px]">
-              au bon moment.
-            </div>
-          </div>
+          <h1 className="m-0">
+            <span className="block text-[42px] font-extrabold uppercase leading-none tracking-[-0.04em] md:text-[68px]">
+              GPU as a Service :
+            </span>
+            <span className="block text-[42px] font-extrabold uppercase leading-[1.08] tracking-[-0.04em] text-accent md:text-[68px]">
+              la capacité au bon moment.
+            </span>
+          </h1>
           <p className="m-0 pb-1.5 text-[14.5px] leading-[1.65] text-muted-foreground [text-wrap:pretty]">
-            Les prix bougent chaque semaine. Décrivez votre workload, verrouillez une offre ferme
-            72 h — au cours du jour.
+            DatacenterMarket est une place de marché : nous ne possédons pas les GPU, nous mettons
+            en concurrence des fournisseurs européens. Décrivez votre workload, comparez jusqu'à
+            trois offres — capacité mobilisée en 72 h par appel au marché.
           </p>
         </div>
       </div>
@@ -216,11 +270,8 @@ export default function Home() {
             key={r.code}
             className="flex flex-col gap-3 rounded-[10px] border border-border bg-card p-4 md:p-5"
           >
-            <div className="flex items-baseline justify-between">
-              <span className="font-mono text-[12.5px] font-semibold tracking-[.06em]">{r.code}</span>
-              <span className="font-mono text-[12px] text-accent">{r.load} %</span>
-            </div>
-            <MeterBar value={r.load} />
+            <span className="font-mono text-[12.5px] font-semibold tracking-[.06em]">{r.code}</span>
+            <span className="font-mono text-[11px] tracking-[.08em] text-accent">{r.meta}</span>
             <span className="text-[12.5px] text-muted-foreground">{r.note}</span>
           </div>
         ))}
@@ -229,9 +280,9 @@ export default function Home() {
       {/* How it works */}
       <div id="comment" className="border-t border-border/50">
         <div className="mx-auto max-w-[1240px] px-5 py-13 md:px-10">
-          <div className="mb-[26px] font-mono text-[11.5px] font-medium uppercase tracking-[.14em] text-accent">
+          <h2 className="mb-[26px] font-mono text-[11.5px] font-medium uppercase tracking-[.14em] text-accent">
             Comment ça marche
-          </div>
+          </h2>
           <div className="grid gap-[22px] md:grid-cols-3">
             {HOW_IT_WORKS.map(s => (
               <div
@@ -239,7 +290,7 @@ export default function Home() {
                 className="flex min-h-12 flex-col gap-2.5 rounded-[10px] border border-border p-6 transition-colors hover:border-accent/50"
               >
                 <span className="font-mono text-[26px] font-bold text-accent">{s.num}</span>
-                <span className="text-[16px] font-semibold uppercase tracking-[.02em]">{s.title}</span>
+                <h3 className="text-[16px] font-semibold uppercase tracking-[.02em]">{s.title}</h3>
                 <span className="text-[13.5px] leading-[1.6] text-muted-foreground">{s.text}</span>
               </div>
             ))}
@@ -247,27 +298,27 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Market activity */}
+      {/* Extraits du catalogue */}
       <div id="activite" className="border-t border-border/50">
         <div className="mx-auto max-w-[1240px] px-5 pb-14 pt-13 md:px-10">
           <div className="mb-6 flex items-baseline justify-between">
-            <div className="font-mono text-[11.5px] font-medium uppercase tracking-[.14em] text-accent">
-              Activité du marché
-            </div>
+            <h2 className="font-mono text-[11.5px] font-medium uppercase tracking-[.14em] text-accent">
+              Extraits du catalogue
+            </h2>
             <span className="font-mono text-[11.5px] tracking-[.08em] text-muted-foreground">
-              500+ DEMANDES TRAITÉES
+              INDICATIF — ÉVOLUTIF
             </span>
           </div>
           <div className="overflow-hidden rounded-xl border border-border">
-            {MARKET_ACTIVITY.map((row, i) => (
+            {CATALOGUE_EXTRACT.map((row, i) => (
               <div
-                key={row.when}
+                key={row.config}
                 className={`grid items-center gap-2 px-4 py-4 transition-colors hover:bg-card/50 md:grid-cols-[0.9fr_1.6fr_1fr_1.2fr] md:gap-4 md:px-[22px] ${
-                  i < MARKET_ACTIVITY.length - 1 ? "border-b border-border/70" : ""
+                  i < CATALOGUE_EXTRACT.length - 1 ? "border-b border-border/70" : ""
                 }`}
               >
                 <span className="font-mono text-[11.5px] tracking-[.08em] text-muted-foreground">
-                  {row.when}
+                  {row.family}
                 </span>
                 <span className="text-[14px] font-semibold">{row.config}</span>
                 <span className="font-mono text-[13px] text-foreground">{row.price}</span>
@@ -276,6 +327,48 @@ export default function Home() {
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Repères SEO : gammes, tarifs, souveraineté */}
+      <div className="border-t border-border/50">
+        <div className="mx-auto max-w-[1240px] px-5 pb-14 pt-13 md:px-10">
+          <h2 className="mb-[26px] font-mono text-[11.5px] font-medium uppercase tracking-[.14em] text-accent">
+            Location GPU : gammes, tarifs, souveraineté
+          </h2>
+          <div className="grid gap-[22px] md:grid-cols-3">
+            <div className="flex flex-col gap-2.5 rounded-[10px] border border-border p-6">
+              <h3 className="text-[16px] font-semibold uppercase tracking-[.02em]">Gammes GPU</h3>
+              <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
+                H100 et A100 80 Go, L40S 48 Go (inférence), RTX 4090 24 Go (R&D) en configurations
+                dédiées de 4 à 16 GPU. H200 et B200 mobilisables via l'appel au marché, selon
+                disponibilité des fournisseurs.{" "}
+                <Link href="/gpu-as-a-service/" className="text-accent hover:underline">
+                  Lire le guide GPU as a Service
+                </Link>
+              </p>
+            </div>
+            <div className="flex flex-col gap-2.5 rounded-[10px] border border-border p-6">
+              <h3 className="text-[16px] font-semibold uppercase tracking-[.02em]">Tarifs indicatifs</h3>
+              <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
+                De ≈ 1,2 €/GPU/h (RTX 4090) à ≈ 2,9–3,8 €/GPU/h (H100) en équivalent horaire dérivé
+                des prix mensuels du catalogue — jamais des prix garantis.{" "}
+                <Link href="/gpu-as-a-service/prix-location-gpu/" className="text-accent hover:underline">
+                  Voir la grille des prix de location GPU
+                </Link>
+              </p>
+            </div>
+            <div className="flex flex-col gap-2.5 rounded-[10px] border border-border p-6">
+              <h3 className="text-[16px] font-semibold uppercase tracking-[.02em]">Souveraineté &amp; RGPD</h3>
+              <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
+                Catalogue 100 % hébergé dans l'UE, dont une configuration à Paris ; hébergement
+                100 % France recherché via l'appel au marché.{" "}
+                <Link href="/gpu-as-a-service/gpu-souverain-france/" className="text-accent hover:underline">
+                  Découvrir le GPU souverain en France
+                </Link>
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -294,16 +387,16 @@ export default function Home() {
             </div>
             <div className="flex flex-col gap-2.5">
               <span className="font-mono text-[10.5px] font-semibold tracking-[.12em] text-muted-foreground">
-                PRODUIT
+                GPU AS A SERVICE
               </span>
-              <a href="#comment" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
-                Catalogue
+              <a href="/gpu-as-a-service/" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                Le guide de la location GPU
               </a>
-              <a href="#activite" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
-                Tarifs
+              <a href="/gpu-as-a-service/prix-location-gpu/" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                Prix de location d'un GPU
               </a>
-              <a href="#comment" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
-                FAQ
+              <a href="/gpu-as-a-service/gpu-souverain-france/" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                GPU souverain en France
               </a>
             </div>
             <div className="flex flex-col gap-2.5">
@@ -335,7 +428,7 @@ export default function Home() {
                 Confidentialité
               </a>
               <a href="/terms" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
-                CGV
+                CGU
               </a>
               <a href="/legal" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
                 Mentions légales

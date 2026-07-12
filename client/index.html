@@ -1,24 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 
   <head>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>DatacenterMarket — AI Compute &amp; Datacenter Capacity in 72h</title>    
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      content="width=device-width, initial-scale=1.0" />
+    <title>GPU as a Service : capacité GPU en 72 h | DatacenterMarket</title>
+    <meta
+      name="description"
+      content="Location GPU dédiée : comparez jusqu'à trois offres de fournisseurs européens et mobilisez votre capacité de calcul IA en 72 h. Hébergement UE, RGPD." />
+    <!-- Inter (400-800) et JetBrains Mono (400-700) sont auto-hébergées via @fontsource
+         (voir src/index.css) : font-display: swap, aucune requête vers une origine externe. -->
   </head>
 
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script
-      defer
-      src="%VITE_ANALYTICS_ENDPOINT%/umami"
-      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+    <!-- Umami : chargé depuis main.tsx si VITE_ANALYTICS_ENDPOINT est configuré au build
+         (un script inline serait bloqué par la CSP stricte de production). -->
   </body>
 
 </html>

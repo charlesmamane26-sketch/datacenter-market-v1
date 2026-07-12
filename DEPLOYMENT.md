@@ -228,3 +228,19 @@ Sentry is **wired** (server + client); it activates when the DSN is set — no c
 
 - Nothing outstanding from the original audit. Telemetry, Sentry, email notifications, and alerting
   are wired and only need their respective keys/DSN to activate.
+
+## 14. SEO / performance
+
+- **`VITE_SITE_URL` must be set at build time** (canonical domain): it drives the client
+  canonicals/Open Graph AND `sitemap.xml` / `robots.txt` / the prerendered pages (scripts
+  `seo:files` + `prerender`, both part of `pnpm build`). Default fallback is
+  `https://www.datacentermarket.fr` (to be validated).
+- **Enable gzip/brotli at the reverse proxy** (nginx/Caddy/CDN). The Express server serves
+  static files uncompressed (`server/_core` is off-limits), so HTTP compression — and most of
+  the mobile Lighthouse performance budget — must come from the proxy in front.
+- Public indexable routes are prerendered at build into `dist/public/<route>/index.html`;
+  the SPA fallback for unknown URLs serves the home snapshot (canonical → `/`), which is
+  expected — funnel routes are noindex + disallowed in robots.txt.
+- The Manus preview runtime (~625 KB of inline scripts) is excluded from production builds
+  (see `vite.config.ts`); it stays active in `pnpm dev`.
+- Fonts (Inter + JetBrains Mono) are self-hosted via `@fontsource` — no external font origin.

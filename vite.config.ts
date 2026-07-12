@@ -149,7 +149,13 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+// Le runtime Manus injecte ~625 ko de scripts inline (+ fonts) dans chaque HTML :
+// indispensable à l'environnement de préview Manus (dev), rédhibitoire pour les
+// performances en production. Exclu des builds (`vite build`), conservé en dev.
+const isViteBuild = process.argv.includes("build");
+const plugins = isViteBuild
+  ? [react(), tailwindcss()]
+  : [react(), tailwindcss(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
 
 export default defineConfig({
   plugins,

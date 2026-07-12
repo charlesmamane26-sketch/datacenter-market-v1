@@ -1,4 +1,3 @@
-import * as Sentry from "@sentry/react";
 import { trpc } from "@/lib/trpc";
 import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -11,21 +10,39 @@ import "./index.css";
 
 const queryClient = new QueryClient();
 
+// Import dynamique : le SDK Sentry (~100 ko) sort du bundle critique et n'est
+// chargé qu'aux builds où un DSN est configuré (perf Lighthouse, lot 4 SEO).
 if (import.meta.env.VITE_SENTRY_DSN) {
-  Sentry.init({
-    dsn: import.meta.env.VITE_SENTRY_DSN,
-    integrations: [
-      Sentry.browserTracingIntegration(),
-      Sentry.replayIntegration(),
-    ],
-    tracesSampleRate: 1.0,
-    // The API is same-origin (/api/*), so propagate tracing headers to this
-    // deployment's own origin rather than a hard-coded host.
-    tracePropagationTargets: ["localhost", `${window.location.origin}/api`],
-    replaysSessionSampleRate: 0.1,
-    replaysOnErrorSampleRate: 1.0,
+  import("@sentry/react").then(Sentry => {
+    Sentry.init({
+      dsn: import.meta.env.VITE_SENTRY_DSN,
+      integrations: [
+        Sentry.browserTracingIntegration(),
+        Sentry.replayIntegration(),
+      ],
+      tracesSampleRate: 1.0,
+      // The API is same-origin (/api/*), so propagate tracing headers to this
+      // deployment's own origin rather than a hard-coded host.
+      tracePropagationTargets: ["localhost", `${window.location.origin}/api`],
+      replaysSessionSampleRate: 0.1,
+      replaysOnErrorSampleRate: 1.0,
+    });
+    console.log("[Sentry] Client monitoring initialized.");
   });
-  console.log("[Sentry] Client monitoring initialized.");
+}
+
+// Umami (optionnel) : injecté depuis le bundle (pas d'inline dans index.html — la
+// CSP de production est stricte) et seulement si l'endpoint est configuré au build.
+// L'origine doit alors figurer dans CSP_EXTRA_ORIGINS (voir DEPLOYMENT.md §2).
+if (import.meta.env.VITE_ANALYTICS_ENDPOINT) {
+  const umami = document.createElement("script");
+  umami.defer = true;
+  umami.src = `${import.meta.env.VITE_ANALYTICS_ENDPOINT}/umami`;
+  umami.setAttribute(
+    "data-website-id",
+    import.meta.env.VITE_ANALYTICS_WEBSITE_ID ?? ""
+  );
+  document.head.appendChild(umami);
 }
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
