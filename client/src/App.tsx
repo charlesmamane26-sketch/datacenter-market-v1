@@ -9,6 +9,9 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 
 // Pages are code-split per route so heavy dependencies (charts, etc.) only load when needed.
 const Home = lazy(() => import("@/pages/Home"));
+const GpuAsAService = lazy(() => import("@/pages/GpuAsAService"));
+const GpuPrixLocation = lazy(() => import("@/pages/GpuPrixLocation"));
+const GpuSouverainFrance = lazy(() => import("@/pages/GpuSouverainFrance"));
 const WorkloadForm = lazy(() => import("@/pages/WorkloadForm"));
 const ProcessingScreen = lazy(() => import("@/pages/ProcessingScreen"));
 const ResultsScreen = lazy(() => import("@/pages/ResultsScreen"));
@@ -35,6 +38,9 @@ function Router() {
     <Suspense fallback={<PageFallback />}>
       <Switch>
         <Route path={"/"} component={Home} />
+        <Route path={"/gpu-as-a-service/prix-location-gpu"} component={GpuPrixLocation} />
+        <Route path={"/gpu-as-a-service/gpu-souverain-france"} component={GpuSouverainFrance} />
+        <Route path={"/gpu-as-a-service"} component={GpuAsAService} />
         <Route path={"/workload"} component={WorkloadForm} />
         <Route path={"/processing"} component={ProcessingScreen} />
         <Route path={"/results"} component={ResultsScreen} />

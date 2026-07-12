@@ -6,6 +6,7 @@
  * Ce module doit rester agnostique de l'environnement : pas de `window`,
  * pas de `process`, pas de `import.meta`.
  */
+import { GAAS_FAQ, faqJsonLd, serviceJsonLd } from "./seo-content";
 
 export const SITE_NAME = "DatacenterMarket";
 
@@ -44,8 +45,47 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/",
     title: "GPU as a Service : capacité GPU en 72 h | DatacenterMarket",
     description:
-      "Place de marché GPU : décrivez votre besoin, comparez jusqu'à 3 offres de fournisseurs européens et mobilisez votre capacité de calcul IA en 72 h.",
+      "Location GPU dédiée : comparez jusqu'à trois offres de fournisseurs européens et mobilisez votre capacité de calcul IA en 72 h. Hébergement UE, RGPD.",
     indexable: true,
+  },
+  {
+    pattern: "/gpu-as-a-service",
+    canonicalPath: "/gpu-as-a-service/",
+    title: "GPU as a Service : louer des GPU H100 à la demande",
+    description:
+      "Louez des GPU NVIDIA H100, A100, L40S à la demande en Europe. Jusqu'à 3 offres comparées, capacité mobilisée en 72 h, hébergement UE conforme RGPD.",
+    indexable: true,
+    breadcrumb: [
+      { name: "Accueil", path: "/" },
+      { name: "GPU as a Service", path: "/gpu-as-a-service/" },
+    ],
+    extraJsonLd: base => [serviceJsonLd(base), faqJsonLd(GAAS_FAQ)],
+  },
+  {
+    pattern: "/gpu-as-a-service/prix-location-gpu",
+    canonicalPath: "/gpu-as-a-service/prix-location-gpu/",
+    title: "Location GPU : prix indicatifs €/GPU/h – H100, A100, L40S",
+    description:
+      "Grille indicative de prix de location GPU : H100 ≈ 2,9–3,8 €/GPU/h, A100, L40S, RTX 4090. Facteurs de variation et offre chiffrée via appel au marché.",
+    indexable: true,
+    breadcrumb: [
+      { name: "Accueil", path: "/" },
+      { name: "GPU as a Service", path: "/gpu-as-a-service/" },
+      { name: "Prix de location GPU", path: "/gpu-as-a-service/prix-location-gpu/" },
+    ],
+  },
+  {
+    pattern: "/gpu-as-a-service/gpu-souverain-france",
+    canonicalPath: "/gpu-as-a-service/gpu-souverain-france/",
+    title: "GPU souverain : héberger vos workloads IA en France",
+    description:
+      "Cloud GPU souverain hébergé en UE, dont Paris : conformité RGPD, jusqu'à 3 offres comparées, capacité mobilisée en 72 h par appel au marché.",
+    indexable: true,
+    breadcrumb: [
+      { name: "Accueil", path: "/" },
+      { name: "GPU as a Service", path: "/gpu-as-a-service/" },
+      { name: "GPU souverain France", path: "/gpu-as-a-service/gpu-souverain-france/" },
+    ],
   },
   {
     pattern: "/terms",

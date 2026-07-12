@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { Link, useLocation } from "wouter";
+import { ArrowRight, Euro, FileSearch, Scale, Shield, Timer, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useLocation } from "wouter";
-import { ArrowRight, Zap, Shield, TrendingUp, Cpu } from "lucide-react";
+import SiteFooter from "@/components/marketing/SiteFooter";
+import SiteHeader from "@/components/marketing/SiteHeader";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { clearCheckoutIntent, loadCheckoutIntent } from "@/lib/checkoutIntent";
 
@@ -24,8 +26,13 @@ function CheckoutResume() {
   return null;
 }
 
+/**
+ * Page d'accueil (refonte SEO lot 3) : H1 « GPU as a Service », contenu français
+ * indexable, maillage vers la page pilier et les satellites, CTA /workload.
+ * Véracité : chiffres dérivés du catalogue (server/seed.ts) ; aucune statistique
+ * inventée (les anciens « 500+ requests » / « €2M+ » ont été retirés).
+ */
 export default function Home() {
-  const [, setLocation] = useLocation();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -35,233 +42,280 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {mounted && <CheckoutResume />}
-      {/* Header Navigation */}
-      <header className="border-b border-border/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container flex items-center justify-between h-16">
-          <div className="flex items-center gap-2">
-            <Cpu className="w-6 h-6 text-accent" />
-            <span className="font-bold text-lg">DatacenterMarket</span>
-          </div>
-          <nav className="hidden md:flex items-center gap-8">
-            <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Features
-            </a>
-            <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Pricing
-            </a>
-            <a href="#faq" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              FAQ
-            </a>
-          </nav>
-        </div>
-      </header>
+      <SiteHeader />
 
-      {/* Hero Section */}
-      <section className="relative overflow-hidden py-20 md:py-32">
+      {/* Héro */}
+      <section className="relative overflow-hidden py-20 md:py-28">
         <div className="absolute inset-0 bg-gradient-to-b from-accent/5 to-transparent pointer-events-none" />
-        
         <div className="container relative z-10">
           <div className="max-w-3xl mx-auto text-center space-y-8">
-            <div className="space-y-4">
+            <div className="space-y-6">
               <h1 className="text-4xl md:text-6xl font-bold tracking-tight">
-                Get AI Compute & Datacenter Capacity in <span className="text-accent">72h</span>
+                GPU as a Service : votre capacité GPU mobilisée en{" "}
+                <span className="text-accent">72 h</span> par appel au marché
               </h1>
-              <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
-                Instantly connect with GPU providers and datacenters across Europe. Compare infrastructure, get instant quotes, and provision in hours—not weeks.
+              <p className="text-lg md:text-xl text-muted-foreground">
+                DatacenterMarket est une place de marché de capacité GPU et datacenter, éditée par
+                Anavim Advisory. Vous décrivez votre besoin de calcul IA, nous mettons en
+                concurrence nos fournisseurs partenaires en Europe — opérateurs de datacenters et
+                clouds GPU — et vous comparez jusqu'à trois offres. Nous sommes un intermédiaire :
+                nous ne possédons ni n'exploitons les GPU.
+              </p>
+              <p className="text-muted-foreground max-w-2xl mx-auto">
+                Location GPU dédiée en souscription mensuelle, hébergée en France ou ailleurs dans
+                l'UE : tout le parcours est en ligne, du formulaire de besoin au paiement, avec
+                suivi depuis votre tableau de bord client.
               </p>
             </div>
 
-            {/* CTA Button */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
+            <div className="flex flex-col sm:flex-row gap-4 justify-center pt-2">
               <Button
+                asChild
                 size="lg"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold px-8 py-6 text-base"
-                onClick={() => setLocation("/workload")}
               >
-                Request Compute
-                <ArrowRight className="ml-2 w-5 h-5" />
+                <Link href="/workload">
+                  Décrire mon besoin GPU
+                  <ArrowRight className="ml-2 w-5 h-5" aria-hidden="true" />
+                </Link>
               </Button>
               <Button
+                asChild
                 size="lg"
                 variant="outline"
                 className="border-border hover:bg-card px-8 py-6 text-base"
-                onClick={() => setLocation("/pricing")}
               >
-                View Pricing
+                <Link href="/gpu-as-a-service/">Découvrir le GPU as a Service</Link>
               </Button>
             </div>
 
-            {/* Trust badges */}
-            <div className="flex flex-wrap justify-center gap-6 pt-8 text-sm text-muted-foreground">
+            <div className="flex flex-wrap justify-center gap-6 pt-6 text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-accent" />
-                <span>EU Compliant</span>
+                <Shield className="w-4 h-4 text-accent" aria-hidden="true" />
+                <span>Résidence des données UE</span>
               </div>
               <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 text-accent" />
-                <span>Instant Quotes</span>
+                <Scale className="w-4 h-4 text-accent" aria-hidden="true" />
+                <span>Jusqu'à trois offres comparées</span>
               </div>
               <div className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-accent" />
-                <span>99.9% SLA</span>
+                <Zap className="w-4 h-4 text-accent" aria-hidden="true" />
+                <span>Paiement en ligne sécurisé</span>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Features Section */}
-      <section id="features" className="py-20 border-t border-border/50">
-        <div className="container">
-          <div className="max-w-3xl mx-auto mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Why DatacenterMarket?</h2>
-            <p className="text-lg text-muted-foreground">
-              Eliminate the complexity of infrastructure sourcing. We handle provider matching, contract generation, and provisioning so you can focus on your workloads.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {/* Feature 1 */}
-            <div className="tech-card">
-              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                <Zap className="w-6 h-6 text-accent" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Lightning Fast</h3>
-              <p className="text-muted-foreground">
-                From request to provisioning in 24 hours. No lengthy sales cycles or manual negotiations.
-              </p>
-            </div>
-
-            {/* Feature 2 */}
-            <div className="tech-card">
-              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                <Shield className="w-6 h-6 text-accent" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Fully Compliant</h3>
-              <p className="text-muted-foreground">
-                All infrastructure is EU-based with GDPR compliance, high availability, and bare metal options.
-              </p>
-            </div>
-
-            {/* Feature 3 */}
-            <div className="tech-card">
-              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                <TrendingUp className="w-6 h-6 text-accent" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Transparent Pricing</h3>
-              <p className="text-muted-foreground">
-                Compare 3 vetted options side-by-side. No hidden fees, no surprise costs. Pay what you see.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Social Proof Section */}
-      <section className="py-20 border-t border-border/50 bg-card/50">
-        <div className="container">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Trusted by AI Teams</h2>
-            <p className="text-lg text-muted-foreground">
-              Leading AI companies rely on DatacenterMarket for fast, reliable infrastructure
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-4 gap-8 text-center">
-            <div className="space-y-2">
-              <p className="text-3xl font-bold text-accent">500+</p>
-              <p className="text-muted-foreground">Infrastructure Requests</p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-3xl font-bold text-accent">24h</p>
-              <p className="text-muted-foreground">Average Provisioning</p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-3xl font-bold text-accent">99.9%</p>
-              <p className="text-muted-foreground">Uptime SLA</p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-3xl font-bold text-accent">€2M+</p>
-              <p className="text-muted-foreground">Monthly Capacity</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
+      {/* Comment ça marche */}
       <section className="py-20 border-t border-border/50">
         <div className="container">
-          <div className="max-w-2xl mx-auto text-center space-y-8">
-            <div className="space-y-4">
-              <h2 className="text-3xl md:text-4xl font-bold">Ready to Get Started?</h2>
-              <p className="text-lg text-muted-foreground">
-                Tell us about your workload and we'll find the perfect infrastructure match in minutes.
+          <div className="max-w-3xl mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">
+              Comment ça marche : de votre besoin à l'infrastructure provisionnée
+            </h2>
+            <p className="text-lg text-muted-foreground">
+              Quatre étapes en ligne — la mise en concurrence, c'est notre rôle.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="tech-card">
+              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
+                <FileSearch className="w-6 h-6 text-accent" aria-hidden="true" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">1. Décrivez votre besoin</h3>
+              <p className="text-muted-foreground text-sm">
+                Type de charge de travail (entraînement, fine-tuning, inférence), nombre de GPU,
+                budget et contraintes, via un formulaire en ligne.
               </p>
             </div>
+            <div className="tech-card">
+              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
+                <Scale className="w-6 h-6 text-accent" aria-hidden="true" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">2. Comparez jusqu'à trois offres</h3>
+              <p className="text-muted-foreground text-sm">
+                Notre moteur de comparaison confronte votre besoin au catalogue et retient l'offre
+                au meilleur rapport qualité/prix, la plus rapide à déployer et la moins chère.
+              </p>
+            </div>
+            <div className="tech-card">
+              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
+                <Euro className="w-6 h-6 text-accent" aria-hidden="true" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">3. Commandez et payez en ligne</h3>
+              <p className="text-muted-foreground text-sm">
+                Paiement sécurisé (Stripe), facturation mensuelle, frais d'installation éventuels.
+              </p>
+            </div>
+            <div className="tech-card">
+              <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
+                <Timer className="w-6 h-6 text-accent" aria-hidden="true" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">4. Suivez le provisionnement</h3>
+              <p className="text-muted-foreground text-sm">
+                Le fournisseur retenu met l'infrastructure en service ; vous suivez l'avancement
+                depuis votre tableau de bord.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Pourquoi une place de marché */}
+      <section className="py-20 border-t border-border/50 bg-card/50">
+        <div className="container">
+          <h2 className="text-3xl md:text-4xl font-bold mb-12 max-w-3xl">
+            Pourquoi passer par une place de marché GPU
+          </h2>
+          <div className="grid md:grid-cols-2 gap-8">
+            <div className="space-y-2">
+              <h3 className="text-xl font-semibold">Comparaison systématique</h3>
+              <p className="text-muted-foreground">
+                Chaque demande déclenche un appel au marché, plutôt qu'une dépendance au tarif d'un
+                fournisseur unique.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-semibold">Prix issus du marché</h3>
+              <p className="text-muted-foreground">
+                Des offres établies selon configuration et engagement, à partir du catalogue —
+                indicatif et évolutif — de nos fournisseurs partenaires.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-semibold">Délais maîtrisés</h3>
+              <p className="text-muted-foreground">
+                Dès 24 h sur certaines configurations, 72 h sur plusieurs configurations phares,
+                jusqu'à 7 jours pour les options les plus économiques.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-semibold">Résidence des données dans l'UE</h3>
+              <p className="text-muted-foreground">
+                Les offres du catalogue sont hébergées dans l'Union européenne, dans une logique de
+                conformité RGPD.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Gammes GPU */}
+      <section className="py-20 border-t border-border/50">
+        <div className="container max-w-4xl">
+          <h2 className="text-3xl md:text-4xl font-bold mb-6">
+            Gammes GPU disponibles à la location
+          </h2>
+          <p className="text-muted-foreground mb-6">
+            Le catalogue couvre les principaux cas d'usage IA, en configurations dédiées (bare
+            metal chez nos fournisseurs partenaires) et facturation mensuelle. Il est indicatif et
+            évolutif.
+          </p>
+          <ul className="list-disc pl-6 space-y-2 text-muted-foreground mb-6">
+            <li>
+              NVIDIA H100 80 Go — entraînement et fine-tuning exigeants : clusters de 8 à 16 GPU à
+              Francfort, Paris et Amsterdam, délais de 24 h à 96 h, SLA de 99,9 % à 99,99 %.
+            </li>
+            <li>
+              NVIDIA A100 80 Go — polyvalent : pods de 4 à 8 GPU à Varsovie et Madrid, délais de 6
+              à 7 jours, SLA 99,5 %.
+            </li>
+            <li>NVIDIA L40S 48 Go — inférence : 8 GPU à Dublin, délai 72 h, SLA 99,5 %.</li>
+            <li>
+              NVIDIA RTX 4090 24 Go — R&D et budgets contraints : 8 GPU à Stockholm, délai 48 h,
+              SLA 99,0 %.
+            </li>
+          </ul>
+          <p className="text-muted-foreground">
+            Les H200 et B200 (Blackwell) ne figurent pas au catalogue standard à ce jour ; ils
+            peuvent être recherchés via l'appel au marché, selon disponibilité et tarifs des
+            fournisseurs. Pour approfondir, consultez notre guide{" "}
+            <Link href="/gpu-as-a-service/" className="text-accent hover:underline">
+              GPU as a Service : louer des GPU à la demande
+            </Link>
+            .
+          </p>
+        </div>
+      </section>
+
+      {/* Tarifs */}
+      <section className="py-20 border-t border-border/50 bg-card/50">
+        <div className="container max-w-4xl">
+          <h2 className="text-3xl md:text-4xl font-bold mb-6">Aperçu des tarifs de location GPU</h2>
+          <p className="text-muted-foreground mb-6">
+            Ordres de grandeur constatés sur notre catalogue, selon configuration et engagement —
+            jamais des prix garantis. Ils dérivent des prix mensuels (base 730 h/mois, hors frais
+            d'installation).
+          </p>
+          <ul className="list-disc pl-6 space-y-2 text-muted-foreground mb-6">
+            <li>NVIDIA H100 80 Go : environ 2,9 à 3,8 €/GPU/h en équivalent horaire.</li>
+            <li>NVIDIA A100 80 Go : environ 1,6 à 1,8 €/GPU/h.</li>
+            <li>NVIDIA RTX 4090 24 Go : environ 1,2 €/GPU/h pour la R&D.</li>
+          </ul>
+          <p className="text-muted-foreground">
+            Pour le détail par gamme et les facteurs de variation, consultez{" "}
+            <Link
+              href="/gpu-as-a-service/prix-location-gpu/"
+              className="text-accent hover:underline"
+            >
+              nos repères de prix de la location GPU
+            </Link>
+            .
+          </p>
+        </div>
+      </section>
+
+      {/* Souveraineté */}
+      <section className="py-20 border-t border-border/50">
+        <div className="container max-w-4xl">
+          <h2 className="text-3xl md:text-4xl font-bold mb-6">
+            Souveraineté et RGPD : un cloud GPU ancré en Europe
+          </h2>
+          <p className="text-muted-foreground mb-4">
+            Toutes les offres du catalogue sont hébergées dans l'Union européenne : la résidence
+            des données dans l'UE facilite la mise en conformité RGPD de vos traitements IA.
+          </p>
+          <p className="text-muted-foreground">
+            Une configuration du catalogue est hébergée à Paris ; un hébergement 100 % France peut
+            être recherché via l'appel au marché, selon disponibilité des fournisseurs partenaires.
+            Les certifications (SecNumCloud, HDS, ISO 27001) relèvent de chaque fournisseur :
+            vérifiez-les contractuellement selon vos exigences. Pour aller plus loin :{" "}
+            <Link
+              href="/gpu-as-a-service/gpu-souverain-france/"
+              className="text-accent hover:underline"
+            >
+              GPU souverain et hébergement en France
+            </Link>
+            .
+          </p>
+        </div>
+      </section>
+
+      {/* CTA final */}
+      <section className="py-20 border-t border-border/50">
+        <div className="container">
+          <div className="max-w-2xl mx-auto text-center space-y-6">
+            <h2 className="text-3xl md:text-4xl font-bold">Décrivez votre besoin, le marché répond</h2>
+            <p className="text-lg text-muted-foreground">
+              Quelques minutes suffisent pour décrire votre charge de travail et comparer jusqu'à
+              trois offres de nos fournisseurs partenaires.
+            </p>
             <Button
+              asChild
               size="lg"
               className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold px-8 py-6 text-base"
-              onClick={() => setLocation("/workload")}
             >
-              Request Compute
-              <ArrowRight className="ml-2 w-5 h-5" />
+              <Link href="/workload">
+                Décrire mon besoin GPU
+                <ArrowRight className="ml-2 w-5 h-5" aria-hidden="true" />
+              </Link>
             </Button>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-border/50 py-12 bg-card/30">
-        <div className="container">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
-            <div>
-              <h3 className="font-semibold mb-4">Product</h3>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="#" className="hover:text-foreground transition-colors">Features</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">Pricing</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">FAQ</a></li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-4">Company</h3>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="#" className="hover:text-foreground transition-colors">About</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">Blog</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">Contact</a></li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-4">Legal</h3>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="/privacy" className="hover:text-foreground transition-colors">Privacy</a></li>
-                <li><a href="/terms" className="hover:text-foreground transition-colors">Terms</a></li>
-                <li><a href="/legal" className="hover:text-foreground transition-colors">Legal Notice</a></li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-4">Connect</h3>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="#" className="hover:text-foreground transition-colors">Twitter</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">LinkedIn</a></li>
-                <li><a href="#" className="hover:text-foreground transition-colors">GitHub</a></li>
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-border/50 pt-8 space-y-4">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-sm text-muted-foreground">
-              <div>
-                <p className="font-semibold text-foreground mb-1">DatacenterMarket</p>
-                <p className="text-xs">A service of Anavim Advisory SAS</p>
-                <p className="text-xs mt-2">10 Rue du Colisee, 75008 Paris, France</p>
-              </div>
-              <div className="text-right">
-                <p>&copy; 2026 DatacenterMarket. All rights reserved.</p>
-                <p className="text-xs mt-1"><a href="https://www.anavimadvisory.com" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Learn more about Anavim Advisory</a></p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
