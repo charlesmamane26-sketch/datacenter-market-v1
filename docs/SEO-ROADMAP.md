@@ -29,17 +29,27 @@ auto-hébergées, page pilier `/gpu-as-a-service/` + satellites, contenu FR cibl
   en PNG pour le *logo rich result* Google.
 - Étoffer la profondeur éditoriale des satellites (chaque page = 1 intention de recherche précise).
 
-## Phase 2 — International : version anglaise + hreflang (À PLANIFIER)
+## Phase 2 — International : version anglaise + hreflang (FONDATION LIVRÉE)
 
-C'est **le** levier pour l'Europe non-francophone et le monde (tes datacenters phares sont à Francfort
-et Amsterdam — recherche en anglais).
+Levier principal pour l'Europe non-francophone et le monde (datacenters phares à Francfort/Amsterdam —
+recherche en anglais). **Livré dans cette itération :**
 
-- Version **`/en`** du contenu indexable (accueil, pilier, satellites, mentions légales EN).
-- `hreflang` complet : `fr-FR`, `en`, `x-default` croisés entre les deux versions.
-- Ciblage requêtes anglophones : *sovereign GPU cloud Europe*, *rent H100 Europe*, *GDPR GPU hosting*.
-- **À valider avant de lancer :** la traduction devra être **relue par toi** (conseil juridique — le
-  contenu FR est précis et engageant la responsabilité) ; et le double jeu de contenu double la
-  maintenance éditoriale.
+- **Infrastructure i18n** : `RouteSeo` porte `lang` + un cluster `hreflang` réciproque ; `SeoManager`
+  (runtime) **et** `scripts/prerender.ts` (build) émettent `<html lang>`, les `hreflang` croisés
+  (`fr-FR` / `en` / `x-default`) et `og:locale` par langue.
+- **Landing anglaise `/en`** (`client/src/pages/LandingEn.tsx`) : page indexable, **prérendue**,
+  contenu natif anglais (hero, how-it-works, catalogue, souveraineté/RGPD, FAQ) + JSON-LD anglais
+  (`WebSite`, `Service`, `FAQPage`).
+- **hreflang croisés** `/` ↔ `/en/` (réciproques) ; `/en/` ajoutée au `sitemap.xml`.
+- **Sélecteur de langue** FR/EN dans les en-têtes.
+- Ciblage : *GPU as a service Europe*, *rent H100 Europe*, *sovereign GPU EU*, *GDPR GPU hosting*.
+
+**Reste à faire (itérations suivantes — contenu à faire relire par toi) :**
+- Versions EN du **pilier** (`/en/gpu-as-a-service`) et des **satellites** (prix, souveraineté) :
+  l'infra hreflang est prête — ajouter les pages + les entrées `SEO_ROUTES` avec leur cluster.
+- **Mentions légales EN** — relecture juridique indispensable (Anavim est un conseil).
+- **Localisation du tunnel** (`/workload` → checkout) : aujourd'hui le CTA « Request capacity » de la
+  landing EN mène au formulaire **français**.
 
 ## Hors code — indispensable et déterminant (tes actions)
 

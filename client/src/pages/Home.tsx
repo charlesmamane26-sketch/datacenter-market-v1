@@ -127,6 +127,13 @@ export default function Home() {
           >
             Mon compte
           </button>
+          <Link
+            href="/en"
+            hrefLang="en"
+            className="rounded-full border border-border px-3 py-1 font-mono text-[11px] tracking-[.06em] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            EN
+          </Link>
           <span className="font-mono text-[11.5px] tracking-[.08em] text-muted-foreground">{clock} UTC</span>
           <MarketOpenChip />
         </div>

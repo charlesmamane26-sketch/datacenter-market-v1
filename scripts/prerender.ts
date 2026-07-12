@@ -25,7 +25,10 @@ import {
   SEO_ROUTES,
   SITE_NAME,
   absoluteUrl,
+  hreflangAlternates,
+  htmlLang,
   jsonLdForRoute,
+  ogLocale,
   type RouteSeo,
 } from "../shared/seo";
 
@@ -57,14 +60,15 @@ function headBlock(route: RouteSeo): string {
     `<meta name="description" content="${escapeAttr(route.description)}" />`,
     `<meta name="robots" content="index,follow" />`,
     `<link rel="canonical" href="${canonical}" />`,
-    `<link rel="alternate" hreflang="fr-FR" href="${canonical}" />`,
-    `<link rel="alternate" hreflang="x-default" href="${canonical}" />`,
+    ...hreflangAlternates(route, base).map(
+      alt => `<link rel="alternate" hreflang="${alt.hreflang}" href="${alt.href}" />`,
+    ),
     `<meta property="og:title" content="${escapeAttr(route.title)}" />`,
     `<meta property="og:description" content="${escapeAttr(route.description)}" />`,
     `<meta property="og:url" content="${canonical}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:site_name" content="${escapeAttr(SITE_NAME)}" />`,
-    `<meta property="og:locale" content="fr_FR" />`,
+    `<meta property="og:locale" content="${ogLocale(route)}" />`,
     `<meta property="og:image" content="${ogImage}" />`,
     `<meta property="og:image:alt" content="${escapeAttr(route.title)}" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
@@ -126,6 +130,8 @@ async function main() {
     // Remplacements par fonction : le contenu peut contenir des séquences `$…`
     // que String.replace interpréterait dans une chaîne de remplacement.
     let html = template.replace(DESC_RE, "");
+    // Fixe <html lang> selon la langue de la route (le template est en "fr").
+    html = html.replace(/<html lang="[^"]*">/, () => `<html lang="${htmlLang(route)}">`);
     html = html.replace(TITLE_RE, () => headBlock(route));
     html = html.replace(ROOT_RE, () => `<div id="root">${appHtml}</div>`);
 
