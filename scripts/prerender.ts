@@ -20,6 +20,7 @@ import { pathToFileURL } from "node:url";
 import react from "@vitejs/plugin-react";
 import { build } from "vite";
 import {
+  DEFAULT_OG_IMAGE,
   DEFAULT_SITE_URL,
   SEO_ROUTES,
   SITE_NAME,
@@ -43,6 +44,7 @@ const escapeAttr = (s: string) =>
 
 function headBlock(route: RouteSeo): string {
   const canonical = absoluteUrl(base, route.canonicalPath);
+  const ogImage = absoluteUrl(base, route.ogImage ?? DEFAULT_OG_IMAGE);
   const jsonLd = jsonLdForRoute(route, base)
     .map(
       block =>
@@ -55,15 +57,20 @@ function headBlock(route: RouteSeo): string {
     `<meta name="description" content="${escapeAttr(route.description)}" />`,
     `<meta name="robots" content="index,follow" />`,
     `<link rel="canonical" href="${canonical}" />`,
+    `<link rel="alternate" hreflang="fr-FR" href="${canonical}" />`,
+    `<link rel="alternate" hreflang="x-default" href="${canonical}" />`,
     `<meta property="og:title" content="${escapeAttr(route.title)}" />`,
     `<meta property="og:description" content="${escapeAttr(route.description)}" />`,
     `<meta property="og:url" content="${canonical}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:site_name" content="${escapeAttr(SITE_NAME)}" />`,
     `<meta property="og:locale" content="fr_FR" />`,
-    `<meta name="twitter:card" content="summary" />`,
+    `<meta property="og:image" content="${ogImage}" />`,
+    `<meta property="og:image:alt" content="${escapeAttr(route.title)}" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${escapeAttr(route.title)}" />`,
     `<meta name="twitter:description" content="${escapeAttr(route.description)}" />`,
+    `<meta name="twitter:image" content="${ogImage}" />`,
     jsonLd,
   ].join("\n    ");
 }
