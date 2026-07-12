@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
+import { setLangPref } from "@/lib/langPref";
 import { alternatePath, matchRouteSeo } from "@shared/seo";
 
 /**
@@ -24,6 +25,7 @@ export function LanguageSwitcher({ className }: { className?: string }) {
       href={href}
       hrefLang={target}
       aria-label={aria}
+      onClick={() => setLangPref(target)}
       className={cn(
         "rounded-full border border-border px-3 py-1 font-mono text-[11px] tracking-[.06em] text-muted-foreground transition-colors hover:text-foreground",
         className,
