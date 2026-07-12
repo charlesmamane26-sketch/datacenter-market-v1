@@ -1,16 +1,18 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { ArrowRight, Zap, Shield, TrendingUp, Cpu } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { clearCheckoutIntent, loadCheckoutIntent } from "@/lib/checkoutIntent";
 
-export default function Home() {
+// Resume a checkout interrupted by login: OAuth returns the user to "/", so we
+// forward them back to the checkout they started (consuming the intent once).
+// Kept in a client-only child because useAuth touches localStorage during render,
+// which would crash the build-time prerender (see scripts/prerender.ts).
+function CheckoutResume() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, loading } = useAuth();
 
-  // Resume a checkout interrupted by login: OAuth returns the user to "/", so we
-  // forward them back to the checkout they started (consuming the intent once).
   useEffect(() => {
     if (loading || !isAuthenticated) return;
     const intent = loadCheckoutIntent();
@@ -19,8 +21,20 @@ export default function Home() {
     setLocation(`/checkout?offerId=${intent.offerId}&leadId=${intent.leadId}`);
   }, [loading, isAuthenticated, setLocation]);
 
+  return null;
+}
+
+export default function Home() {
+  const [, setLocation] = useLocation();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {mounted && <CheckoutResume />}
       {/* Header Navigation */}
       <header className="border-b border-border/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container flex items-center justify-between h-16">
