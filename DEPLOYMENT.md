@@ -21,9 +21,13 @@ Tick these before every production deploy. Details in the linked sections.
       **build** time.
 
 **Database (§5)**
-- [ ] `pnpm db:push` applies migrations **`0002`** (indexes on FK columns) and **`0003`**
-      (drops the unused `offers.category` column). Review the SQL first; both are non-destructive
-      to data except the intended `DROP COLUMN category`.
+- [ ] `pnpm db:push` applies all pending migrations. The latest is **`0004`** — adds nullable
+      `leads.consentedAt` + `leads.consentPolicyVersion` (RGPD proof-of-consent); additive, no
+      downtime. Earlier: **`0002`** (indexes on FK columns), **`0003`** (drops the unused
+      `offers.category` column). Review the SQL first.
+- [ ] ⚠️ **Apply migrations _before_ deploying the new code.** `leads.create` now writes the consent
+      columns, so shipping the code ahead of migration `0004` breaks lead capture. The migration is
+      backward-compatible (old code ignores the new columns), so it is safe to apply a bit early.
 
 **Install / build (§3)**
 - [ ] `pnpm install` (full set — not `--prod`; regenerates `pnpm-lock.yaml` and pulls the optional
@@ -109,16 +113,21 @@ the build args above.)
 - `pnpm db:push` runs `drizzle-kit generate && drizzle-kit migrate`. Run it on every deploy
   that changes `drizzle/schema.ts`.
 - Migrations live in `drizzle/`. Review generated SQL before applying in production.
-- Current pending migrations: **`0002`** adds indexes on the FK columns (`leads.userId`,
-  `orders.userId`+`createdAt`, `orders.leadId`, `orders.offerId`, `provisioningEvents.orderId`,
-  `infrastructureMetrics.orderId`+`recordedAt`) — query-pattern aligned, no data change; **`0003`**
-  drops the unused `offers.category` column (the matching engine computes views per lead, and the
-  API still attaches `category` to each offer at response time).
+- **Apply migrations before deploying the new server code** (see §0): `leads.create` writes the
+  consent columns added by `0004`.
+- Migrations: **`0002`** adds indexes on the FK columns (`leads.userId`, `orders.userId`+`createdAt`,
+  `orders.leadId`, `orders.offerId`, `provisioningEvents.orderId`, `infrastructureMetrics.orderId`+
+  `recordedAt`) — query-pattern aligned, no data change; **`0003`** drops the unused `offers.category`
+  column (the matching engine computes views per lead, and the API still attaches `category` to each
+  offer at response time); **`0004`** adds `leads.consentedAt` + `leads.consentPolicyVersion` (both
+  nullable) to record RGPD proof-of-consent — additive, no data change.
 
 ## 6. RGPD data retention (cron)
 
 Schedule the retention job to purge stale, unconverted leads (default 24 months,
-`LEAD_RETENTION_DAYS`). It never deletes leads tied to an order.
+`LEAD_RETENTION_DAYS`). It deletes every non-`converted` lead past the window (including
+abandoned `offered`/`qualified` prospects) and only spares leads still tied to a **non-cancelled**
+order — so PII from abandoned checkouts is not retained indefinitely.
 
 ```bash
 pnpm db:purge
@@ -145,7 +154,7 @@ pending/unpaid past `STALE_ORDER_HOURS` (default 24h). Paid orders are never aff
 - **Health endpoint**: `GET /health` returns `{ "status": "ok" }` for liveness probes.
 - **No structured logging / error monitoring** (Sentry) — deferred (needs a dependency).
 - **Rate limiting** covers `leads.create` (5/min/IP), `/api/oauth/callback` (20/min/IP), the Stripe
-  webhook (100/min/IP), and `checkout` (10/min/user). The store is in-memory by default
+  webhook (100/min/IP), and both `orders.create` and `checkout` (10/min/user). The store is in-memory by default
   (**process-local**) and switches to a shared Redis sliding-window when `REDIS_URL` is set — set it
   for multi-instance deployments. Set `app.set("trust proxy", ...)` so `req.ip` is accurate behind a
   load balancer (already done in production via `TRUST_PROXY_HOPS`).
@@ -163,16 +172,23 @@ Checkout uses **Stripe-hosted Checkout** (subscription mode) with a signed webho
 source of truth for payment status.
 
 1. Set `STRIPE_SECRET_KEY` (runtime).
-2. In the Stripe dashboard, add a webhook endpoint pointing at `POST /api/stripe/webhook`,
-   subscribe to `checkout.session.completed`, and put its signing secret in
-   `STRIPE_WEBHOOK_SECRET`.
+2. In the Stripe dashboard, add a webhook endpoint pointing at `POST /api/stripe/webhook`, put its
+   signing secret in `STRIPE_WEBHOOK_SECRET`, and subscribe to:
+   - `checkout.session.completed` (required);
+   - `checkout.session.async_payment_succeeded` **and** `checkout.session.async_payment_failed`
+     — **required if you enable a deferred payment method** (SEPA debit, bank transfer…). The
+     handler only fulfils on `payment_status === "paid"` and reconciles async outcomes via these
+     events. Card-only checkout needs just `checkout.session.completed`.
 3. Behind a load balancer, set `app.set("trust proxy", ...)` so request origins / IPs resolve.
 
 Flow: `orders.checkout` creates a pending order + a Checkout Session and returns its URL; the
-browser is redirected to Stripe; on success Stripe returns to `/confirmation?orderId=...`; the
-webhook flips the order to `paymentStatus: succeeded` / `status: processing`. Until
-`STRIPE_SECRET_KEY` is set, `orders.checkout` returns `SERVICE_UNAVAILABLE`.
-`orders.updatePaymentStatus` / `updateStatus` stay admin-only (the webhook writes status).
+browser is redirected to Stripe; on success Stripe returns to `/confirmation?orderId=...`. The
+webhook flips the order to `paymentStatus: succeeded` / `status: processing` **only when the session
+is actually paid** (`payment_status === "paid"` / `no_payment_required`); a completed-but-unpaid
+async session stays pending until its `async_payment_succeeded`/`_failed` event arrives (a failure
+cancels the order). Until `STRIPE_SECRET_KEY` is set, `orders.checkout` returns
+`SERVICE_UNAVAILABLE`. `orders.updatePaymentStatus` / `updateStatus` stay admin-only (the webhook
+writes status; `updatePaymentStatus` never drags an already-advanced order back to `pending`).
 
 > The setup fee is sent as a one-time line item alongside the recurring monthly price. If your
 > Stripe API version rejects one-time items in subscription mode, move it to
