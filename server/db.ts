@@ -1,4 +1,4 @@
-import { eq, desc, lt, and, inArray, notInArray } from "drizzle-orm";
+import { eq, desc, lt, and, notInArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, leads, offers, orders, provisioningEvents, infrastructureMetrics } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -135,8 +135,16 @@ export async function deleteLead(id: number) {
 }
 
 /**
- * RGPD retention: deletes unconverted leads (status new/rejected) older than `days`,
- * never touching leads that resulted in an order. Run via `pnpm db:purge`.
+ * RGPD retention: deletes every non-converted lead older than `days`. Run via
+ * `pnpm db:purge`.
+ *
+ * "Non-converted" = any status except `converted` (a real customer with a paid
+ * order — kept as a business record). Crucially this includes `offered`/
+ * `qualified` prospects whose checkout was abandoned: previously those were never
+ * purged (status filter too narrow) and, because they carried a — later
+ * cancelled — order row, the order guard excluded them too, so their PII lingered
+ * indefinitely past the retention window. A lead is now protected from erasure
+ * only while it is referenced by a *live* (non-cancelled) order.
  */
 export async function purgeLeadsOlderThan(days: number) {
   const db = await getDb();
@@ -144,13 +152,17 @@ export async function purgeLeadsOlderThan(days: number) {
 
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  // Never delete leads tied to an order (referential integrity + business record).
-  const orderRows = await db.select({ leadId: orders.leadId }).from(orders);
+  // Protect only leads tied to a live order. Cancelled orders (abandoned
+  // checkouts) do not keep their lead's PII out of the purge.
+  const orderRows = await db
+    .select({ leadId: orders.leadId })
+    .from(orders)
+    .where(notInArray(orders.status, ["cancelled"]));
   const referencedLeadIds = orderRows.map(row => row.leadId);
 
   const conditions = [
     lt(leads.createdAt, cutoff),
-    inArray(leads.status, ["new", "rejected"]),
+    notInArray(leads.status, ["converted"]),
   ];
   if (referencedLeadIds.length > 0) {
     conditions.push(notInArray(leads.id, referencedLeadIds));

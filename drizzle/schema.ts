@@ -49,6 +49,12 @@ export const leads = mysqlTable("leads", {
   // Selected offer reference
   selectedOfferId: int("selectedOfferId"),
 
+  // RGPD proof-of-consent (Art. 7-1): set server-side by leads.create when the
+  // capture carries explicit consent. Null only for rows created before consent
+  // was recorded. consentPolicyVersion pins which policy text was accepted.
+  consentedAt: timestamp("consentedAt"),
+  consentPolicyVersion: varchar("consentPolicyVersion", { length: 32 }),
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [

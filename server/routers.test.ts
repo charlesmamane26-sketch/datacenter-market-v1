@@ -1,16 +1,21 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { appRouter } from "./routers";
 import {
+  createLead,
   createOrder,
   createProvisioningEvent,
   deleteLead,
   getAllLeads,
+  getAllOffers,
   getAllOrders,
   getLead,
   getOffer,
   getOrder,
   updateLead,
+  updateOrder,
 } from "./db";
+import { signLeadClaim } from "./leadClaim";
+import { __resetRateLimit } from "./rateLimit";
 import type { TrpcContext } from "./_core/context";
 
 // Unit-test authorization & pricing logic without a real database by mocking the db layer.
@@ -58,6 +63,9 @@ function ctxFor(user: TrpcContext["user"]): TrpcContext {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // enforceRateLimit is NOT mocked here (only ./db is), so reset the in-memory
+  // limiter between tests to keep per-user/IP counters deterministic.
+  __resetRateLimit();
 });
 
 describe("orders.get authorization (IDOR contract)", () => {
@@ -215,16 +223,31 @@ describe("orders.create lead ownership (IDOR contract)", () => {
     expect(updateLead).not.toHaveBeenCalled();
   });
 
-  it("claims an anonymous lead (userId null) for the ordering user", async () => {
+  it("claims an anonymous lead (userId null) with a valid claim token", async () => {
     vi.mocked(getLead).mockResolvedValue({ id: 3, userId: null } as any);
     const caller = appRouter.createCaller(ctxFor(makeUser(1)));
-    await expect(caller.orders.create({ leadId: 3, offerId: 7 })).resolves.toMatchObject({
-      id: 42,
-    });
+    await expect(
+      caller.orders.create({ leadId: 3, offerId: 7, claimToken: signLeadClaim(3) }),
+    ).resolves.toMatchObject({ id: 42 });
     expect(updateLead).toHaveBeenCalledWith(
       3,
       expect.objectContaining({ status: "offered", selectedOfferId: 7, userId: 1 }),
     );
+  });
+
+  it("refuses to claim an anonymous lead without a valid claim token (IDOR fix)", async () => {
+    vi.mocked(getLead).mockResolvedValue({ id: 3, userId: null } as any);
+    const caller = appRouter.createCaller(ctxFor(makeUser(1)));
+    // No token: an attacker enumerating lead IDs cannot claim/hijack the lead.
+    await expect(caller.orders.create({ leadId: 3, offerId: 7 })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    // Wrong token (e.g. computed for a different lead) is rejected too.
+    await expect(
+      caller.orders.create({ leadId: 3, offerId: 7, claimToken: signLeadClaim(999) }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(createOrder).not.toHaveBeenCalled();
+    expect(updateLead).not.toHaveBeenCalled();
   });
 
   it("keeps the existing owner on an owned lead", async () => {
@@ -267,11 +290,43 @@ describe("leads.create input bounds", () => {
   it("rejects oversized strings and non-positive budgets", async () => {
     const caller = appRouter.createCaller(ctxFor(null));
     await expect(
-      caller.leads.create({ email: "a@b.com", company: "x".repeat(256) }),
+      caller.leads.create({ email: "a@b.com", company: "x".repeat(256), consent: true }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
-      caller.leads.create({ email: "a@b.com", monthlyBudget: -100 }),
+      caller.leads.create({ email: "a@b.com", monthlyBudget: -100, consent: true }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+describe("leads.create RGPD consent", () => {
+  it("rejects capture without explicit consent", async () => {
+    const caller = appRouter.createCaller(ctxFor(null));
+    // Missing consent.
+    await expect(
+      caller.leads.create({ email: "a@b.com" } as any),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // consent:false is not accepted (z.literal(true)).
+    await expect(
+      caller.leads.create({ email: "a@b.com", consent: false } as any),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(createLead).not.toHaveBeenCalled();
+  });
+
+  it("records proof of consent and returns a claim token", async () => {
+    vi.mocked(createLead).mockResolvedValue([{ insertId: 77 }] as any);
+    const caller = appRouter.createCaller(ctxFor(null));
+    const result = await caller.leads.create({ email: "a@b.com", consent: true });
+    // consentedAt (a Date) + policy version are persisted for accountability.
+    expect(createLead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "a@b.com",
+        consentedAt: expect.any(Date),
+        consentPolicyVersion: expect.any(String),
+      }),
+    );
+    // The creator gets the capability token needed to later claim the lead.
+    expect(result.id).toBe(77);
+    expect(result.claimToken).toBe(signLeadClaim(77));
   });
 });
 
@@ -305,6 +360,66 @@ describe("admin.stats (real KPIs)", () => {
   it("forbids non-admin callers", async () => {
     const caller = appRouter.createCaller(ctxFor(makeUser(1)));
     await expect(caller.admin.stats()).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("offers.match does not leak a lead's private criteria", () => {
+  // Cheaper offer has a non-requested GPU; the requested GPU is pricier. If the
+  // lead's criteria are (illegitimately) applied, the pool is filtered to H100 and
+  // "cheapest" becomes the H100 offer; otherwise it's the globally cheapest A100.
+  const catalogue = [
+    { id: 1, gpuType: "A100", monthlyPrice: "1000", setupFee: "0", deploymentTime: "48h" },
+    { id: 2, gpuType: "H100", monthlyPrice: "5000", setupFee: "0", deploymentTime: "24h" },
+  ];
+  const anonLead = { id: 5, userId: null, gpuRequirement: "h100", monthlyBudget: null };
+
+  const cheapestId = (offers: any[]) => offers.find(o => o.category === "cheapest")?.id;
+
+  beforeEach(() => {
+    vi.mocked(getAllOffers).mockResolvedValue(catalogue as any);
+    vi.mocked(getLead).mockResolvedValue(anonLead as any);
+  });
+
+  it("ignores leadId for an anonymous caller with no claim token", async () => {
+    const caller = appRouter.createCaller(ctxFor(null));
+    const offers = await caller.offers.match({ leadId: 5 });
+    expect(cheapestId(offers)).toBe(1); // full-catalogue ranking, criteria NOT applied
+  });
+
+  it("applies the lead's criteria when a valid claim token is presented", async () => {
+    const caller = appRouter.createCaller(ctxFor(null));
+    const offers = await caller.offers.match({ leadId: 5, claimToken: signLeadClaim(5) });
+    expect(cheapestId(offers)).toBe(2); // pool filtered to the requested H100
+  });
+});
+
+describe("orders.updatePaymentStatus (admin) does not regress lifecycle", () => {
+  it("advances a still-pending order to processing on success", async () => {
+    vi.mocked(getOrder).mockResolvedValue({ id: 10, status: "pending" } as any);
+    const caller = appRouter.createCaller(ctxFor(makeUser(99, "admin")));
+    await caller.orders.updatePaymentStatus({ id: 10, paymentStatus: "succeeded" });
+    expect(updateOrder).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({ paymentStatus: "succeeded", status: "processing" }),
+    );
+  });
+
+  it("does NOT drag an active order back to pending when payment is marked failed", async () => {
+    vi.mocked(getOrder).mockResolvedValue({ id: 10, status: "active" } as any);
+    const caller = appRouter.createCaller(ctxFor(makeUser(99, "admin")));
+    await caller.orders.updatePaymentStatus({ id: 10, paymentStatus: "failed" });
+    // paymentStatus updates, but status is left untouched (no "pending" override).
+    const call = vi.mocked(updateOrder).mock.calls[0][1] as Record<string, unknown>;
+    expect(call.paymentStatus).toBe("failed");
+    expect(call).not.toHaveProperty("status");
+  });
+
+  it("does not re-run provisioning by re-deriving processing on an already-active order", async () => {
+    vi.mocked(getOrder).mockResolvedValue({ id: 10, status: "active" } as any);
+    const caller = appRouter.createCaller(ctxFor(makeUser(99, "admin")));
+    await caller.orders.updatePaymentStatus({ id: 10, paymentStatus: "succeeded" });
+    const call = vi.mocked(updateOrder).mock.calls[0][1] as Record<string, unknown>;
+    expect(call).not.toHaveProperty("status"); // stays "active", not reset to "processing"
   });
 });
 

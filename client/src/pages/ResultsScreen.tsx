@@ -9,6 +9,7 @@ import {
   PageTitle,
 } from "@/components/market";
 import { loadWorkloadRecap } from "@/lib/workloadRecap";
+import { loadLeadClaim } from "@/lib/leadClaim";
 
 type Category = "best_value" | "fastest" | "cheapest";
 
@@ -129,7 +130,9 @@ export default function ResultsScreen() {
   const leadId =
     leadIdParam && Number.isFinite(Number(leadIdParam)) ? Number(leadIdParam) : undefined;
   const { data: offers, isLoading } = trpc.offers.match.useQuery(
-    leadId != null ? { leadId } : {},
+    // The claim token lets the server tailor the ranking to this lead's private
+    // criteria; without it the match falls back to the full-catalogue ranking.
+    leadId != null ? { leadId, claimToken: loadLeadClaim(leadId) } : {},
   );
   const recap = loadWorkloadRecap();
 

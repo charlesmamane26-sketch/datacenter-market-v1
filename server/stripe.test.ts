@@ -42,11 +42,11 @@ describe("buildCheckoutSessionParams", () => {
 });
 
 describe("applyStripeEvent", () => {
-  it("marks the order paid and converts the lead on checkout.session.completed", async () => {
+  it("marks the order paid and converts the lead on a paid checkout.session.completed", async () => {
     vi.mocked(getOrder).mockResolvedValue({ id: 42, leadId: 3, offerId: 7 } as any);
     const event = {
       type: "checkout.session.completed",
-      data: { object: { metadata: { orderId: "42" }, subscription: "sub_123" } },
+      data: { object: { metadata: { orderId: "42" }, subscription: "sub_123", payment_status: "paid" } },
     } as any;
     const handled = await applyStripeEvent(event);
     expect(handled).toBe(true);
@@ -59,11 +59,57 @@ describe("applyStripeEvent", () => {
     expect(updateLead).toHaveBeenCalledWith(3, { status: "converted", selectedOfferId: 7 });
   });
 
+  it("treats no_payment_required (100%-off) as paid", async () => {
+    vi.mocked(getOrder).mockResolvedValue({ id: 42, leadId: 3, offerId: 7 } as any);
+    const event = {
+      type: "checkout.session.completed",
+      data: { object: { metadata: { orderId: "42" }, payment_status: "no_payment_required" } },
+    } as any;
+    expect(await applyStripeEvent(event)).toBe(true);
+    expect(updateOrder).toHaveBeenCalledWith(42, expect.objectContaining({ paymentStatus: "succeeded" }));
+  });
+
+  it("does NOT mark paid when a completed session is still unpaid (async method pending)", async () => {
+    vi.mocked(getOrder).mockResolvedValue({ id: 42, leadId: 3, offerId: 7, status: "pending" } as any);
+    const event = {
+      type: "checkout.session.completed",
+      data: { object: { metadata: { orderId: "42" }, payment_status: "unpaid" } },
+    } as any;
+    const handled = await applyStripeEvent(event);
+    expect(handled).toBe(true); // acknowledged; nothing to do yet
+    expect(updateOrder).not.toHaveBeenCalled(); // must not provision/convert on an unpaid session
+    expect(updateLead).not.toHaveBeenCalled();
+  });
+
+  it("marks paid on checkout.session.async_payment_succeeded", async () => {
+    vi.mocked(getOrder).mockResolvedValue({ id: 42, leadId: 3, offerId: 7 } as any);
+    const event = {
+      type: "checkout.session.async_payment_succeeded",
+      data: { object: { metadata: { orderId: "42" }, payment_intent: "pi_9", payment_status: "paid" } },
+    } as any;
+    expect(await applyStripeEvent(event)).toBe(true);
+    expect(updateOrder).toHaveBeenCalledWith(
+      42,
+      expect.objectContaining({ paymentStatus: "succeeded", stripePaymentIntentId: "pi_9" }),
+    );
+  });
+
+  it("cancels the order on checkout.session.async_payment_failed", async () => {
+    vi.mocked(getOrder).mockResolvedValue({ id: 42, leadId: 3, offerId: 7, paymentStatus: "pending" } as any);
+    const event = {
+      type: "checkout.session.async_payment_failed",
+      data: { object: { metadata: { orderId: "42" } } },
+    } as any;
+    expect(await applyStripeEvent(event)).toBe(true);
+    expect(updateOrder).toHaveBeenCalledWith(42, { paymentStatus: "failed", status: "cancelled" });
+    expect(updateLead).not.toHaveBeenCalled(); // lead stays "offered", not converted
+  });
+
   it("falls back to client_reference_id and payment_intent", async () => {
     vi.mocked(getOrder).mockResolvedValue({ id: 99, leadId: 5, offerId: 8 } as any);
     const event = {
       type: "checkout.session.completed",
-      data: { object: { client_reference_id: "99", payment_intent: "pi_1" } },
+      data: { object: { client_reference_id: "99", payment_intent: "pi_1", payment_status: "paid" } },
     } as any;
     await applyStripeEvent(event);
     expect(updateOrder).toHaveBeenCalledWith(
@@ -78,7 +124,7 @@ describe("applyStripeEvent", () => {
     expect(updateOrder).not.toHaveBeenCalled();
   });
 
-  it("is idempotent: a redelivered event for an already-paid order is a no-op", async () => {
+  it("is idempotent: a redelivered paid event for an already-paid order is a no-op", async () => {
     vi.mocked(getOrder).mockResolvedValue({
       id: 42,
       leadId: 3,
@@ -88,7 +134,7 @@ describe("applyStripeEvent", () => {
     } as any);
     const event = {
       type: "checkout.session.completed",
-      data: { object: { metadata: { orderId: "42" }, subscription: "sub_123" } },
+      data: { object: { metadata: { orderId: "42" }, subscription: "sub_123", payment_status: "paid" } },
     } as any;
     const handled = await applyStripeEvent(event);
     expect(handled).toBe(true); // acknowledged so Stripe stops retrying
@@ -96,11 +142,11 @@ describe("applyStripeEvent", () => {
     expect(updateLead).not.toHaveBeenCalled();
   });
 
-  it("ignores events referencing an unknown order", async () => {
+  it("ignores paid events referencing an unknown order", async () => {
     vi.mocked(getOrder).mockResolvedValue(null as any);
     const event = {
       type: "checkout.session.completed",
-      data: { object: { metadata: { orderId: "404" } } },
+      data: { object: { metadata: { orderId: "404" }, payment_status: "paid" } },
     } as any;
     const handled = await applyStripeEvent(event);
     expect(handled).toBe(false);
@@ -110,7 +156,7 @@ describe("applyStripeEvent", () => {
   it("ignores sessions without an order reference", async () => {
     const handled = await applyStripeEvent({
       type: "checkout.session.completed",
-      data: { object: { id: "cs_1" } },
+      data: { object: { id: "cs_1", payment_status: "paid" } },
     } as any);
     expect(handled).toBe(false);
     expect(updateOrder).not.toHaveBeenCalled();

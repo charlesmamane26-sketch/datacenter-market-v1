@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { Loader2 } from "lucide-react";
 import { fmtEUR } from "@/lib/format";
 import { saveWorkloadRecap } from "@/lib/workloadRecap";
+import { saveLeadClaim } from "@/lib/leadClaim";
 import { JourneyStepper, MarketChrome, MarketOpenChip } from "@/components/market";
 
 type FormStep = "workload" | "requirements" | "constraints" | "contact";
@@ -158,7 +159,15 @@ export default function WorkloadForm() {
         monthlyBudget: formData.monthlyBudget ? parseFloat(formData.monthlyBudget) : undefined,
         deploymentDuration: formData.deploymentDuration,
         infrastructureConstraints: formData.infrastructureConstraints,
+        // Required server-side (RGPD); the submit button is gated on `consent`.
+        consent: true,
       });
+
+      // Stash the claim token so this browser can order against / match on the
+      // anonymous lead it just created (a lead ID alone is not enough server-side).
+      if (lead?.id && lead.claimToken) {
+        saveLeadClaim(lead.id, lead.claimToken);
+      }
 
       // Summary chips for the results screen (leads have no public read).
       saveWorkloadRecap({
