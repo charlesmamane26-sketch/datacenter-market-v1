@@ -63,6 +63,23 @@ const HOME_HREFLANG: { hreflang: string; path: string }[] = [
   { hreflang: "x-default", path: "/" },
 ];
 
+/** Clusters hreflang des pages de contenu (pilier + satellites), réciproques fr/en. */
+const PILLAR_HREFLANG: { hreflang: string; path: string }[] = [
+  { hreflang: "fr-FR", path: "/gpu-as-a-service/" },
+  { hreflang: "en", path: "/en/gpu-as-a-service/" },
+  { hreflang: "x-default", path: "/gpu-as-a-service/" },
+];
+const PRICING_HREFLANG: { hreflang: string; path: string }[] = [
+  { hreflang: "fr-FR", path: "/gpu-as-a-service/prix-location-gpu/" },
+  { hreflang: "en", path: "/en/gpu-as-a-service/gpu-rental-pricing/" },
+  { hreflang: "x-default", path: "/gpu-as-a-service/prix-location-gpu/" },
+];
+const SOVEREIGN_HREFLANG: { hreflang: string; path: string }[] = [
+  { hreflang: "fr-FR", path: "/gpu-as-a-service/gpu-souverain-france/" },
+  { hreflang: "en", path: "/en/gpu-as-a-service/sovereign-gpu-europe/" },
+  { hreflang: "x-default", path: "/gpu-as-a-service/gpu-souverain-france/" },
+];
+
 export const SEO_ROUTES: RouteSeo[] = [
   {
     pattern: "/",
@@ -93,11 +110,28 @@ export const SEO_ROUTES: RouteSeo[] = [
     description:
       "Louez des GPU NVIDIA H100, A100, L40S à la demande en Europe. Jusqu'à 3 offres comparées, capacité mobilisée en 72 h, hébergement UE conforme RGPD.",
     indexable: true,
+    lang: "fr",
+    hreflang: PILLAR_HREFLANG,
     breadcrumb: [
       { name: "Accueil", path: "/" },
       { name: "GPU as a Service", path: "/gpu-as-a-service/" },
     ],
     extraJsonLd: base => [serviceJsonLd(base), faqJsonLd(GAAS_FAQ)],
+  },
+  {
+    pattern: "/en/gpu-as-a-service",
+    canonicalPath: "/en/gpu-as-a-service/",
+    title: "GPU as a Service in Europe: rent GPUs on demand",
+    description:
+      "Rent NVIDIA H100, A100, L40S GPUs on demand in Europe. Up to 3 quotes compared, capacity mobilised in 72 h, EU-hosted and GDPR-compliant.",
+    indexable: true,
+    lang: "en",
+    hreflang: PILLAR_HREFLANG,
+    breadcrumb: [
+      { name: "Home", path: "/en/" },
+      { name: "GPU as a Service", path: "/en/gpu-as-a-service/" },
+    ],
+    extraJsonLd: base => [serviceJsonLdEn(base), faqJsonLd(GAAS_FAQ_EN)],
   },
   {
     pattern: "/gpu-as-a-service/prix-location-gpu",
@@ -106,10 +140,27 @@ export const SEO_ROUTES: RouteSeo[] = [
     description:
       "Grille indicative de prix de location GPU : H100 ≈ 2,9–3,8 €/GPU/h, A100, L40S, RTX 4090. Facteurs de variation et offre chiffrée via appel au marché.",
     indexable: true,
+    lang: "fr",
+    hreflang: PRICING_HREFLANG,
     breadcrumb: [
       { name: "Accueil", path: "/" },
       { name: "GPU as a Service", path: "/gpu-as-a-service/" },
       { name: "Prix de location GPU", path: "/gpu-as-a-service/prix-location-gpu/" },
+    ],
+  },
+  {
+    pattern: "/en/gpu-as-a-service/gpu-rental-pricing",
+    canonicalPath: "/en/gpu-as-a-service/gpu-rental-pricing/",
+    title: "GPU rental pricing: €/GPU/h — H100, A100, L40S",
+    description:
+      "Indicative GPU rental pricing: H100 ≈ €2.9–3.8/GPU/h, plus A100, L40S, RTX 4090. Cost drivers and a firm quote via a market call.",
+    indexable: true,
+    lang: "en",
+    hreflang: PRICING_HREFLANG,
+    breadcrumb: [
+      { name: "Home", path: "/en/" },
+      { name: "GPU as a Service", path: "/en/gpu-as-a-service/" },
+      { name: "GPU rental pricing", path: "/en/gpu-as-a-service/gpu-rental-pricing/" },
     ],
   },
   {
@@ -119,10 +170,27 @@ export const SEO_ROUTES: RouteSeo[] = [
     description:
       "Cloud GPU souverain hébergé en UE, dont Paris : conformité RGPD, jusqu'à 3 offres comparées, capacité mobilisée en 72 h par appel au marché.",
     indexable: true,
+    lang: "fr",
+    hreflang: SOVEREIGN_HREFLANG,
     breadcrumb: [
       { name: "Accueil", path: "/" },
       { name: "GPU as a Service", path: "/gpu-as-a-service/" },
       { name: "GPU souverain France", path: "/gpu-as-a-service/gpu-souverain-france/" },
+    ],
+  },
+  {
+    pattern: "/en/gpu-as-a-service/sovereign-gpu-europe",
+    canonicalPath: "/en/gpu-as-a-service/sovereign-gpu-europe/",
+    title: "Sovereign GPU in Europe: EU-hosted, GDPR-compliant AI",
+    description:
+      "Sovereign GPU cloud hosted in the EU, including Paris: GDPR compliance, up to 3 quotes compared, capacity mobilised in 72 h via a market call.",
+    indexable: true,
+    lang: "en",
+    hreflang: SOVEREIGN_HREFLANG,
+    breadcrumb: [
+      { name: "Home", path: "/en/" },
+      { name: "GPU as a Service", path: "/en/gpu-as-a-service/" },
+      { name: "Sovereign GPU in Europe", path: "/en/gpu-as-a-service/sovereign-gpu-europe/" },
     ],
   },
   {
