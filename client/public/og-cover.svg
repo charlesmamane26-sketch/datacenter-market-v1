@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="DatacenterMarket — GPU as a Service">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A0C0D"/>
+      <stop offset="1" stop-color="#0E1416"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.22" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#BEF264" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#BEF264" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M44 0H0V44" fill="none" stroke="#FFFFFF" stroke-opacity="0.03" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- Brand mark -->
+  <g transform="translate(80,74)">
+    <rect width="46" height="46" rx="10" fill="#0B0D0E" stroke="#1E2A2E" stroke-width="1"/>
+    <g fill="#BEF264">
+      <rect x="10" y="12" width="26" height="5.5" rx="2"/>
+      <rect x="10" y="20.5" width="26" height="5.5" rx="2"/>
+      <rect x="10" y="29" width="17" height="5.5" rx="2"/>
+    </g>
+    <text x="62" y="32" font-family="'JetBrains Mono','SFMono-Regular',monospace" font-size="21" font-weight="700" letter-spacing="1" fill="#FFFFFF">DatacenterMarket</text>
+  </g>
+
+  <!-- Headline -->
+  <text x="80" y="290" font-family="'Inter','Segoe UI',system-ui,sans-serif" font-size="76" font-weight="800" letter-spacing="-2" fill="#FFFFFF">GPU as a Service :</text>
+  <text x="80" y="372" font-family="'Inter','Segoe UI',system-ui,sans-serif" font-size="76" font-weight="800" letter-spacing="-2" fill="#BEF264">la capacité au bon moment.</text>
+
+  <!-- Subline -->
+  <text x="82" y="436" font-family="'Inter','Segoe UI',system-ui,sans-serif" font-size="27" font-weight="400" fill="#9BA6A9">Place de marché de capacité GPU · fournisseurs européens · hébergement UE, RGPD.</text>
+
+  <!-- Quote chip -->
+  <g transform="translate(80,494)">
+    <rect width="392" height="66" rx="12" fill="#10171A" stroke="#26343A" stroke-width="1"/>
+    <text x="22" y="30" font-family="'JetBrains Mono',monospace" font-size="13" letter-spacing="2" fill="#BEF264">8× NVIDIA H100 · FRANCFORT</text>
+    <text x="22" y="52" font-family="'JetBrains Mono',monospace" font-size="20" font-weight="700" fill="#FFFFFF">dès 18 400 €/mois · 72 h</text>
+  </g>
+
+  <text x="1120" y="574" text-anchor="end" font-family="'JetBrains Mono',monospace" font-size="15" letter-spacing="2" fill="#6B7679">datacentermarket.fr</text>
+</svg>

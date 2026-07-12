@@ -16,6 +16,13 @@ export const SITE_NAME = "DatacenterMarket";
  */
 export const DEFAULT_SITE_URL = "https://www.datacentermarket.fr";
 
+/**
+ * Image de partage social (Open Graph / Twitter) par défaut, servie depuis
+ * client/public. NB : un rendu PNG/JPG 1200×630 est recommandé pour un aperçu
+ * fiable sur LinkedIn/Facebook/Twitter (le SVG n'est pas rendu par tous).
+ */
+export const DEFAULT_OG_IMAGE = "/og-cover.svg";
+
 export type BreadcrumbItem = { name: string; path: string };
 
 export type RouteSeo = {
@@ -37,6 +44,8 @@ export type RouteSeo = {
   breadcrumb?: BreadcrumbItem[];
   /** JSON-LD additionnel propre à la route (Service, FAQPage…) */
   extraJsonLd?: (base: string) => object[];
+  /** Image OG spécifique à la route (sinon DEFAULT_OG_IMAGE). Chemin sous /public. */
+  ogImage?: string;
 };
 
 export const SEO_ROUTES: RouteSeo[] = [
@@ -47,6 +56,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     description:
       "Location GPU dédiée : comparez jusqu'à trois offres de fournisseurs européens et mobilisez votre capacité de calcul IA en 72 h. Hébergement UE, RGPD.",
     indexable: true,
+    extraJsonLd: base => [webSiteJsonLd(base)],
   },
   {
     pattern: "/gpu-as-a-service",
@@ -225,6 +235,13 @@ export function organizationJsonLd(base: string): object {
     name: SITE_NAME,
     legalName: "Anavim Advisory SAS",
     url: absoluteUrl(base, "/"),
+    logo: absoluteUrl(base, "/favicon.svg"),
+    description:
+      "Place de marché de capacité GPU et datacenter : mise en concurrence de fournisseurs européens, offres comparées, hébergement UE conforme RGPD.",
+    // Marchés visés — signal géographique pour la France et l'UE.
+    areaServed: ["FR", "BE", "LU", "CH", "EU"],
+    // Profils officiels rattachés (désambiguïsation d'entité).
+    sameAs: ["https://www.anavimadvisory.com"],
     address: {
       "@type": "PostalAddress",
       streetAddress: "10 rue du Colisée",
@@ -232,6 +249,19 @@ export function organizationJsonLd(base: string): object {
       addressLocality: "Paris",
       addressCountry: "FR",
     },
+  };
+}
+
+/** JSON-LD WebSite (émis sur l'accueil) : nom du site, langue, éditeur. */
+export function webSiteJsonLd(base: string): object {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "@id": absoluteUrl(base, "/#website"),
+    name: SITE_NAME,
+    url: absoluteUrl(base, "/"),
+    inLanguage: "fr-FR",
+    publisher: { "@id": absoluteUrl(base, "/#organization") },
   };
 }
 
