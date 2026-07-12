@@ -10,6 +10,9 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 // Pages are code-split per route so heavy dependencies (charts, etc.) only load when needed.
 const Home = lazy(() => import("@/pages/Home"));
 const LandingEn = lazy(() => import("@/pages/LandingEn"));
+const GpuAsAServiceEn = lazy(() => import("@/pages/GpuAsAServiceEn"));
+const GpuPricingEn = lazy(() => import("@/pages/GpuPricingEn"));
+const SovereignGpuEn = lazy(() => import("@/pages/SovereignGpuEn"));
 const GpuAsAService = lazy(() => import("@/pages/GpuAsAService"));
 const GpuPrixLocation = lazy(() => import("@/pages/GpuPrixLocation"));
 const GpuSouverainFrance = lazy(() => import("@/pages/GpuSouverainFrance"));
@@ -41,6 +44,9 @@ function Router() {
       <Switch>
         <Route path={"/"} component={Home} />
         <Route path={"/en"} component={LandingEn} />
+        <Route path={"/en/gpu-as-a-service/gpu-rental-pricing"} component={GpuPricingEn} />
+        <Route path={"/en/gpu-as-a-service/sovereign-gpu-europe"} component={SovereignGpuEn} />
+        <Route path={"/en/gpu-as-a-service"} component={GpuAsAServiceEn} />
         <Route path={"/gpu-as-a-service/prix-location-gpu"} component={GpuPrixLocation} />
         <Route path={"/gpu-as-a-service/gpu-souverain-france"} component={GpuSouverainFrance} />
         <Route path={"/gpu-as-a-service"} component={GpuAsAService} />

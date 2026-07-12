@@ -37,13 +37,13 @@ export default function LandingEn() {
       <div className="mx-auto flex h-[60px] max-w-[1240px] items-center justify-between px-5 md:px-10">
         <MarketBrand size={22} />
         <div className="flex items-center gap-[22px]">
-          <a href="#how" className="hidden text-[13.5px] text-muted-foreground transition-colors hover:text-foreground md:block">
-            How it works
-          </a>
+          <Link href="/en/gpu-as-a-service" className="hidden text-[13.5px] text-muted-foreground transition-colors hover:text-foreground md:block">
+            GPU as a Service guide
+          </Link>
           <a href="#catalogue" className="hidden text-[13.5px] text-muted-foreground transition-colors hover:text-foreground md:block">
             Catalogue
           </a>
-          <Link href="/" className="rounded-full border border-border px-3 py-1 font-mono text-[11px] tracking-[.06em] text-muted-foreground transition-colors hover:text-foreground">
+          <Link href="/" hrefLang="fr" className="rounded-full border border-border px-3 py-1 font-mono text-[11px] tracking-[.06em] text-muted-foreground transition-colors hover:text-foreground">
             FR
           </Link>
         </div>
