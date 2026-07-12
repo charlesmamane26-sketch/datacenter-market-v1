@@ -70,4 +70,11 @@ via `appRouter.createCaller(ctx)`. Real-DB behavior (queries, insertId, decimals
 - **Local Docker is unusable on this machine** (insufficient memory / paging file + broken containerd
   storage) — for a live DB, use a cloud MySQL/TiDB rather than Docker.
 
+## Dependency constraints
+
+- The pnpm override for `path-to-regexp` must stay within the 0.1.x line (`>=0.1.13 <0.2.0`):
+  express 4 requires the 0.1.x callable API. A bare `>=0.1.13` resolves to 8.x and crashes the
+  server at startup (`pathRegexp is not a function`). Watch for automated audit tooling
+  reintroducing the broken range.
+
 See `DEPLOYMENT.md` for the production runbook and `.env.example` for all variables.
