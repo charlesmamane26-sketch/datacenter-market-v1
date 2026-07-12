@@ -43,25 +43,39 @@ Le projet utilise Drizzle ORM sur MySQL. Le plus simple et gratuit : **TiDB Serv
 mysql://xxxxxx.root:MOT_DE_PASSE@gateway01.eu-central-1.prod.aws.tidbcloud.com:4000/test?ssl={"rejectUnauthorized":true}
 ```
 
+⚠️ **Mot de passe avec caractères spéciaux** (`#`, `@`, `/`, `?`, `%`…) : encode-les en
+pourcent dans l'URL (ex. `#` → `%23`) ou régénère jusqu'à obtenir un mot de passe
+alphanumérique — sinon la connexion échoue avec « Invalid URL ».
+
 ### 1.2 Créer la base et pousser le schéma
 
-Depuis ton PC, dans le dossier du projet :
+**D'abord, crée la base** (elle n'existe pas par défaut — TiDB ne pré-crée que `test`) :
+dans TiDB Cloud → ton cluster → **SQL Editor**, exécute :
+
+```sql
+CREATE DATABASE datacenter_market;
+```
+
+Puis depuis ton PC, dans le dossier du projet :
 
 ```bash
-cd C:\Users\Carlus\Projects\datacenter-market-v1
+cd C:\Users\user\Downloads\datacenter-market-v1-main
 
 # Mets la chaîne de connexion dans .env (remplace la ligne DATABASE_URL existante)
 # DATABASE_URL=mysql://xxxxxx.root:MOT_DE_PASSE@gateway01...:4000/datacenter_market?ssl={"rejectUnauthorized":true}
 # (remplace /test par /datacenter_market dans l'URL)
 
+# Active pnpm via corepack (une seule fois — Node 22 requis)
+corepack enable
+
 # Crée les tables
-node_modules\.bin\pnpm db:push
+corepack pnpm db:push
 
 # Insère le catalogue des 7 offres
-node_modules\.bin\pnpm db:seed
+corepack pnpm db:seed
 
 # Vérifie le tunnel complet contre cette base
-node_modules\.bin\pnpm integration-check
+corepack pnpm integration-check
 ```
 
 ✅ **Critère de réussite :** `integration-check` affiche « Full funnel verified against the real database ».
@@ -76,11 +90,16 @@ Le projet a un Dockerfile prêt. **Render** offre un tier gratuit qui suffit pou
 
 ### 2.1 Créer le service Render
 
+Le repo contient un **Blueprint** (`render.yaml` à la racine) qui pré-configure tout
+(Docker, région Frankfurt, plan Free, health check `/health`, liste des variables) :
+
 1. Va sur **https://render.com** → *Sign up with GitHub*.
-2. **New** → **Web Service** → connecte le repo `datacenter-market-v1`.
-3. Render détecte le Dockerfile automatiquement (Language : **Docker**).
-4. **Instance Type : Free** ← c'est là que tu choisis le 0 €.
-5. Région : **Frankfurt** (UE).
+2. **New** → **Blueprint** → connecte le repo `datacenter-market-v1`.
+3. Render lit `render.yaml`, crée le service et te présente la liste des variables
+   à remplir (celles marquées `sync: false`) — passe à l'étape 2.2 pour les valeurs.
+
+*(Chemin manuel équivalent si tu préfères : New → Web Service → Language **Docker**,
+Instance Type **Free**, Région **Frankfurt**.)*
 
 ### 2.2 Configurer les variables d'environnement
 
@@ -89,9 +108,14 @@ Dans Render → ton service → onglet **Environment**, ajoute :
 | Variable | Valeur | Note |
 |---|---|---|
 | `DATABASE_URL` | la chaîne TiDB de l'étape 1 | secrète |
-| `JWT_SECRET` | 64 caractères aléatoires | génère avec la commande ci-dessous |
+| `JWT_SECRET` | 64 caractères aléatoires | généré automatiquement par le Blueprint (`generateValue`) ; sinon commande ci-dessous |
+| `PUBLIC_BASE_URL` | `https://ton-service.onrender.com` (puis ton domaine custom) | **obligatoire** — sans elle le serveur refuse les flux Stripe/OAuth. À la création du Blueprint tu ne connais pas encore l'URL exacte (Render peut ajouter un suffixe aléatoire au nom) : mets un placeholder, puis après le 1ᵉʳ déploiement copie l'URL réelle depuis le dashboard et corrige la variable |
+| `CSP_EXTRA_ORIGINS` | origines à autoriser dans la CSP, séparées par des espaces | **requis si** `VITE_SENTRY_DSN` (mets l'origine ingest Sentry, ex. `https://oXXXX.ingest.de.sentry.io`) ou analytics ; sinon laisse vide |
+| `EMAIL_API_URL` / `EMAIL_API_KEY` | API d'e-mails transactionnels | optionnel — **sans elles, les e-mails clients (commande confirmée, infra prête) sont seulement loggés, jamais envoyés** |
 | `OAUTH_SERVER_URL` | URL du serveur OAuth Manus | depuis ton espace Manus |
 | `OWNER_OPEN_ID` | ton openId Manus | c'est ce qui fait de toi l'admin |
+| `BUILT_IN_FORGE_API_URL` | API Manus côté serveur | depuis ton espace Manus (cartes, stockage) |
+| `BUILT_IN_FORGE_API_KEY` | clé API Manus côté serveur | secrète |
 | `STRIPE_SECRET_KEY` | *(étape 3)* | commence par `sk_test_` puis `sk_live_` |
 | `STRIPE_WEBHOOK_SECRET` | *(étape 3)* | commence par `whsec_` |
 | `SENTRY_DSN` | *(étape 4)* | optionnel au début |
@@ -113,6 +137,13 @@ Ces variables sont **compilées dans le JavaScript public** au moment du build �
 - `VITE_APP_ID` — l'identifiant de ton app Manus
 - `VITE_OAUTH_PORTAL_URL` — l'URL du portail de login Manus
 - `VITE_FRONTEND_FORGE_API_URL` / `VITE_FRONTEND_FORGE_API_KEY` — API Forge frontend (clé publique uniquement)
+- `VITE_SITE_URL` — le domaine canonique public (SEO : canonicals, sitemap, Open Graph).
+  Au départ mets l'URL `.onrender.com` ; quand le domaine définitif est branché, change-la
+  et redéploie (**Clear build cache & deploy**)
+- `VITE_SENTRY_DSN` — *(optionnel)* Sentry côté navigateur (étape 4.1) ; exige
+  `CSP_EXTRA_ORIGINS` (étape 2.2), sinon les événements sont bloqués silencieusement par la CSP
+- `VITE_ANALYTICS_ENDPOINT` / `VITE_ANALYTICS_WEBSITE_ID` — *(optionnel)* analytics Umami ;
+  exige aussi `CSP_EXTRA_ORIGINS` + un rebuild
 
 Ajoute-les aussi dans **Environment** : Render rend les variables d'environnement disponibles pendant le build Docker. Si après déploiement le bouton de login pointe dans le vide, c'est qu'elles manquaient au build — ajoute-les puis **Manual Deploy → Clear build cache & deploy**.
 
@@ -155,6 +186,11 @@ Puis dans GitHub → repo → **Settings → Secrets and variables → Actions**
 ---
 
 ## Étape 3 — Stripe (~45 min + délai de vérification du compte)
+
+> 💡 **Configure d'abord UptimeRobot (étape 4.2).** Sur le tier gratuit, un webhook Stripe
+> qui arrive pendant que le serveur dort échoue à sa première livraison (réveil ~50 s >
+> timeout Stripe) et n'est rattrapé que par les retries — le statut de paiement peut alors
+> traîner. Le ping toutes les 5 min élimine ce cas en pratique.
 
 ### 3.1 Créer le compte
 
@@ -210,6 +246,12 @@ Quand le compte est vérifié **et** que le test ci-dessus passe :
 
 Double rôle sur le tier gratuit Render : le ping toutes les 5 min **empêche aussi le serveur de s'endormir** (mise en veille après 15 min d'inactivité).
 
+⚠️ **Budget d'heures du tier gratuit :** Render alloue **750 h d'instance/mois** au
+workspace. Un service maintenu éveillé 24/7 en consomme ~744 — ne lance donc **jamais un
+second service free** dans le même workspace (staging, test…) : le dépassement suspend
+**tous** les services free, production comprise, jusqu'au mois suivant. Si Render envoie
+un e-mail de suspension, c'est le signal de passer au plan Starter.
+
 ### 4.3 Décision télémétrie GPU
 
 Le dashboard client affiche « Awaiting telemetry » car rien n'alimente les métriques. Trois options :
@@ -239,7 +281,7 @@ Le dashboard client affiche « Awaiting telemetry » car rien n'alimente les mé
 | « Database not available » sur le site | `DATABASE_URL` absente ou fausse | Vérifie la variable dans Render, teste avec `integration-check` en local |
 | « Payments are not configured » au checkout | `STRIPE_SECRET_KEY` absente | Étape 3.2 |
 | Le paiement passe mais le lead reste « offered » | Webhook mal configuré | Vérifie l'URL du webhook et le `whsec_`, regarde Stripe → Webhooks → tentatives |
-| Login OAuth en boucle ou erreur 400 « invalid state » | `VITE_OAUTH_PORTAL_URL` / `VITE_APP_ID` faux, ou domaine non déclaré côté Manus | Vérifie les variables de build et la config de l'app Manus |
+| Login OAuth en boucle ou erreur 400 « invalid state » | `PUBLIC_BASE_URL` ne correspond pas à l'URL réelle du service, ou `VITE_OAUTH_PORTAL_URL` / `VITE_APP_ID` faux, ou domaine non déclaré côté Manus | Vérifie que `PUBLIC_BASE_URL` = l'URL exacte affichée dans le dashboard Render, puis les variables de build et la config de l'app Manus |
 | Pas de rôle admin après login | `OWNER_OPEN_ID` ne correspond pas à ton openId | Récupère ton openId exact (table `users` après ta 1ʳᵉ connexion) et corrige la variable |
 | Première visite très lente (~50 s) puis tout va bien | Tier gratuit Render : le serveur dormait | Normal — le ping UptimeRobot le maintient éveillé ; plan Starter pour supprimer la veille |
 

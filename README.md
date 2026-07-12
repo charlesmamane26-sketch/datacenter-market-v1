@@ -97,7 +97,7 @@ Available pre-defined system envs:
 - `VITE_APP_ID`: Manus OAuth application ID
 - `OAUTH_SERVER_URL`: Manus OAuth backend base URL
 - `VITE_OAUTH_PORTAL_URL`: Manus login portal URL (frontend)
-- `OWNER_OPEN_ID`, `OWNER_NAME`: Owner's info
+- `OWNER_OPEN_ID`: Owner's Manus openId (granted the admin role on first sign-in)
 - `BUILT_IN_FORGE_API_URL`: Manus built-in apis (includes llm, storage, data_api, notification, etc...)
 - `BUILT_IN_FORGE_API_KEY`: Bearer token used by Manus built-in apis (server-side)
 - `VITE_FRONTEND_FORGE_API_KEY`: Bearer token for frontend access to Manus built-in apis

@@ -81,10 +81,6 @@ Build output:
 - `dist/public/` — static client assets (served by Express in production).
 - `dist/index.js` — bundled server (~46 KB).
 
-> ⚠️ **First install after the phase-2 merge.** The `pnpm.overrides` were consolidated, so the
-> committed `pnpm-lock.yaml` is stale. Run a plain `pnpm install` once (without `--frozen-lockfile`)
-> to regenerate the lockfile and commit it; subsequent installs can use `--frozen-lockfile` again.
-
 > ⚠️ **Do not prune to production-only dependencies.** The server is bundled with
 > `esbuild --packages=external` and statically imports `vite` (via the dev/prod branch in
 > `server/_core/vite.ts`). Running with only `--prod` deps crashes at startup on the missing

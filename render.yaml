@@ -1,0 +1,69 @@
+# render.yaml — Blueprint Render (https://render.com/docs/blueprint-spec)
+#
+# Utilisation : Render Dashboard → New → Blueprint → connecter ce repo GitHub.
+# Render lit ce fichier, crée le service web Docker et liste les variables
+# d'environnement à remplir (sync: false = à saisir dans le dashboard, jamais
+# committées dans Git).
+#
+# Les variables VITE_* sont transmises au build Docker par Render (elles doivent
+# exister en ARG dans le Dockerfile — c'est le cas) et sont INLINÉES dans le
+# bundle JS public : n'y mettre que des valeurs publiques.
+
+services:
+  - type: web
+    name: datacenter-market
+    runtime: docker
+    plan: free # passer à "starter" quand les premiers clients arrivent (supprime la mise en veille)
+    region: frankfurt # données en UE, cohérent avec le positionnement RGPD
+    healthCheckPath: /health
+    autoDeployTrigger: commit # chaque push sur la branche connectée redéploie
+    envVars:
+      # ---- Runtime (serveur) ----
+      - key: DATABASE_URL # chaîne de connexion TiDB Serverless (étape 1 du tutoriel)
+        sync: false
+      - key: JWT_SECRET # généré par Render (44 caractères — le serveur exige ≥ 32)
+        generateValue: true
+      - key: PUBLIC_BASE_URL # origine publique EXACTE, ex. https://datacenter-market.onrender.com
+        sync: false #   (requis en prod : URLs Stripe + validation du state OAuth)
+      - key: OAUTH_SERVER_URL # backend OAuth Manus (espace Manus)
+        sync: false
+      - key: OWNER_OPEN_ID # ton openId Manus — ce compte reçoit le rôle admin
+        sync: false
+      - key: BUILT_IN_FORGE_API_URL # APIs Manus côté serveur (storage, maps proxy…)
+        sync: false
+      - key: BUILT_IN_FORGE_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY # sk_test_… d'abord, sk_live_… après vérification du compte
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET # whsec_… du endpoint /api/stripe/webhook
+        sync: false
+      - key: SENTRY_DSN # optionnel — monitoring d'erreurs serveur
+        sync: false
+      - key: CSP_EXTRA_ORIGINS # REQUIS si VITE_SENTRY_DSN ou analytics : origines à autoriser
+        sync: false #   dans la CSP, séparées par des espaces (ex. https://oXXXX.ingest.de.sentry.io)
+      - key: EMAIL_API_URL # optionnel — API d'e-mails transactionnels (confirmations de commande) ;
+        sync: false #   non renseigné = e-mails clients seulement loggés, jamais envoyés
+      - key: EMAIL_API_KEY
+        sync: false
+      # REDIS_URL (rate-limit partagé + révocation de session) : inutile à 1 instance,
+      # REQUIS si le service passe un jour à plusieurs instances.
+      # TELEMETRY_INGEST_KEY : à ajouter le jour où un provider pousse de la télémétrie.
+      # Les crons RGPD (LEAD_RETENTION_DAYS, STALE_ORDER_HOURS) tournent dans GitHub
+      # Actions (.github/workflows/crons.yml), PAS sur Render — inutile de les mettre ici.
+      # ---- Build (VITE_* — inlinées dans le bundle public au build) ----
+      - key: VITE_SITE_URL # domaine canonique public (SEO), ex. https://www.datacentermarket.fr
+        sync: false
+      - key: VITE_APP_ID # identifiant de l'app Manus
+        sync: false
+      - key: VITE_OAUTH_PORTAL_URL # portail de login Manus
+        sync: false
+      - key: VITE_FRONTEND_FORGE_API_URL # API Forge frontend (valeurs publiques uniquement)
+        sync: false
+      - key: VITE_FRONTEND_FORGE_API_KEY
+        sync: false
+      - key: VITE_SENTRY_DSN # optionnel — Sentry côté navigateur (exige CSP_EXTRA_ORIGINS ci-dessus)
+        sync: false
+      - key: VITE_ANALYTICS_ENDPOINT # optionnel — analytics Umami (exige CSP_EXTRA_ORIGINS + rebuild)
+        sync: false
+      - key: VITE_ANALYTICS_WEBSITE_ID
+        sync: false
