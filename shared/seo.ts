@@ -168,6 +168,13 @@ export const SEO_ROUTES: RouteSeo[] = [
     noindex: true,
   },
   {
+    pattern: "/login",
+    canonicalPath: "/login",
+    title: "Connexion | DatacenterMarket",
+    description: "Connectez-vous à votre espace client ou administrateur DatacenterMarket.",
+    noindex: true,
+  },
+  {
     pattern: "/dashboard",
     canonicalPath: "/dashboard",
     title: "Tableau de bord client | DatacenterMarket",

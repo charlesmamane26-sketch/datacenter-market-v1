@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Menu, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { clearCheckoutIntent, loadCheckoutIntent } from "@/lib/checkoutIntent";
+import { consumeRoleRedirect } from "@/lib/postLoginRedirect";
 import { MarketBrand, MarketOpenChip, MarketTicker, type TickerQuote } from "@/components/market";
 
 /**
@@ -62,21 +63,30 @@ function utcNow(): string {
   return `${hh}:${mm}`;
 }
 
-// Resume a checkout interrupted by login: OAuth returns the user to "/", so we
-// forward them back to the checkout they started (consuming the intent once).
+// Post-login routing: OAuth returns the user to "/". Two one-shot intents may be
+// pending (both survive the redirect via storage):
+//   1. a checkout interrupted by login → resume it (takes precedence);
+//   2. an explicit login (flag armed by the login buttons) → route by role.
+// A logged-in user simply browsing "/" triggers neither.
 // Kept in a client-only child because useAuth touches localStorage during render,
 // which would crash the build-time prerender (see scripts/prerender.ts).
-function CheckoutResume() {
+function PostLoginRedirect() {
   const [, setLocation] = useLocation();
-  const { isAuthenticated, loading } = useAuth();
+  const { user, isAuthenticated, loading } = useAuth();
 
   useEffect(() => {
     if (loading || !isAuthenticated) return;
     const intent = loadCheckoutIntent();
-    if (!intent) return;
-    clearCheckoutIntent();
-    setLocation(`/checkout?offerId=${intent.offerId}&leadId=${intent.leadId}`);
-  }, [loading, isAuthenticated, setLocation]);
+    if (intent) {
+      clearCheckoutIntent();
+      consumeRoleRedirect(); // checkout wins; discard any armed role redirect
+      setLocation(`/checkout?offerId=${intent.offerId}&leadId=${intent.leadId}`);
+      return;
+    }
+    if (consumeRoleRedirect()) {
+      setLocation(user?.role === "admin" ? "/admin" : "/dashboard");
+    }
+  }, [loading, isAuthenticated, user, setLocation]);
 
   return null;
 }
@@ -93,7 +103,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {mounted && <CheckoutResume />}
+      {mounted && <PostLoginRedirect />}
 
       {/* Chrome */}
       <div className="mx-auto flex h-[60px] max-w-[1240px] items-center justify-between px-5 md:px-10">

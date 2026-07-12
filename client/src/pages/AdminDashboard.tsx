@@ -1,8 +1,9 @@
+import { useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { downloadCsv } from "@/lib/downloadCsv";
-import { Download } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { fmtEUR } from "@/lib/format";
 import { MarketChrome, PanelLabel, StatusPill, type StatusTone } from "@/components/market";
 
@@ -27,7 +28,7 @@ const PIPELINE_BG: Record<LeadStatus, string> = {
 };
 
 export default function AdminDashboard() {
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
   const [, setLocation] = useLocation();
   const { data: leads } = trpc.leads.list.useQuery();
   const { data: stats } = trpc.admin.stats.useQuery();
@@ -36,6 +37,13 @@ export default function AdminDashboard() {
   const updateLeadStatus = trpc.leads.update.useMutation({
     onSuccess: () => utils.leads.list.invalidate(),
   });
+
+  // Route guard: unauthenticated → login. Authenticated non-admins fall through
+  // to the "Accès refusé" screen below. Server authz (adminProcedure) is the
+  // real enforcement; this is the UX gate.
+  useEffect(() => {
+    if (!loading && !user) setLocation("/login");
+  }, [loading, user, setLocation]);
 
   const handleLogout = async () => {
     await logoutMutation.mutateAsync();
@@ -87,8 +95,17 @@ export default function AdminDashboard() {
   }));
   const pipelineTotal = Math.max(1, leadList.length);
 
-  // Check if user is admin
-  if (user?.role !== "admin") {
+  // Auth still resolving, or redirecting an unauthenticated visitor to /login.
+  if (loading || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-accent" />
+      </div>
+    );
+  }
+
+  // Authenticated but not an admin.
+  if (user.role !== "admin") {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <MarketChrome onBrandClick={() => setLocation("/")} />
