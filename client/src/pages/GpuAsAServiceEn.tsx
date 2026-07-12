@@ -16,28 +16,19 @@ export default function GpuAsAServiceEn() {
       <SiteHeader />
 
       <main className="container py-12 max-w-4xl">
-        <div className="flex items-center justify-between gap-4 mb-8">
-          <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
-            <ol className="flex flex-wrap items-center gap-2">
-              <li>
-                <Link href="/en" className="hover:text-foreground transition-colors">
-                  Home
-                </Link>
-              </li>
-              <li aria-hidden="true">›</li>
-              <li aria-current="page" className="text-foreground">
-                GPU as a Service
-              </li>
-            </ol>
-          </nav>
-          <Link
-            href="/gpu-as-a-service/"
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-            hrefLang="fr"
-          >
-            FR
-          </Link>
-        </div>
+        <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground mb-8">
+          <ol className="flex flex-wrap items-center gap-2">
+            <li>
+              <Link href="/en" className="hover:text-foreground transition-colors">
+                Home
+              </Link>
+            </li>
+            <li aria-hidden="true">›</li>
+            <li aria-current="page" className="text-foreground">
+              GPU as a Service
+            </li>
+          </ol>
+        </nav>
 
         <article className="space-y-12">
           <header className="space-y-4">

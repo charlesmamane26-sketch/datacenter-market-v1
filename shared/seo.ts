@@ -323,6 +323,17 @@ export function absoluteUrl(base: string, path: string): string {
   return base.replace(/\/+$/, "") + path;
 }
 
+/**
+ * Chemin de la version d'une route dans l'autre langue (pour le sélecteur de
+ * langue), lu depuis le cluster hreflang réciproque. Renvoie null si la page
+ * n'a pas d'équivalent déclaré dans l'autre langue.
+ */
+export function alternatePath(route: RouteSeo, targetLang: "fr" | "en"): string | null {
+  const wanted = targetLang === "en" ? "en" : "fr-FR";
+  const alt = route.hreflang?.find(a => a.hreflang === wanted);
+  return alt ? alt.path : null;
+}
+
 export function organizationJsonLd(base: string): object {
   return {
     "@context": "https://schema.org",
