@@ -21,12 +21,28 @@ if (import.meta.env.VITE_SENTRY_DSN) {
         Sentry.replayIntegration(),
       ],
       tracesSampleRate: 1.0,
-      tracePropagationTargets: ["localhost", /^https:\/\/yourserver\.io\/api/],
+      // The API is same-origin (/api/*), so propagate tracing headers to this
+      // deployment's own origin rather than a hard-coded host.
+      tracePropagationTargets: ["localhost", `${window.location.origin}/api`],
       replaysSessionSampleRate: 0.1,
       replaysOnErrorSampleRate: 1.0,
     });
     console.log("[Sentry] Client monitoring initialized.");
   });
+}
+
+// Umami (optionnel) : injecté depuis le bundle (pas d'inline dans index.html — la
+// CSP de production est stricte) et seulement si l'endpoint est configuré au build.
+// L'origine doit alors figurer dans CSP_EXTRA_ORIGINS (voir DEPLOYMENT.md §2).
+if (import.meta.env.VITE_ANALYTICS_ENDPOINT) {
+  const umami = document.createElement("script");
+  umami.defer = true;
+  umami.src = `${import.meta.env.VITE_ANALYTICS_ENDPOINT}/umami`;
+  umami.setAttribute(
+    "data-website-id",
+    import.meta.env.VITE_ANALYTICS_WEBSITE_ID ?? ""
+  );
+  document.head.appendChild(umami);
 }
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {

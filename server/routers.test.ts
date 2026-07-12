@@ -195,6 +195,86 @@ describe("orders.create pricing (server-side, ignores client)", () => {
   });
 });
 
+describe("orders.create lead ownership (IDOR contract)", () => {
+  beforeEach(() => {
+    vi.mocked(getOffer).mockResolvedValue({
+      id: 7,
+      monthlyPrice: "18400.00",
+      setupFee: "0",
+    } as any);
+    vi.mocked(createOrder).mockResolvedValue([{ insertId: 42 }] as any);
+  });
+
+  it("hides another user's lead as NOT_FOUND and creates nothing", async () => {
+    vi.mocked(getLead).mockResolvedValue({ id: 3, userId: 2 } as any);
+    const caller = appRouter.createCaller(ctxFor(makeUser(1)));
+    await expect(
+      caller.orders.create({ leadId: 3, offerId: 7 }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(createOrder).not.toHaveBeenCalled();
+    expect(updateLead).not.toHaveBeenCalled();
+  });
+
+  it("claims an anonymous lead (userId null) for the ordering user", async () => {
+    vi.mocked(getLead).mockResolvedValue({ id: 3, userId: null } as any);
+    const caller = appRouter.createCaller(ctxFor(makeUser(1)));
+    await expect(caller.orders.create({ leadId: 3, offerId: 7 })).resolves.toMatchObject({
+      id: 42,
+    });
+    expect(updateLead).toHaveBeenCalledWith(
+      3,
+      expect.objectContaining({ status: "offered", selectedOfferId: 7, userId: 1 }),
+    );
+  });
+
+  it("keeps the existing owner on an owned lead", async () => {
+    vi.mocked(getLead).mockResolvedValue({ id: 3, userId: 1 } as any);
+    const caller = appRouter.createCaller(ctxFor(makeUser(1)));
+    await expect(caller.orders.create({ leadId: 3, offerId: 7 })).resolves.toMatchObject({
+      id: 42,
+    });
+    expect(updateLead).toHaveBeenCalledWith(
+      3,
+      expect.objectContaining({ userId: 1 }),
+    );
+  });
+});
+
+describe("leads.update authorization (admin-only)", () => {
+  it("forbids a regular user", async () => {
+    const caller = appRouter.createCaller(ctxFor(makeUser(1)));
+    await expect(
+      caller.leads.update({ id: 5, status: "rejected" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(updateLead).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin update any lead", async () => {
+    vi.mocked(updateLead).mockResolvedValue(undefined as any);
+    vi.mocked(getLead).mockResolvedValue({ id: 5, status: "rejected" } as any);
+    const caller = appRouter.createCaller(ctxFor(makeUser(99, "admin")));
+    await expect(caller.leads.update({ id: 5, status: "rejected" })).resolves.toMatchObject({
+      id: 5,
+    });
+    expect(updateLead).toHaveBeenCalledWith(5, {
+      status: "rejected",
+      selectedOfferId: undefined,
+    });
+  });
+});
+
+describe("leads.create input bounds", () => {
+  it("rejects oversized strings and non-positive budgets", async () => {
+    const caller = appRouter.createCaller(ctxFor(null));
+    await expect(
+      caller.leads.create({ email: "a@b.com", company: "x".repeat(256) }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      caller.leads.create({ email: "a@b.com", monthlyBudget: -100 }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
 describe("admin.stats (real KPIs)", () => {
   it("computes conversion and revenue from leads and orders", async () => {
     vi.mocked(getAllLeads).mockResolvedValue([

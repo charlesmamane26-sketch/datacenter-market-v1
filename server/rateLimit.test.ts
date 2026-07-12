@@ -1,5 +1,13 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { rateLimit, clientIp, __resetRateLimit } from "./rateLimit";
+import {
+  rateLimit,
+  enforceRateLimit,
+  setRateLimitStore,
+  clientIp,
+  __resetRateLimit,
+  __storeSize,
+  type RateLimitStore,
+} from "./rateLimit";
 
 beforeEach(() => __resetRateLimit());
 
@@ -21,6 +29,17 @@ describe("rateLimit (sliding window)", () => {
     expect(rateLimit("k", 3, 1000, t0 + 1001).allowed).toBe(true);
   });
 
+  it("sweeps long-expired keys so the store cannot grow unbounded", () => {
+    const t0 = 1_000_000;
+    for (let i = 0; i < 100; i++) rateLimit(`ip:${i}`, 5, 60_000, t0);
+    expect(__storeSize()).toBe(100);
+    // Two hours later (sweep interval + max window elapsed), one fresh call
+    // triggers the sweep and evicts every stale key.
+    const t1 = t0 + 2 * 60 * 60 * 1000;
+    rateLimit("ip:new", 5, 60_000, t1);
+    expect(__storeSize()).toBe(1);
+  });
+
   it("tracks keys independently", () => {
     const now = 5_000;
     expect(rateLimit("a", 1, 1000, now).allowed).toBe(true);
@@ -29,15 +48,50 @@ describe("rateLimit (sliding window)", () => {
   });
 });
 
-describe("clientIp", () => {
-  it("prefers the first X-Forwarded-For hop", () => {
-    const req = { headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" } } as any;
-    expect(clientIp(req)).toBe("203.0.113.7");
+describe("enforceRateLimit (pluggable store)", () => {
+  it("routes through the in-memory store by default", async () => {
+    const now = 9_000;
+    expect((await enforceRateLimit("k", 1, 1000, now)).allowed).toBe(true);
+    expect((await enforceRateLimit("k", 1, 1000, now)).allowed).toBe(false);
   });
 
-  it("falls back to req.ip", () => {
-    const req = { headers: {}, ip: "198.51.100.2" } as any;
+  it("delegates to a swapped-in store and forwards all arguments", async () => {
+    const calls: Array<[string, number, number]> = [];
+    const fakeStore: RateLimitStore = {
+      check: (key, limit, windowMs) => {
+        calls.push([key, limit, windowMs]);
+        return Promise.resolve({ allowed: false, retryAfterMs: 42 });
+      },
+    };
+    setRateLimitStore(fakeStore);
+
+    const result = await enforceRateLimit("lead:1.2.3.4", 5, 60_000, 1_000);
+    expect(result).toEqual({ allowed: false, retryAfterMs: 42 });
+    expect(calls).toEqual([["lead:1.2.3.4", 5, 60_000]]);
+  });
+
+  it("reverts to the in-memory store after __resetRateLimit", async () => {
+    setRateLimitStore({ check: () => Promise.resolve({ allowed: false, retryAfterMs: 1 }) });
+    __resetRateLimit();
+    // Back to the real sliding window: first hit on a fresh key is allowed.
+    expect((await enforceRateLimit("fresh", 1, 1000, 1_000)).allowed).toBe(true);
+  });
+});
+
+describe("clientIp", () => {
+  it("ignores X-Forwarded-For (spoofable) and uses req.ip", () => {
+    // req.ip already accounts for trusted proxies via Express's "trust proxy" setting;
+    // reading the header directly would let clients rotate rate-limit keys at will.
+    const req = {
+      headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" },
+      ip: "198.51.100.2",
+    } as any;
     expect(clientIp(req)).toBe("198.51.100.2");
+  });
+
+  it("falls back to the socket address when req.ip is unset", () => {
+    const req = { headers: {}, socket: { remoteAddress: "192.0.2.9" } } as any;
+    expect(clientIp(req)).toBe("192.0.2.9");
   });
 
   it("returns 'unknown' when no source is available", () => {

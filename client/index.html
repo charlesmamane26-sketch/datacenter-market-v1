@@ -10,28 +10,15 @@
     <meta
       name="description"
       content="Location GPU dédiée : comparez jusqu'à trois offres de fournisseurs européens et mobilisez votre capacité de calcul IA en 72 h. Hébergement UE, RGPD." />
-    <!-- Inter est auto-hébergée via @fontsource (voir src/index.css) : graisses 400/500/600/700
-         uniquement, font-display: swap, aucune requête vers une origine externe. -->
-
+    <!-- Inter (400-800) et JetBrains Mono (400-700) sont auto-hébergées via @fontsource
+         (voir src/index.css) : font-display: swap, aucune requête vers une origine externe. -->
   </head>
 
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      // Umami (optionnel) : ne charge le script que si l'endpoint est configuré au
-      // build — sinon l'ancien tag statique requêtait une URL invalide (404) sur
-      // chaque page (le %VAR% de Vite reste littéral quand la variable est absente).
-      (function () {
-        var endpoint = "%VITE_ANALYTICS_ENDPOINT%";
-        if (!endpoint || endpoint.charAt(0) === "%") return;
-        var s = document.createElement("script");
-        s.defer = true;
-        s.src = endpoint + "/umami";
-        s.setAttribute("data-website-id", "%VITE_ANALYTICS_WEBSITE_ID%");
-        document.head.appendChild(s);
-      })();
-    </script>
+    <!-- Umami : chargé depuis main.tsx si VITE_ANALYTICS_ENDPOINT est configuré au build
+         (un script inline serait bloqué par la CSP stricte de production). -->
   </body>
 
 </html>

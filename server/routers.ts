@@ -1,12 +1,17 @@
 import { COOKIE_NAME } from "@shared/const";
+import { parse as parseCookieHeader } from "cookie";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
+import { revokeJti } from "./_core/sessionRevocation";
+import { publishProvisioningEvent } from "./provisioningStream";
+import { sendInfrastructureReady } from "./clientNotifications";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import type { User } from "../drizzle/schema";
 import { matchOffers, type MatchCriteria } from "./matching";
 import { notifyOwner } from "./_core/notification";
-import { rateLimit, clientIp } from "./rateLimit";
+import { enforceRateLimit, clientIp } from "./rateLimit";
 import { createCheckoutSession, getStripe, getOrigin } from "./stripe";
 import { z } from "zod";
 import {
@@ -73,7 +78,10 @@ async function createPendingOrder(
     throw new TRPCError({ code: "NOT_FOUND", message: "Offer not found" });
   }
   const lead = await getLead(input.leadId);
-  if (!lead) {
+  // A lead may be created anonymously (before login), then claimed at checkout.
+  // Only its owner — or the user claiming an anonymous lead — may order against it.
+  // NOT_FOUND for both missing and unauthorized so callers cannot probe lead IDs.
+  if (!lead || (lead.userId != null && lead.userId !== userId)) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Lead not found" });
   }
 
@@ -109,9 +117,14 @@ async function createPendingOrder(
     }
   }
 
-  // An offer was selected and checkout started — mark the lead "offered" and record the choice.
+  // An offer was selected and checkout started — mark the lead "offered", record the choice,
+  // and claim the lead for the ordering user if it was created anonymously.
   // It becomes "converted" only once payment succeeds (see applyStripeEvent in stripe.ts).
-  await updateLead(input.leadId, { status: "offered", selectedOfferId: input.offerId });
+  await updateLead(input.leadId, {
+    status: "offered",
+    selectedOfferId: input.offerId,
+    userId: lead.userId ?? userId,
+  });
 
   return {
     id: insertId,
@@ -130,7 +143,18 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
+    logout: publicProcedure.mutation(async ({ ctx }) => {
+      // Server-side revocation: denylist this token's jti for its remaining
+      // lifetime so a copy stolen before logout can't be replayed. No-op without
+      // Redis (revocation disabled); clearing the cookie always happens.
+      const token = parseCookieHeader(ctx.req.headers.cookie ?? "")[COOKIE_NAME];
+      if (token) {
+        const session = await sdk.verifySession(token);
+        if (session?.jti && session.exp) {
+          const ttlMs = session.exp * 1000 - Date.now();
+          await revokeJti(session.jti, ttlMs);
+        }
+      }
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return {
@@ -144,20 +168,21 @@ export const appRouter = router({
     create: publicProcedure
       .input(
         z.object({
-          email: z.string().email(),
-          company: z.string().optional(),
-          contactName: z.string().optional(),
-          contactRole: z.string().optional(),
-          workloadType: z.string().optional(),
-          gpuRequirement: z.string().optional(),
-          monthlyBudget: z.number().optional(),
-          deploymentDuration: z.string().optional(),
-          infrastructureConstraints: z.string().optional(),
+          // Max lengths mirror the column sizes in drizzle/schema.ts.
+          email: z.string().email().max(320),
+          company: z.string().max(255).optional(),
+          contactName: z.string().max(255).optional(),
+          contactRole: z.string().max(255).optional(),
+          workloadType: z.string().max(100).optional(),
+          gpuRequirement: z.string().max(100).optional(),
+          monthlyBudget: z.number().positive().max(9_999_999_999).optional(),
+          deploymentDuration: z.string().max(100).optional(),
+          infrastructureConstraints: z.string().max(10_000).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
         // Anti-abuse: throttle the public lead endpoint per client IP (5 / minute).
-        const limit = rateLimit(`lead:${clientIp(ctx.req)}`, 5, 60_000);
+        const limit = await enforceRateLimit(`lead:${clientIp(ctx.req)}`, 5, 60_000);
         if (!limit.allowed) {
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
@@ -197,7 +222,7 @@ export const appRouter = router({
       }),
 
     get: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.number().int().positive() }))
       .query(async ({ input, ctx }) => {
         const lead = await getLead(input.id);
         // Leads hold PII (email, budget). Only the owning user or an admin may read one;
@@ -212,12 +237,14 @@ export const appRouter = router({
       return getAllLeads();
     }),
 
-    update: protectedProcedure
+    // Admin-only: lead lifecycle transitions are otherwise server-driven
+    // (createPendingOrder marks "offered", the Stripe webhook marks "converted").
+    update: adminProcedure
       .input(
         z.object({
-          id: z.number(),
+          id: z.number().int().positive(),
           status: z.enum(["new", "qualified", "offered", "converted", "rejected"]).optional(),
-          selectedOfferId: z.number().optional(),
+          selectedOfferId: z.number().int().positive().optional(),
         })
       )
       .mutation(async ({ input }) => {
@@ -230,7 +257,7 @@ export const appRouter = router({
 
     // RGPD erasure: lets an admin delete a lead on request.
     delete: adminProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ input }) => {
         await deleteLead(input.id);
         return { success: true } as const;
@@ -247,7 +274,7 @@ export const appRouter = router({
     // (best_value / fastest / cheapest). Public: the funnel runs before login.
     // Returns offers only — never lead PII.
     match: publicProcedure
-      .input(z.object({ leadId: z.number().optional() }))
+      .input(z.object({ leadId: z.number().int().positive().optional() }))
       .query(async ({ input }) => {
         const catalogue = await getAllOffers();
         let criteria: MatchCriteria = {};
@@ -271,7 +298,7 @@ export const appRouter = router({
       }),
 
     get: publicProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.number().int().positive() }))
       .query(async ({ input }) => {
         return getOffer(input.id);
       }),
@@ -280,7 +307,7 @@ export const appRouter = router({
   // Orders router
   orders: router({
     create: protectedProcedure
-      .input(z.object({ leadId: z.number(), offerId: z.number() }))
+      .input(z.object({ leadId: z.number().int().positive(), offerId: z.number().int().positive() }))
       .mutation(async ({ input, ctx }) => {
         return createPendingOrder(input, ctx.user.id);
       }),
@@ -288,8 +315,17 @@ export const appRouter = router({
     // Creates the pending order and a Stripe-hosted Checkout session; returns the payment URL.
     // The webhook (POST /api/stripe/webhook) is the source of truth for payment status.
     checkout: protectedProcedure
-      .input(z.object({ leadId: z.number(), offerId: z.number() }))
+      .input(z.object({ leadId: z.number().int().positive(), offerId: z.number().int().positive() }))
       .mutation(async ({ input, ctx }) => {
+        // Anti-abuse: throttle checkout per authenticated user (10 / minute).
+        // Keying on the user id (not IP) is precise and unspoofable here.
+        const limit = await enforceRateLimit(`checkout:${ctx.user.id}`, 10, 60_000);
+        if (!limit.allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many checkout attempts. Please wait a moment and try again.",
+          });
+        }
         // Fail fast (before creating an order) if payments aren't configured.
         if (!getStripe()) {
           throw new TRPCError({
@@ -319,7 +355,7 @@ export const appRouter = router({
       }),
 
     get: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.number().int().positive() }))
       .query(async ({ input, ctx }) => {
         return requireOwnedOrder(input.id, ctx.user);
       }),
@@ -331,7 +367,7 @@ export const appRouter = router({
     updatePaymentStatus: adminProcedure
       .input(
         z.object({
-          id: z.number(),
+          id: z.number().int().positive(),
           paymentStatus: z.enum(["pending", "succeeded", "failed", "cancelled"]),
           stripePaymentIntentId: z.string().optional(),
         })
@@ -348,7 +384,7 @@ export const appRouter = router({
     updateStatus: adminProcedure
       .input(
         z.object({
-          id: z.number(),
+          id: z.number().int().positive(),
           status: z.enum(["pending", "processing", "provisioning", "active", "cancelled", "completed"]),
         })
       )
@@ -361,7 +397,7 @@ export const appRouter = router({
   // Provisioning events router
   provisioning: router({
     getEvents: protectedProcedure
-      .input(z.object({ orderId: z.number() }))
+      .input(z.object({ orderId: z.number().int().positive() }))
       .query(async ({ input, ctx }) => {
         await requireOwnedOrder(input.orderId, ctx.user);
         return getProvisioningEventsByOrder(input.orderId);
@@ -370,26 +406,55 @@ export const appRouter = router({
     createEvent: adminProcedure
       .input(
         z.object({
-          orderId: z.number(),
+          orderId: z.number().int().positive(),
           eventType: z.enum(["order_received", "provider_matching", "contract_generation", "provisioning", "ready"]),
           status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(),
           description: z.string().optional(),
         })
       )
       .mutation(async ({ input }) => {
-        return createProvisioningEvent({
+        const status = input.status || "pending";
+        const completedAt = status === "completed" ? new Date() : null;
+        const result = await createProvisioningEvent({
           orderId: input.orderId,
           eventType: input.eventType,
-          status: input.status || "pending",
+          status,
           description: input.description,
+          completedAt,
         });
+        // Broadcast to any open SSE stream for this order so the client timeline
+        // updates live. createProvisioningEvent returns the insert result, not the
+        // row, so reconstruct the payload from the input + insertId.
+        const insertId = Array.isArray(result)
+          ? (result[0] as { insertId?: number } | undefined)?.insertId
+          : undefined;
+        publishProvisioningEvent(input.orderId, {
+          id: insertId,
+          orderId: input.orderId,
+          eventType: input.eventType,
+          status,
+          description: input.description ?? null,
+          completedAt,
+        });
+        // Best-effort: when provisioning completes, email the customer. Never let
+        // an email failure break the admin mutation.
+        if (input.eventType === "ready" && status === "completed") {
+          try {
+            const order = await getOrder(input.orderId);
+            const lead = order ? await getLead(order.leadId) : null;
+            if (lead?.email) await sendInfrastructureReady(lead.email, input.orderId);
+          } catch (error) {
+            console.warn("[Provisioning] infra-ready email failed:", String(error));
+          }
+        }
+        return result;
       }),
   }),
 
   // Infrastructure metrics router
   metrics: router({
     getLatest: protectedProcedure
-      .input(z.object({ orderId: z.number() }))
+      .input(z.object({ orderId: z.number().int().positive() }))
       .query(async ({ input, ctx }) => {
         await requireOwnedOrder(input.orderId, ctx.user);
         return getLatestMetricsForOrder(input.orderId);
@@ -419,6 +484,12 @@ export const appRouter = router({
         monthlyRevenue: Math.round(monthlyRevenue),
         avgDealSize,
       };
+    }),
+
+    // Full order list for the admin CSV export (leads are already available via
+    // leads.list). Admin-only; returns raw rows, the client builds the CSV.
+    exportOrders: adminProcedure.query(async () => {
+      return getAllOrders();
     }),
   }),
 });

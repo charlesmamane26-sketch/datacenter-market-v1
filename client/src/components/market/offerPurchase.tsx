@@ -1,0 +1,204 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { fmtEUR } from "@/lib/format";
+import { PanelLabel } from "@/components/market";
+
+/**
+ * Shared blocks for the offer / pre-payment screen (design 2c), used by both
+ * /offer-detail and /checkout so the two routes share one visual language.
+ */
+
+export interface PurchasableOffer {
+  id: number;
+  name: string;
+  category?: string | null;
+  gpuType: string;
+  gpuCount: number;
+  cpuCores: number;
+  ramGb: number;
+  storageGb: number;
+  location: string;
+  monthlyPrice: string | number;
+  setupFee: string | number | null;
+  sla: string;
+  deploymentTime: string;
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  best_value: "MEILLEUR RAPPORT",
+  fastest: "LE PLUS RAPIDE",
+  cheapest: "LE PLUS ÉCONOMIQUE",
+};
+
+export function OfferHeader({ offer, leadId }: { offer: PurchasableOffer; leadId?: number }) {
+  const badge = offer.category ? CATEGORY_LABELS[offer.category] : undefined;
+  return (
+    <div className="mb-[30px] flex flex-col gap-3">
+      {badge && (
+        <div className="flex gap-2">
+          <span className="rounded-md bg-accent/10 px-2.5 py-[5px] font-mono text-[10.5px] font-semibold tracking-[.1em] text-accent">
+            {badge}
+          </span>
+        </div>
+      )}
+      <h1 className="m-0 text-[28px] font-extrabold uppercase leading-none tracking-[-0.035em] md:text-[40px]">
+        {offer.name}
+      </h1>
+      <span className="font-mono text-[11.5px] uppercase tracking-[.08em] text-muted-foreground">
+        {offer.location} · BARE METAL DÉDIÉ{leadId != null ? ` · LEAD #${leadId}` : ""}
+      </span>
+    </div>
+  );
+}
+
+function Cell({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1 bg-background px-5 py-4">
+      <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">{label}</span>
+      <span className={`font-mono text-[16px] font-semibold ${accent ? "text-accent" : ""}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+export function TechSummaryCard({ offer }: { offer: PurchasableOffer }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-[26px]">
+      <PanelLabel className="mb-[18px]">Résumé technique</PanelLabel>
+      <div className="grid grid-cols-1 gap-px overflow-hidden rounded-[10px] border border-border/60 bg-border/60 sm:grid-cols-2">
+        <Cell label="CONFIGURATION GPU" value={`${offer.gpuCount}× ${offer.gpuType}`} />
+        <Cell label="CPU" value={`${offer.cpuCores} cœurs`} />
+        <Cell label="MÉMOIRE" value={`${offer.ramGb} Go RAM`} />
+        <Cell label="STOCKAGE" value={`${offer.storageGb} Go NVMe`} />
+      </div>
+    </div>
+  );
+}
+
+export function ServiceTermsCard({ offer }: { offer: PurchasableOffer }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-[26px]">
+      <PanelLabel className="mb-[18px]">Conditions de service</PanelLabel>
+      <div className="grid grid-cols-1 gap-px overflow-hidden rounded-[10px] border border-border/60 bg-border/60 sm:grid-cols-3">
+        <Cell label="SLA GARANTI" value={offer.sla} />
+        <Cell label="MISE EN SERVICE" value={offer.deploymentTime} accent />
+        <Cell label="SUPPORT" value="24/7" />
+      </div>
+    </div>
+  );
+}
+
+const COMPLIANCE_ITEMS = [
+  "Traitement conforme RGPD",
+  "Résidence des données UE",
+  "Haute disponibilité",
+  "Support 24/7 inclus",
+];
+
+export function ComplianceCard() {
+  return (
+    <div className="rounded-xl border border-accent/30 bg-card p-[26px]">
+      <div className="mb-3.5 text-[15px] font-semibold">Contrat &amp; conformité</div>
+      <div className="grid grid-cols-1 gap-2.5 text-[13.5px] sm:grid-cols-2">
+        {COMPLIANCE_ITEMS.map(item => (
+          <div key={item} className="flex gap-[9px]">
+            <span className="font-bold text-accent">✓</span>
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const REASSURANCE = ["Offre ferme 72 h", "Sans engagement de durée", "Facturation transparente"];
+
+export function RecapSidebar({
+  offer,
+  cta,
+  hint,
+}: {
+  offer: PurchasableOffer;
+  cta: ReactNode;
+  hint?: ReactNode;
+}) {
+  const monthly = Number(offer.monthlyPrice);
+  const setup = Number(offer.setupFee);
+  const total = monthly + setup;
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-[26px] md:sticky md:top-8">
+      <PanelLabel>Récapitulatif</PanelLabel>
+      <div className="flex flex-col gap-[11px] border-b border-border pb-3.5">
+        <div className="flex justify-between text-[13.5px]">
+          <span className="text-muted-foreground">Mensuel</span>
+          <span className="font-mono text-[13px] font-semibold">{fmtEUR(monthly)}</span>
+        </div>
+        <div className="flex justify-between text-[13.5px]">
+          <span className="text-muted-foreground">Frais d'installation</span>
+          <span className="font-mono text-[13px] font-semibold">{fmtEUR(setup)}</span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1 rounded-[10px] border border-accent/35 bg-accent/8 px-[18px] py-[15px]">
+        <span className="text-[12px] text-muted-foreground">Total premier mois</span>
+        <span className="font-mono text-[28px] font-bold text-accent">{fmtEUR(total)}</span>
+        <span className="text-[11.5px] text-muted-foreground">
+          puis {fmtEUR(monthly)}/mois HT
+        </span>
+      </div>
+      <div className="flex flex-col gap-2 text-[13px]">
+        {REASSURANCE.map(item => (
+          <div key={item} className="flex gap-2">
+            <span className="font-bold text-accent">✓</span>
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+      {cta}
+      {hint}
+    </div>
+  );
+}
+
+export function HelpCard() {
+  return (
+    <div className="rounded-xl border border-border bg-card p-[26px] text-sm">
+      <h4 className="mb-2 font-semibold">Besoin d'aide ?</h4>
+      <p className="mb-0 text-muted-foreground">
+        Un conseiller répond à vos questions sur cette infrastructure — contactez-nous avant de
+        vous engager.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * 72h offer-validity countdown shown in the chrome. Starts on first view of
+ * this lead's offer (persisted in sessionStorage so navigating keeps the clock).
+ */
+export function useOfferCountdown(key: string | number | undefined): string {
+  const storageKey = `dcm-offer-seen-${key ?? "anon"}`;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  let start = now;
+  try {
+    const raw = sessionStorage.getItem(storageKey);
+    if (raw) {
+      start = Number(raw);
+    } else {
+      sessionStorage.setItem(storageKey, String(now));
+    }
+  } catch {
+    // Private mode: countdown simply starts at 72:00:00.
+  }
+
+  const remaining = Math.max(0, 72 * 3600 - Math.floor((now - start) / 1000));
+  const hh = String(Math.floor(remaining / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((remaining % 3600) / 60)).padStart(2, "0");
+  const ss = String(remaining % 60).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}

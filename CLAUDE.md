@@ -31,7 +31,7 @@ server/db.ts             query helpers (return raw rows)
 server/routers.ts        tRPC procedures (auth, leads, offers, orders, provisioning, metrics, admin)
 server/matching.ts       pure offer-ranking engine (best_value / fastest / cheapest)
 server/stripe.ts         Stripe client, Checkout session builder, signed webhook handler
-server/rateLimit.ts      in-memory sliding-window limiter
+server/rateLimit.ts      sliding-window limiter (in-memory default, Redis store via REDIS_URL)
 client/src/pages/*        route components (lazy-loaded in App.tsx)
 client/src/lib/trpc.ts    typed tRPC client (types flow from AppRouter — no codegen)
 shared/                   constants/types shared client+server
@@ -50,7 +50,10 @@ inferred end-to-end; never hand-write client contracts.
 - **Lead lifecycle:** `new` → `offered` (checkout started, in `createPendingOrder`) → `converted`
   (only on payment success, in `applyStripeEvent`). Don't mark converted before payment.
 - **Authorization:** read procedures for leads/orders are owner-or-admin (`requireOwnedOrder`, and the
-  lead PII check). Admin-only writes use `adminProcedure`. The public `leads.create` is rate-limited.
+  lead PII check). Ordering against a lead requires owning it (anonymous leads are claimed by the
+  ordering user in `createPendingOrder`). Admin-only writes (incl. `leads.update`) use `adminProcedure`.
+  The public `leads.create` is rate-limited per client IP — `clientIp` relies on `req.ip` + Express
+  `trust proxy` (set in production via `TRUST_PROXY_HOPS`, default 1); never read X-Forwarded-For directly.
 - **RGPD:** lead capture requires explicit consent (WorkloadForm); erasure via `leads.delete`;
   retention via `db:purge`.
 
@@ -64,9 +67,9 @@ via `appRouter.createCaller(ctx)`. Real-DB behavior (queries, insertId, decimals
 
 - **Stripe live**: implemented; needs `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` to activate. One
   unverified assumption: a one-time line item inside a `subscription`-mode session (see DEPLOYMENT.md §10).
-- **GPU/CPU telemetry**: nothing writes `infrastructureMetrics`; the client dashboard shows
-  "Awaiting telemetry".
-- **Error monitoring (Sentry)**: not wired (needs a DSN).
+- **GPU/CPU telemetry**: ingestion route `POST /api/telemetry/:orderId` exists (needs
+  `TELEMETRY_INGEST_KEY` + a provider agent to push data); `pnpm db:telemetry` simulates it in dev.
+- **Error monitoring (Sentry)**: wired server + client; needs `SENTRY_DSN` / `VITE_SENTRY_DSN` to activate.
 - **Local Docker is unusable on this machine** (insufficient memory / paging file + broken containerd
   storage) — for a live DB, use a cloud MySQL/TiDB rather than Docker.
 

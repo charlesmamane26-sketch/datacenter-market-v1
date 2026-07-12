@@ -2,7 +2,9 @@ import Stripe from "stripe";
 import express, { type Express } from "express";
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./_core/env";
-import { updateOrder, getOrder, updateLead } from "./db";
+import { updateOrder, getOrder, updateLead, getLead } from "./db";
+import { enforceRateLimit, clientIp } from "./rateLimit";
+import { sendOrderConfirmed } from "./clientNotifications";
 import type { TrpcContext } from "./_core/context";
 
 let _stripe: Stripe | null = null;
@@ -14,8 +16,19 @@ export function getStripe(): Stripe | null {
   return _stripe;
 }
 
-/** Best-effort absolute origin for building Stripe success/cancel URLs. */
+/**
+ * Absolute origin used to build Stripe success/cancel URLs and to validate the
+ * OAuth state. When PUBLIC_BASE_URL is configured it is the single source of
+ * truth — request headers (Origin / Host / X-Forwarded-Proto) are attacker-
+ * influenceable and must not drive these URLs in production.
+ */
 export function getOrigin(req: TrpcContext["req"]): string {
+  if (ENV.publicBaseUrl) return ENV.publicBaseUrl.replace(/\/+$/, "");
+  // In production, refuse to fall back to request headers: a missing
+  // PUBLIC_BASE_URL is a misconfiguration, not a reason to trust the Host header.
+  if (ENV.isProduction) {
+    throw new Error("PUBLIC_BASE_URL must be set in production to derive a trusted origin.");
+  }
   const origin = req.headers.origin;
   if (typeof origin === "string" && origin.length > 0) return origin;
   const forwardedProto = req.headers["x-forwarded-proto"];
@@ -108,6 +121,12 @@ export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
         ? session.payment_intent
         : session.id;
 
+  const order = await getOrder(orderId);
+  if (!order) return false;
+  // Stripe retries webhooks on non-2xx responses: re-deliveries of an already-paid
+  // order must be no-ops so later transitions (provisioning, etc.) aren't clobbered.
+  if (order.paymentStatus === "succeeded") return true;
+
   await updateOrder(orderId, {
     paymentStatus: "succeeded",
     status: "processing",
@@ -115,9 +134,15 @@ export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
   });
 
   // Payment succeeded — the lead is genuinely converted now (not at checkout start).
-  const order = await getOrder(orderId);
-  if (order) {
-    await updateLead(order.leadId, { status: "converted", selectedOfferId: order.offerId });
+  await updateLead(order.leadId, { status: "converted", selectedOfferId: order.offerId });
+
+  // Best-effort: notify the customer their order is confirmed. Never let an email
+  // failure break the webhook (Stripe would retry and double-process otherwise).
+  try {
+    const lead = await getLead(order.leadId);
+    if (lead?.email) await sendOrderConfirmed(lead.email, orderId);
+  } catch (error) {
+    console.warn("[Stripe] order-confirmed email failed:", String(error));
   }
   return true;
 }
@@ -127,7 +152,16 @@ export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
  * is available for signature verification. The webhook is the source of truth for payment status.
  */
 export function registerStripeWebhook(app: Express) {
-  app.post("/api/stripe/webhook", express.raw({ type: "*/*" }), async (req, res) => {
+  app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    // Generous per-IP throttle: signature verification already gates real abuse,
+    // so this only blunts floods. Kept high enough not to drop Stripe's legitimate
+    // burst retries after an outage.
+    const limit = await enforceRateLimit(`stripe-webhook:${clientIp(req)}`, 100, 60_000);
+    if (!limit.allowed) {
+      res.status(429).send("Too many requests.");
+      return;
+    }
+
     const stripe = getStripe();
     if (!stripe || !ENV.stripeWebhookSecret) {
       res.status(503).send("Stripe is not configured.");

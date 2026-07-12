@@ -78,6 +78,35 @@ describe("applyStripeEvent", () => {
     expect(updateOrder).not.toHaveBeenCalled();
   });
 
+  it("is idempotent: a redelivered event for an already-paid order is a no-op", async () => {
+    vi.mocked(getOrder).mockResolvedValue({
+      id: 42,
+      leadId: 3,
+      offerId: 7,
+      paymentStatus: "succeeded",
+      status: "provisioning",
+    } as any);
+    const event = {
+      type: "checkout.session.completed",
+      data: { object: { metadata: { orderId: "42" }, subscription: "sub_123" } },
+    } as any;
+    const handled = await applyStripeEvent(event);
+    expect(handled).toBe(true); // acknowledged so Stripe stops retrying
+    expect(updateOrder).not.toHaveBeenCalled(); // later transitions are not clobbered
+    expect(updateLead).not.toHaveBeenCalled();
+  });
+
+  it("ignores events referencing an unknown order", async () => {
+    vi.mocked(getOrder).mockResolvedValue(null as any);
+    const event = {
+      type: "checkout.session.completed",
+      data: { object: { metadata: { orderId: "404" } } },
+    } as any;
+    const handled = await applyStripeEvent(event);
+    expect(handled).toBe(false);
+    expect(updateOrder).not.toHaveBeenCalled();
+  });
+
   it("ignores sessions without an order reference", async () => {
     const handled = await applyStripeEvent({
       type: "checkout.session.completed",

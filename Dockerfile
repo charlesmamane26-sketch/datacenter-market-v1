@@ -33,9 +33,12 @@ ENV PORT=3000
 # The server is bundled with `esbuild --packages=external`, AND it statically imports
 # `vite` (via the dev/prod branch in server/_core/vite.ts). The FULL dependency set
 # must therefore be present at runtime — do NOT prune to production-only deps.
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/package.json ./package.json
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/package.json ./package.json
+
+# Run unprivileged: a compromise of the Node process must not yield container root.
+USER node
 
 EXPOSE 3000
 # NODE_ENV is set above, so we run node directly (no need for cross-env here).
