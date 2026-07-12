@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { MarketBrand } from "@/components/market";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { GAAS_FAQ_EN } from "@shared/seo-content";
 
 /**
@@ -43,9 +44,7 @@ export default function LandingEn() {
           <a href="#catalogue" className="hidden text-[13.5px] text-muted-foreground transition-colors hover:text-foreground md:block">
             Catalogue
           </a>
-          <Link href="/" hrefLang="fr" className="rounded-full border border-border px-3 py-1 font-mono text-[11px] tracking-[.06em] text-muted-foreground transition-colors hover:text-foreground">
-            FR
-          </Link>
+          <LanguageSwitcher />
         </div>
       </div>
 

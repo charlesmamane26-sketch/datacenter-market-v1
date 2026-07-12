@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { clearCheckoutIntent, loadCheckoutIntent } from "@/lib/checkoutIntent";
 import { consumeRoleRedirect } from "@/lib/postLoginRedirect";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { MarketBrand, MarketOpenChip, MarketTicker, type TickerQuote } from "@/components/market";
 
 /**
@@ -127,13 +128,7 @@ export default function Home() {
           >
             Mon compte
           </button>
-          <Link
-            href="/en"
-            hrefLang="en"
-            className="rounded-full border border-border px-3 py-1 font-mono text-[11px] tracking-[.06em] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            EN
-          </Link>
+          <LanguageSwitcher />
           <span className="font-mono text-[11.5px] tracking-[.08em] text-muted-foreground">{clock} UTC</span>
           <MarketOpenChip />
         </div>

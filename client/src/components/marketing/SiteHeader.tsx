@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { MarketBrand } from "@/components/market";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 const NAV_LINKS = [
   { href: "/gpu-as-a-service/", label: "GPU as a Service" },
@@ -28,13 +29,16 @@ export default function SiteHeader() {
             </Link>
           ))}
         </nav>
-        <Button
-          size="sm"
-          className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold"
-          onClick={() => setLocation("/workload")}
-        >
-          Décrire mon besoin
-        </Button>
+        <div className="flex items-center gap-3">
+          <LanguageSwitcher />
+          <Button
+            size="sm"
+            className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold"
+            onClick={() => setLocation("/workload")}
+          >
+            Décrire mon besoin
+          </Button>
+        </div>
       </div>
     </header>
   );

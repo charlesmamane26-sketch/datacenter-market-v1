@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { MarketBrand } from "@/components/market";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 /** English marketing header (mirrors SiteHeader) used by the /en/* content pages. */
 const NAV_LINKS = [
@@ -30,13 +31,7 @@ export default function SiteHeaderEn() {
           ))}
         </nav>
         <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            hrefLang="fr"
-            className="rounded-full border border-border px-3 py-1 font-mono text-[11px] tracking-[.06em] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            FR
-          </Link>
+          <LanguageSwitcher />
           <Button
             size="sm"
             className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold"
