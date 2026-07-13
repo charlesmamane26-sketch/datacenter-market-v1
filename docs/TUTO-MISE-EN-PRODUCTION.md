@@ -150,38 +150,20 @@ Ajoute-les aussi dans **Environment** : Render rend les variables d'environnemen
 ### 2.4 Domaine et déploiement
 
 1. Render te donne d'office un domaine gratuit en `xxx.onrender.com` — suffisant pour démarrer.
-2. *(Optionnel, toujours 0 € nouveau)* : pour `compute.anavim-infra.com`, ajoute un **Custom Domain** dans Render → Settings, puis crée le CNAME indiqué dans ta zone DNS OVH (le domaine anavim-infra.com est déjà payé). Certificat TLS automatique.
+2. *(Optionnel, toujours 0 €)* : pour `compute.anavim-infra.com`, ajoute un **Custom Domain** dans Render → Settings, puis crée le CNAME indiqué dans ta zone DNS OVH (le domaine anavim-infra.com est déjà payé). Certificat TLS automatique.
 3. Chaque `git push` sur `main` redéploie automatiquement.
 
 ✅ **Critère de réussite :** `https://ton-domaine/health` répond `{"status":"ok"}` et la landing s'affiche.
 
 ### 2.5 Les crons RGPD — gratuits via GitHub Actions
 
-Le tier gratuit Render n'inclut pas les cron jobs, mais **GitHub Actions** les exécute gratuitement. Crée le fichier `.github/workflows/crons.yml` dans le repo :
+Le tier gratuit Render n'inclut pas les cron jobs, mais **GitHub Actions** les exécute
+gratuitement. Le workflow **existe déjà** dans le repo (`.github/workflows/crons.yml` :
+purge des leads tous les jours à 03:00 UTC, annulation des commandes abandonnées toutes
+les heures). Il ne manque qu'une chose :
 
-```yaml
-name: RGPD crons
-on:
-  schedule:
-    - cron: "0 3 * * *"   # purge des leads, tous les jours à 03:00 UTC
-    - cron: "30 * * * *"  # commandes abandonnées, toutes les heures
-  workflow_dispatch: {}    # déclenchement manuel possible
-jobs:
-  maintenance:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: corepack enable && pnpm install --frozen-lockfile
-      - run: pnpm db:cancel-stale
-        env: { DATABASE_URL: "${{ secrets.DATABASE_URL }}" }
-      - run: pnpm db:purge
-        if: github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch'
-        env: { DATABASE_URL: "${{ secrets.DATABASE_URL }}" }
-```
-
-Puis dans GitHub → repo → **Settings → Secrets and variables → Actions** → ajoute le secret `DATABASE_URL` (la même chaîne TiDB). Teste avec **Actions → RGPD crons → Run workflow**.
+Dans GitHub → repo → **Settings → Secrets and variables → Actions** → ajoute le secret
+`DATABASE_URL` (la même chaîne TiDB). Teste avec **Actions → RGPD crons → Run workflow**.
 
 ---
 
@@ -224,7 +206,7 @@ Puis dans GitHub → repo → **Settings → Secrets and variables → Actions**
 Quand le compte est vérifié **et** que le test ci-dessus passe :
 
 1. Désactive le mode test → copie `sk_live_...` → remplace `STRIPE_SECRET_KEY`.
-2. Recrée le webhook en mode live (nouvelle URL secret `whsec_...`) → remplace `STRIPE_WEBHOOK_SECRET`.
+2. Recrée le webhook en mode live (nouveau secret `whsec_...` — l'URL, elle, ne change pas) → remplace `STRIPE_WEBHOOK_SECRET`.
 3. Fais **un vrai paiement** avec ta propre carte sur l'offre la moins chère, puis rembourse-le depuis le dashboard Stripe.
 4. Active **Stripe Tax** si tu factures de la TVA UE (B2B : autoliquidation avec numéro de TVA).
 
@@ -252,13 +234,14 @@ second service free** dans le même workspace (staging, test…) : le dépasseme
 **tous** les services free, production comprise, jusqu'au mois suivant. Si Render envoie
 un e-mail de suspension, c'est le signal de passer au plan Starter.
 
-### 4.3 Décision télémétrie GPU
+### 4.3 Télémétrie GPU — réglé pour le lancement
 
-Le dashboard client affiche « Awaiting telemetry » car rien n'alimente les métriques. Trois options :
-
-- **(a) Conseillé pour le lancement :** masquer le panneau (je peux le faire en 10 min) ;
-- (b) Lancer `pnpm db:telemetry --daemon` — données **simulées**, déconseillé face à de vrais clients ;
-- (c) Brancher une vraie ingestion plus tard (API des providers GPU).
+Le dashboard client n'affiche plus d'état « en attente » permanent : sans données, la
+tuile KPI montre le **statut du service** et le panneau télémétrie n'apparaît que
+lorsque de vraies métriques arrivent. Rien à faire au lancement. Le jour où un provider
+pousse des métriques (`POST /api/telemetry/:orderId` + `TELEMETRY_INGEST_KEY`, cf.
+DEPLOYMENT.md §11), l'affichage GPU s'active tout seul. (`pnpm db:telemetry` reste
+réservé aux démos locales — jamais en production.)
 
 ### 4.4 Checklist finale avant d'annoncer le site
 
@@ -287,4 +270,4 @@ Le dashboard client affiche « Awaiting telemetry » car rien n'alimente les mé
 
 ---
 
-*Document généré le 10 juin 2026 — accompagne `PRODUCTION-PLAN.md` (état technique) dans le dépôt `datacenter-market-v1`.*
+*Document du 10 juin 2026, mis à jour le 13 juillet 2026 (Blueprint Render, base TiDB à créer, commandes corepack, CSP/e-mails, télémétrie réglée) — accompagne `PRODUCTION-PLAN.md` (état technique) dans le dépôt `datacenter-market-v1`.*
