@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "datacenter-market-dev",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["run", "dev:preview"],
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/tsx/dist/cli.mjs", "server/_core/index.ts"],
       "port": 3000
     }
   ]
