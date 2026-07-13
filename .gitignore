@@ -115,3 +115,4 @@ client/public/__manus__/version.json
 
 # npm lockfile — this project is pnpm-only (see preinstall guard)
 package-lock.json
+dev-preview.cmd
