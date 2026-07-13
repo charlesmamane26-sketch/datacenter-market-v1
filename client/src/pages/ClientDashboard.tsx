@@ -43,8 +43,13 @@ export default function ClientDashboard() {
   const monthlySpend = billable.reduce((sum, o) => sum + Number(o.monthlyRecurring), 0);
   const activeServices = orderList.filter(o => ACTIVE_STATUSES.includes(o.status)).length;
 
-  // Live telemetry for the primary active order — empty until a provider feeds metrics.
-  const primaryOrder = orderList.find(o => o.status === "active") ?? orderList[0];
+  // Primary service: prefer live states over raw recency (orders arrive newest
+  // first) so an abandoned checkout (pending/cancelled) never masks the real
+  // service — this drives the KPI tile, the metrics query, and the SSE alerts.
+  const primaryOrder =
+    ["active", "provisioning", "processing", "pending", "completed"]
+      .map(s => orderList.find(o => o.status === s))
+      .find(Boolean) ?? orderList[0];
   const primaryOrderId = primaryOrder?.id;
   const { data: m } = trpc.metrics.getLatest.useQuery(
     { orderId: primaryOrderId ?? 0 },
@@ -182,27 +187,39 @@ export default function ClientDashboard() {
             <span className="font-mono text-[26px] font-bold">{orderList.length}</span>
             <span className="text-[12px] text-muted-foreground">Depuis le début</span>
           </div>
-          <div className="flex flex-col gap-1.5 bg-card p-[22px]">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
-                UTILISATION GPU
-              </span>
-              {gpuUsage != null && (
+          {/* With live telemetry this cell shows GPU usage; without any source
+              (nothing pushes metrics yet at launch) it falls back to the primary
+              service's status instead of a permanent "awaiting" placeholder. */}
+          {gpuUsage != null ? (
+            <div className="flex flex-col gap-1.5 bg-card p-[22px]">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
+                  UTILISATION GPU
+                </span>
                 <span className="h-1.5 w-1.5 rounded-full bg-accent animate-live-dot-fast" />
-              )}
+              </div>
+              <span className="font-mono text-[26px] font-bold text-accent">{gpuUsage} %</span>
+              <MeterBar value={gpuUsage} />
             </div>
-            {gpuUsage != null ? (
-              <>
-                <span className="font-mono text-[26px] font-bold text-accent">{gpuUsage} %</span>
-                <MeterBar value={gpuUsage} />
-              </>
-            ) : (
-              <>
-                <span className="font-mono text-[26px] font-bold text-muted-foreground">—</span>
-                <span className="text-[12px] text-muted-foreground">Télémétrie en attente</span>
-              </>
-            )}
-          </div>
+          ) : (
+            <div className="flex flex-col gap-1.5 bg-card p-[22px]">
+              <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
+                SERVICE PRINCIPAL
+              </span>
+              <span className="font-mono text-[26px] font-bold">
+                {primaryOrder
+                  ? (STATUS_META[primaryOrder.status] ?? STATUS_META.pending).label
+                  : "—"}
+              </span>
+              <span className="text-[12px] text-muted-foreground">
+                {primaryOrder
+                  ? orderRef(primaryOrder.id)
+                  : orders === undefined
+                    ? "Chargement…"
+                    : "Aucun service actif"}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Telemetry per order */}

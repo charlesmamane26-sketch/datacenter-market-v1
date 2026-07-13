@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { ENV } from "./_core/env";
 import { updateOrder, getOrder, updateLead, getLead } from "./db";
 import { enforceRateLimit, clientIp } from "./rateLimit";
-import { sendOrderConfirmed } from "./clientNotifications";
+import { sendOrderConfirmed, sendPaymentFailed } from "./clientNotifications";
 import type { TrpcContext } from "./_core/context";
 
 let _stripe: Stripe | null = null;
@@ -186,9 +186,22 @@ export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
       if (orderId == null) return false;
       const order = await getOrder(orderId);
       if (!order || order.paymentStatus === "succeeded") return order != null;
+      // Idempotent: a failure redelivered for an already-failed order, or arriving
+      // after the order was already cancelled (e.g. by db:cancel-stale, which leaves
+      // paymentStatus "pending"), is acknowledged as a no-op — no rewrite, and the
+      // customer is not emailed for an order that was already dealt with.
+      if (order.paymentStatus === "failed" || order.status === "cancelled") return true;
       // The deferred payment did not clear: mark the order failed and cancel it so
       // no infrastructure is provisioned for it. The lead stays "offered".
       await updateOrder(orderId, { paymentStatus: "failed", status: "cancelled" });
+      // Best-effort: tell the customer their payment did not clear. Never let an
+      // email failure break the webhook (Stripe would retry and double-process).
+      try {
+        const lead = await getLead(order.leadId);
+        if (lead?.email) await sendPaymentFailed(lead.email, orderId);
+      } catch (error) {
+        console.warn("[Stripe] payment-failed email failed:", String(error));
+      }
       return true;
     }
 

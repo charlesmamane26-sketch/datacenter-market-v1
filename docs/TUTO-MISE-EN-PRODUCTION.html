@@ -1,4 +1,6 @@
 <!DOCTYPE html>
+<!-- FICHIER DÉRIVÉ : généré depuis TUTO-MISE-EN-PRODUCTION.md (source de vérité).
+     Ne pas éditer directement — modifier le .md puis régénérer ce HTML. -->
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -60,8 +62,12 @@
 
 <header>
   <h1>Tutoriel — Mettre DatacenterMarket en production</h1>
-  <p class="meta">Anavim Advisory · 10 juin 2026 · Phases 2 → 4 du plan de production<br>
-  Prérequis : Phases 0 et 1 (sécurité) déjà déployées sur GitHub · Durée : 2-4 h sur 2-3 jours</p>
+  <p class="meta">
+    <strong>Pour qui ?</strong> Charles (Anavim Advisory) — aucune compétence DevOps avancée requise.<br>
+    <strong>Point de départ :</strong> les Phases 0 et 1 (sécurité) sont déjà faites et poussées sur GitHub.<br>
+    <strong>Objectif :</strong> passer du dépôt GitHub à un site public qui encaisse de vrais paiements.<br>
+    <strong>Durée estimée :</strong> 2 à 4 heures réparties sur 2-3 jours (délais de vérification de comptes).
+  </p>
 </header>
 
 <nav>
@@ -69,148 +75,204 @@
   <ol>
     <li><a href="#etape1">La base de données MySQL cloud (~30 min)</a></li>
     <li><a href="#etape2">L'hébergement gratuit sur Render (~45 min)</a></li>
-    <li><a href="#etape3">Stripe : test puis live (~45 min + vérification)</a></li>
+    <li><a href="#etape3">Stripe (~45 min + vérification du compte)</a></li>
     <li><a href="#etape4">Monitoring et go-live (~30 min)</a></li>
-    <li><a href="#depannage">En cas de problème</a></li>
+    <li><a href="#problemes">En cas de problème</a></li>
   </ol>
 </nav>
 
 <h2 id="vue">Vue d'ensemble</h2>
+
 <p>Il reste trois briques externes à brancher, puis le déploiement :</p>
+
 <table>
   <tr><th>Étape</th><th>Service</th><th>Compte à créer</th><th>Coût</th></tr>
   <tr><td>1. Base de données</td><td>TiDB Serverless</td><td>tidbcloud.com</td><td><strong>0 €</strong> (jusqu'à 5 Go)</td></tr>
   <tr><td>2. Hébergement</td><td>Render (free tier)</td><td>render.com</td><td><strong>0 €</strong></td></tr>
   <tr><td>2bis. Crons RGPD</td><td>GitHub Actions</td><td>déjà en place</td><td><strong>0 €</strong></td></tr>
-  <tr><td>3. Paiements</td><td>Stripe</td><td>stripe.com</td><td><strong>0 €</strong> fixe (commission ~1,5 % + 0,25 € par vente)</td></tr>
+  <tr><td>3. Paiements</td><td>Stripe</td><td>stripe.com</td><td><strong>0 €</strong> fixe (commission ~1,5 % + 0,25 € par vente uniquement)</td></tr>
   <tr><td>4. Monitoring</td><td>Sentry + UptimeRobot</td><td>sentry.io, uptimerobot.com</td><td><strong>0 €</strong> (tiers free)</td></tr>
 </table>
-<div class="box ok"><strong>Budget total : 0 € de coût fixe.</strong> Tu ne paies que la commission Stripe quand un client paie réellement.</div>
-<div class="box warn"><strong>⚠ Limite du tier gratuit Render :</strong> le serveur s'endort après 15 min sans trafic et met ~50 s à se réveiller. Le ping UptimeRobot toutes les 5 min (étape 4.2) le maintient éveillé en pratique. Quand les premiers clients arrivent, passe au plan Starter (~7 $/mois).</div>
-<div class="box warn"><strong>Règle d'or :</strong> ne jamais mettre une clé secrète dans Git. Toutes les clés vont dans les variables d'environnement de l'hébergeur.</div>
+
+<p><strong>Budget total : 0 € de coût fixe.</strong> Tu ne paies que la commission Stripe quand un client paie réellement.</p>
+
+<div class="box warn">⚠️ <strong>Limite à connaître du tier gratuit Render :</strong> le serveur s'endort après 15 min sans trafic et met ~50 s à se réveiller à la visite suivante. Le ping UptimeRobot toutes les 5 min (étape 4.2) le maintient éveillé en pratique. Quand les premiers clients arrivent, passe au plan Starter (~7 $/mois) pour supprimer cette limite.</div>
+
+<p><strong>Règle d'or : ne jamais mettre une clé secrète dans Git.</strong> Toutes les clés vont dans les variables d'environnement de l'hébergeur.</p>
 
 <h2 id="etape1">Étape 1 — La base de données MySQL cloud (~30 min)</h2>
+
 <p>Le projet utilise Drizzle ORM sur MySQL. Le plus simple et gratuit : <strong>TiDB Serverless</strong> (compatible MySQL).</p>
 
 <h3>1.1 Créer le cluster</h3>
+
 <ol>
   <li>Va sur <strong>https://tidbcloud.com</strong> → <em>Sign up</em> (compte Google possible).</li>
   <li>Clique <strong>Create Cluster</strong> → choisis <strong>Serverless</strong> (gratuit jusqu'à 5 Go).</li>
   <li>Région : <strong>Frankfurt (eu-central-1)</strong> — données en UE, cohérent avec le positionnement RGPD du site.</li>
   <li>Une fois le cluster créé, clique <strong>Connect</strong> en haut à droite.</li>
-  <li>Choisis <em>Connect With</em> → <strong>General</strong>, génère le mot de passe et note la chaîne de connexion :</li>
+  <li>Choisis <em>Connect With</em> → <strong>General</strong>, génère le mot de passe, et note la chaîne de connexion. Elle ressemble à :</li>
 </ol>
+
 <pre><code>mysql://xxxxxx.root:MOT_DE_PASSE@gateway01.eu-central-1.prod.aws.tidbcloud.com:4000/test?ssl={"rejectUnauthorized":true}</code></pre>
 
+<div class="box warn">⚠️ <strong>Mot de passe avec caractères spéciaux</strong> (<code>#</code>, <code>@</code>, <code>/</code>, <code>?</code>, <code>%</code>…) : encode-les en pourcent dans l'URL (ex. <code>#</code> → <code>%23</code>) ou régénère jusqu'à obtenir un mot de passe alphanumérique — sinon la connexion échoue avec « Invalid URL ».</div>
+
 <h3>1.2 Créer la base et pousser le schéma</h3>
-<p>Depuis ton PC, dans le dossier du projet :</p>
-<pre><code>cd C:\Users\Carlus\Projects\datacenter-market-v1
 
-REM Mets la chaîne de connexion dans .env (remplace /test par /datacenter_market)
-REM DATABASE_URL=mysql://xxxxxx.root:MOT_DE_PASSE@gateway01...:4000/datacenter_market?ssl={"rejectUnauthorized":true}
+<p><strong>D'abord, crée la base</strong> (elle n'existe pas par défaut — TiDB ne pré-crée que <code>test</code>) : dans TiDB Cloud → ton cluster → <strong>SQL Editor</strong>, exécute :</p>
 
-node_modules\.bin\pnpm db:push           REM crée les tables
-node_modules\.bin\pnpm db:seed           REM insère le catalogue des 7 offres
-node_modules\.bin\pnpm integration-check REM vérifie le tunnel complet</code></pre>
-<div class="box ok"><strong>✅ Critère de réussite :</strong> <code>integration-check</code> affiche « Full funnel verified against the real database ».</div>
-<div class="box tip"><strong>💡 Alternative OVH :</strong> une instance « Web Cloud Databases MySQL » chez OVH fonctionne aussi (cohérent avec ton infra existante) — récupère l'URL de connexion au même format.</div>
+<pre><code>CREATE DATABASE datacenter_market;</code></pre>
+
+<p>Puis depuis ton PC, dans le dossier du projet :</p>
+
+<pre><code>cd C:\Users\user\Downloads\datacenter-market-v1-main
+
+# Mets la chaîne de connexion dans .env (remplace la ligne DATABASE_URL existante)
+# DATABASE_URL=mysql://xxxxxx.root:MOT_DE_PASSE@gateway01...:4000/datacenter_market?ssl={"rejectUnauthorized":true}
+# (remplace /test par /datacenter_market dans l'URL)
+
+# Active pnpm via corepack (une seule fois — Node 22 requis)
+corepack enable
+
+# Crée les tables
+corepack pnpm db:push
+
+# Insère le catalogue des 7 offres
+corepack pnpm db:seed
+
+# Vérifie le tunnel complet contre cette base
+corepack pnpm integration-check</code></pre>
+
+<div class="box ok">✅ <strong>Critère de réussite :</strong> <code>integration-check</code> affiche « Full funnel verified against the real database ».</div>
+
+<div class="box tip">💡 <em>Alternative OVH :</em> si tu préfères rester chez OVH (cohérent avec ton infra existante), une instance « Web Cloud Databases MySQL » fonctionne aussi — récupère simplement l'URL de connexion au même format.</div>
 
 <h2 id="etape2">Étape 2 — L'hébergement gratuit sur Render (~45 min)</h2>
+
 <p>Le projet a un Dockerfile prêt. <strong>Render</strong> offre un tier gratuit qui suffit pour démarrer.</p>
 
 <h3>2.1 Créer le service Render</h3>
+
+<p>Le repo contient un <strong>Blueprint</strong> (<code>render.yaml</code> à la racine) qui pré-configure tout (Docker, région Frankfurt, plan Free, health check <code>/health</code>, liste des variables) :</p>
+
 <ol>
   <li>Va sur <strong>https://render.com</strong> → <em>Sign up with GitHub</em>.</li>
-  <li><strong>New</strong> → <strong>Web Service</strong> → connecte le repo <code>datacenter-market-v1</code>.</li>
-  <li>Render détecte le Dockerfile automatiquement (Language : <strong>Docker</strong>).</li>
-  <li><strong>Instance Type : Free</strong> ← c'est là que tu choisis le 0 €.</li>
-  <li>Région : <strong>Frankfurt</strong> (UE).</li>
+  <li><strong>New</strong> → <strong>Blueprint</strong> → connecte le repo <code>datacenter-market-v1</code>.</li>
+  <li>Render lit <code>render.yaml</code>, crée le service et te présente la liste des variables à remplir (celles marquées <code>sync: false</code>) — passe à l'étape 2.2 pour les valeurs.</li>
 </ol>
 
+<p><em>(Chemin manuel équivalent si tu préfères : New → Web Service → Language <strong>Docker</strong>, Instance Type <strong>Free</strong>, Région <strong>Frankfurt</strong>.)</em></p>
+
 <h3>2.2 Configurer les variables d'environnement</h3>
+
 <p>Dans Render → ton service → onglet <strong>Environment</strong>, ajoute :</p>
+
 <table>
   <tr><th>Variable</th><th>Valeur</th><th>Note</th></tr>
   <tr><td><code>DATABASE_URL</code></td><td>la chaîne TiDB de l'étape 1</td><td>secrète</td></tr>
-  <tr><td><code>JWT_SECRET</code></td><td>64 caractères aléatoires</td><td>génère avec la commande ci-dessous</td></tr>
+  <tr><td><code>JWT_SECRET</code></td><td>64 caractères aléatoires</td><td>généré automatiquement par le Blueprint (<code>generateValue</code>) ; sinon commande ci-dessous</td></tr>
+  <tr><td><code>PUBLIC_BASE_URL</code></td><td><code>https://ton-service.onrender.com</code> (puis ton domaine custom)</td><td><strong>obligatoire</strong> — sans elle le serveur refuse les flux Stripe/OAuth. À la création du Blueprint tu ne connais pas encore l'URL exacte (Render peut ajouter un suffixe aléatoire au nom) : mets un placeholder, puis après le 1ᵉʳ déploiement copie l'URL réelle depuis le dashboard et corrige la variable</td></tr>
+  <tr><td><code>CSP_EXTRA_ORIGINS</code></td><td>origines à autoriser dans la CSP, séparées par des espaces</td><td><strong>requis si</strong> <code>VITE_SENTRY_DSN</code> (mets l'origine ingest Sentry, ex. <code>https://oXXXX.ingest.de.sentry.io</code>) ou analytics ; sinon laisse vide</td></tr>
+  <tr><td><code>EMAIL_API_URL</code> / <code>EMAIL_API_KEY</code></td><td>API d'e-mails transactionnels</td><td>optionnel — <strong>sans elles, les e-mails clients (commande confirmée, infra prête) sont seulement loggés, jamais envoyés</strong></td></tr>
   <tr><td><code>OAUTH_SERVER_URL</code></td><td>URL du serveur OAuth Manus</td><td>depuis ton espace Manus</td></tr>
   <tr><td><code>OWNER_OPEN_ID</code></td><td>ton openId Manus</td><td>c'est ce qui fait de toi l'admin</td></tr>
-  <tr><td><code>STRIPE_SECRET_KEY</code></td><td><em>(étape 3)</em></td><td><code>sk_test_</code> puis <code>sk_live_</code></td></tr>
+  <tr><td><code>BUILT_IN_FORGE_API_URL</code></td><td>API Manus côté serveur</td><td>depuis ton espace Manus (cartes, stockage)</td></tr>
+  <tr><td><code>BUILT_IN_FORGE_API_KEY</code></td><td>clé API Manus côté serveur</td><td>secrète</td></tr>
+  <tr><td><code>STRIPE_SECRET_KEY</code></td><td><em>(étape 3)</em></td><td>commence par <code>sk_test_</code> puis <code>sk_live_</code></td></tr>
   <tr><td><code>STRIPE_WEBHOOK_SECRET</code></td><td><em>(étape 3)</em></td><td>commence par <code>whsec_</code></td></tr>
   <tr><td><code>SENTRY_DSN</code></td><td><em>(étape 4)</em></td><td>optionnel au début</td></tr>
 </table>
-<p><em>(Pas besoin de <code>PORT</code> : Render le fournit automatiquement et l'app le lit.)</em></p>
+
+<p>(Pas besoin de <code>PORT</code> : Render le fournit automatiquement et l'app le lit.)</p>
+
 <p>Pour générer le <code>JWT_SECRET</code> :</p>
+
 <pre><code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code></pre>
-<div class="box warn"><strong>⚠️ Important :</strong> le serveur refuse de démarrer en production si <code>JWT_SECRET</code> fait moins de 32 caractères (protection ajoutée en Phase 1).</div>
+
+<div class="box warn">⚠️ <strong>Important :</strong> le serveur refuse de démarrer en production si <code>JWT_SECRET</code> fait moins de 32 caractères (protection ajoutée en Phase 1).</div>
 
 <h3>2.3 Les variables de build (VITE_*)</h3>
+
 <p>Ces variables sont <strong>compilées dans le JavaScript public</strong> au moment du build — n'y mets jamais un secret :</p>
+
 <ul>
-  <li><code>VITE_APP_ID</code> — identifiant de ton app Manus</li>
-  <li><code>VITE_OAUTH_PORTAL_URL</code> — URL du portail de login Manus</li>
+  <li><code>VITE_APP_ID</code> — l'identifiant de ton app Manus</li>
+  <li><code>VITE_OAUTH_PORTAL_URL</code> — l'URL du portail de login Manus</li>
   <li><code>VITE_FRONTEND_FORGE_API_URL</code> / <code>VITE_FRONTEND_FORGE_API_KEY</code> — API Forge frontend (clé publique uniquement)</li>
+  <li><code>VITE_SITE_URL</code> — le domaine canonique public (SEO : canonicals, sitemap, Open Graph). Au départ mets l'URL <code>.onrender.com</code> ; quand le domaine définitif est branché, change-la et redéploie (<strong>Clear build cache &amp; deploy</strong>)</li>
+  <li><code>VITE_SENTRY_DSN</code> — <em>(optionnel)</em> Sentry côté navigateur (étape 4.1) ; exige <code>CSP_EXTRA_ORIGINS</code> (étape 2.2), sinon les événements sont bloqués silencieusement par la CSP</li>
+  <li><code>VITE_ANALYTICS_ENDPOINT</code> / <code>VITE_ANALYTICS_WEBSITE_ID</code> — <em>(optionnel)</em> analytics Umami ; exige aussi <code>CSP_EXTRA_ORIGINS</code> + un rebuild</li>
 </ul>
-<p>Ajoute-les aussi dans <strong>Environment</strong> : Render rend les variables disponibles pendant le build Docker. Si après déploiement le bouton de login pointe dans le vide, elles manquaient au build — ajoute-les puis <strong>Manual Deploy → Clear build cache &amp; deploy</strong>.</p>
+
+<p>Ajoute-les aussi dans <strong>Environment</strong> : Render rend les variables d'environnement disponibles pendant le build Docker. Si après déploiement le bouton de login pointe dans le vide, c'est qu'elles manquaient au build — ajoute-les puis <strong>Manual Deploy → Clear build cache &amp; deploy</strong>.</p>
 
 <h3>2.4 Domaine et déploiement</h3>
+
 <ol>
   <li>Render te donne d'office un domaine gratuit en <code>xxx.onrender.com</code> — suffisant pour démarrer.</li>
-  <li><em>(Optionnel, toujours 0 € nouveau)</em> : pour <code>compute.anavim-infra.com</code>, ajoute un <strong>Custom Domain</strong> dans Render → Settings puis crée le CNAME indiqué dans ta zone DNS OVH (le domaine anavim-infra.com est déjà payé). Certificat TLS automatique.</li>
+  <li><em>(Optionnel, toujours 0 €)</em> : pour <code>compute.anavim-infra.com</code>, ajoute un <strong>Custom Domain</strong> dans Render → Settings, puis crée le CNAME indiqué dans ta zone DNS OVH (le domaine anavim-infra.com est déjà payé). Certificat TLS automatique.</li>
   <li>Chaque <code>git push</code> sur <code>main</code> redéploie automatiquement.</li>
 </ol>
-<div class="box ok"><strong>✅ Critère de réussite :</strong> <code>https://ton-domaine/health</code> répond <code>{"status":"ok"}</code> et la landing s'affiche.</div>
+
+<div class="box ok">✅ <strong>Critère de réussite :</strong> <code>https://ton-domaine/health</code> répond <code>{"status":"ok"}</code> et la landing s'affiche.</div>
 
 <h3>2.5 Les crons RGPD — gratuits via GitHub Actions</h3>
-<p>Le tier gratuit Render n'inclut pas les cron jobs, mais <strong>GitHub Actions</strong> les exécute gratuitement. Le workflow <code>.github/workflows/crons.yml</code> est <strong>déjà dans le repo</strong> :</p>
-<table>
-  <tr><th>Cron</th><th>Commande</th><th>Fréquence</th></tr>
-  <tr><td>Purge des leads</td><td><code>pnpm db:purge</code></td><td>tous les jours à 03:00 UTC</td></tr>
-  <tr><td>Annulation commandes abandonnées</td><td><code>pnpm db:cancel-stale</code></td><td>toutes les heures (à :30)</td></tr>
-</table>
-<p>Il te reste une seule chose à faire : GitHub → repo → <strong>Settings → Secrets and variables → Actions</strong> → ajoute le secret <code>DATABASE_URL</code> (la même chaîne TiDB). Teste ensuite avec <strong>Actions → RGPD crons → Run workflow</strong>.</p>
+
+<p>Le tier gratuit Render n'inclut pas les cron jobs, mais <strong>GitHub Actions</strong> les exécute gratuitement. Le workflow <strong>existe déjà</strong> dans le repo (<code>.github/workflows/crons.yml</code> : purge des leads tous les jours à 03:00 UTC, annulation des commandes abandonnées toutes les heures). Il ne manque qu'une chose :</p>
+
+<p>Dans GitHub → repo → <strong>Settings → Secrets and variables → Actions</strong> → ajoute le secret <code>DATABASE_URL</code> (la même chaîne TiDB). Teste avec <strong>Actions → RGPD crons → Run workflow</strong>.</p>
 
 <h2 id="etape3">Étape 3 — Stripe (~45 min + délai de vérification du compte)</h2>
 
+<div class="box tip">💡 <strong>Configure d'abord UptimeRobot (étape 4.2).</strong> Sur le tier gratuit, un webhook Stripe qui arrive pendant que le serveur dort échoue à sa première livraison (réveil ~50 s &gt; timeout Stripe) et n'est rattrapé que par les retries — le statut de paiement peut alors traîner. Le ping toutes les 5 min élimine ce cas en pratique.</div>
+
 <h3>3.1 Créer le compte</h3>
+
 <ol>
   <li><strong>https://stripe.com</strong> → crée le compte au nom d'<strong>Anavim Advisory SAS</strong> (SIREN, IBAN, adresse 10 rue du Colisée).</li>
   <li>La vérification d'identité peut prendre 1-2 jours — commence en <strong>mode test</strong> sans attendre.</li>
 </ol>
 
 <h3>3.2 Mode test d'abord (obligatoire)</h3>
+
 <ol>
   <li>Dashboard Stripe → active le <strong>mode Test</strong> (toggle en haut à droite).</li>
-  <li><strong>Développeurs → Clés API</strong> : copie la clé secrète <code>sk_test_...</code> → variable <code>STRIPE_SECRET_KEY</code> dans Render.</li>
+  <li><strong>Développeurs → Clés API</strong> : copie la <strong>clé secrète</strong> <code>sk_test_...</code> → variable <code>STRIPE_SECRET_KEY</code> dans Render.</li>
   <li><strong>Développeurs → Webhooks → Ajouter un endpoint</strong> :
     <ul>
       <li>URL : <code>https://ton-domaine/api/stripe/webhook</code></li>
       <li>Événement à écouter : <code>checkout.session.completed</code> (celui-là suffit)</li>
     </ul>
   </li>
-  <li>Copie le <strong>Signing secret</strong> <code>whsec_...</code> → variable <code>STRIPE_WEBHOOK_SECRET</code>.</li>
+  <li>Copie le <strong>Signing secret</strong> <code>whsec_...</code> → variable <code>STRIPE_WEBHOOK_SECRET</code> dans Render.</li>
   <li>Redéploie (Render le fait automatiquement quand tu changes une variable).</li>
 </ol>
 
 <h3>3.3 Tester un paiement de bout en bout</h3>
+
 <ol>
-  <li>Sur ton site : formulaire workload → choisis une offre → connecte-toi → <strong>Confirm Order</strong>.</li>
+  <li>Sur ton site : remplis le formulaire workload → choisis une offre → connecte-toi → <strong>Confirm Order</strong>.</li>
   <li>Sur la page Stripe, paie avec la carte de test : <strong>4242 4242 4242 4242</strong>, date future, CVC 424.</li>
   <li>Vérifie dans l'ordre :
     <ul>
-      <li>redirection vers <code>/confirmation</code> avec la timeline de provisioning ;</li>
+      <li>Tu es redirigé vers <code>/confirmation</code> avec la timeline de provisioning ;</li>
       <li>Dashboard Stripe (mode test) → le paiement apparaît ;</li>
-      <li>ton dashboard admin (<code>/admin</code>) → le lead est passé à <strong>converted</strong> ;</li>
+      <li>Ton dashboard admin (<code>/admin</code>) → le lead est passé à <strong>converted</strong> ;</li>
       <li>Stripe → Webhooks → l'événement est en <strong>Succeeded</strong> (200).</li>
     </ul>
   </li>
 </ol>
-<div class="box warn"><strong>⚠️ Point à valider explicitement</strong> (hypothèse non testée du code) : choisis une offre <strong>avec frais d'installation</strong> (setup fee &gt; 0) pour vérifier que Stripe accepte le line-item one-time dans une session subscription. Si Stripe renvoie une erreur à la création de session, le contournement est connu (facturer le setup via <code>subscription_data.add_invoice_items</code>).</div>
+
+<div class="box warn">⚠️ <strong>Point à valider explicitement</strong> (hypothèse non testée du code) : choisis une offre <strong>avec frais d'installation</strong> (setup fee &gt; 0) pour vérifier que Stripe accepte le line-item one-time dans une session subscription. Si Stripe renvoie une erreur à la création de session, dis-le moi — le contournement est connu (facturer le setup via <code>subscription_data.add_invoice_items</code>).</div>
 
 <h3>3.4 Passage en live</h3>
+
+<p>Quand le compte est vérifié <strong>et</strong> que le test ci-dessus passe :</p>
+
 <ol>
   <li>Désactive le mode test → copie <code>sk_live_...</code> → remplace <code>STRIPE_SECRET_KEY</code>.</li>
-  <li>Recrée le webhook en mode live (nouveau <code>whsec_...</code>) → remplace <code>STRIPE_WEBHOOK_SECRET</code>.</li>
+  <li>Recrée le webhook en mode live (nouveau secret <code>whsec_...</code> — l'URL, elle, ne change pas) → remplace <code>STRIPE_WEBHOOK_SECRET</code>.</li>
   <li>Fais <strong>un vrai paiement</strong> avec ta propre carte sur l'offre la moins chère, puis rembourse-le depuis le dashboard Stripe.</li>
   <li>Active <strong>Stripe Tax</strong> si tu factures de la TVA UE (B2B : autoliquidation avec numéro de TVA).</li>
 </ol>
@@ -218,32 +280,36 @@ node_modules\.bin\pnpm integration-check REM vérifie le tunnel complet</code></
 <h2 id="etape4">Étape 4 — Monitoring et go-live (~30 min)</h2>
 
 <h3>4.1 Sentry (erreurs serveur)</h3>
+
 <ol>
   <li><strong>https://sentry.io</strong> → compte gratuit → <strong>Create Project</strong> → plateforme <strong>Node.js (Express)</strong>.</li>
-  <li>Copie le <strong>DSN</strong> → variable <code>SENTRY_DSN</code> dans Render.</li>
-  <li>C'est tout — l'intégration est déjà câblée. Au prochain déploiement, le log affichera <code>[Sentry] Server monitoring initialized.</code></li>
+  <li>Copie le <strong>DSN</strong> (<code>https://xxx@yyy.ingest.sentry.io/zzz</code>) → variable <code>SENTRY_DSN</code> dans Render.</li>
+  <li>C'est tout — l'intégration est déjà câblée dans le code. Au prochain déploiement, le log affichera <code>[Sentry] Server monitoring initialized.</code></li>
 </ol>
 
 <h3>4.2 Uptime</h3>
-<ol>
-  <li><strong>https://uptimerobot.com</strong> → compte gratuit → <strong>Add Monitor</strong> : HTTP(s), URL <code>https://ton-domaine/health</code>, intervalle 5 min.</li>
-  <li>Alerte e-mail vers <code>contact@anavim-infra.com</code>.</li>
-</ol>
-<p>Double rôle sur le tier gratuit Render : le ping toutes les 5 min <strong>empêche aussi le serveur de s'endormir</strong> (veille après 15 min d'inactivité).</p>
 
-<h3>4.3 Décision télémétrie GPU</h3>
-<p>Le dashboard client affiche « Awaiting telemetry » car rien n'alimente les métriques. Trois options :</p>
-<ul>
-  <li><strong>(a) Conseillé pour le lancement :</strong> masquer le panneau (10 min de dev) ;</li>
-  <li>(b) <code>pnpm db:telemetry --daemon</code> — données <strong>simulées</strong>, déconseillé face à de vrais clients ;</li>
-  <li>(c) brancher une vraie ingestion plus tard (API des providers GPU).</li>
-</ul>
+<ol>
+  <li><strong>https://uptimerobot.com</strong> → compte gratuit → <strong>Add Monitor</strong> :
+    <ul><li>Type : HTTP(s) — URL : <code>https://ton-domaine/health</code> — intervalle : 5 min.</li></ul>
+  </li>
+  <li>Configure l'alerte e-mail vers <code>contact@anavim-infra.com</code>.</li>
+</ol>
+
+<p>Double rôle sur le tier gratuit Render : le ping toutes les 5 min <strong>empêche aussi le serveur de s'endormir</strong> (mise en veille après 15 min d'inactivité).</p>
+
+<div class="box warn">⚠️ <strong>Budget d'heures du tier gratuit :</strong> Render alloue <strong>750 h d'instance/mois</strong> au workspace. Un service maintenu éveillé 24/7 en consomme ~744 — ne lance donc <strong>jamais un second service free</strong> dans le même workspace (staging, test…) : le dépassement suspend <strong>tous</strong> les services free, production comprise, jusqu'au mois suivant. Si Render envoie un e-mail de suspension, c'est le signal de passer au plan Starter.</div>
+
+<h3>4.3 Télémétrie GPU — réglé pour le lancement</h3>
+
+<p>Le dashboard client n'affiche plus d'état « en attente » permanent : sans données, la tuile KPI montre le <strong>statut du service</strong> et le panneau télémétrie n'apparaît que lorsque de vraies métriques arrivent. Rien à faire au lancement. Le jour où un provider pousse des métriques (<code>POST /api/telemetry/:orderId</code> + <code>TELEMETRY_INGEST_KEY</code>, cf. DEPLOYMENT.md §11), l'affichage GPU s'active tout seul. (<code>pnpm db:telemetry</code> reste réservé aux démos locales — jamais en production.)</p>
 
 <h3>4.4 Checklist finale avant d'annoncer le site</h3>
+
 <ul class="checklist">
   <li><code>https://ton-domaine/health</code> → <code>{"status":"ok"}</code></li>
   <li>Landing, formulaire, résultats, CGU/confidentialité/mentions légales s'affichent</li>
-  <li>Login OAuth fonctionne et ton compte a bien le rôle admin (<code>/admin</code> accessible)</li>
+  <li>Login OAuth fonctionne et <strong>ton compte a bien le rôle admin</strong> (<code>/admin</code> accessible)</li>
   <li>Paiement test 4242… complet : lead <code>converted</code> + webhook 200</li>
   <li>Paiement réel + remboursement OK (mode live)</li>
   <li>Crons <code>db:purge</code> et <code>db:cancel-stale</code> planifiés</li>
@@ -251,21 +317,21 @@ node_modules\.bin\pnpm integration-check REM vérifie le tunnel complet</code></
   <li>Sauvegardes activées côté base (TiDB Serverless : automatiques)</li>
 </ul>
 
-<h2 id="depannage">En cas de problème</h2>
+<h2 id="problemes">En cas de problème</h2>
+
 <table>
   <tr><th>Symptôme</th><th>Cause probable</th><th>Solution</th></tr>
-  <tr><td>Le serveur ne démarre pas : « JWT_SECRET must be at least 32 characters »</td><td>Secret trop court</td><td>Régénère avec la commande de l'étape 2.2</td></tr>
+  <tr><td>Le serveur ne démarre pas, log « JWT_SECRET must be at least 32 characters »</td><td>Secret trop court</td><td>Régénère avec la commande de l'étape 2.2</td></tr>
   <tr><td>« Database not available » sur le site</td><td><code>DATABASE_URL</code> absente ou fausse</td><td>Vérifie la variable dans Render, teste avec <code>integration-check</code> en local</td></tr>
   <tr><td>« Payments are not configured » au checkout</td><td><code>STRIPE_SECRET_KEY</code> absente</td><td>Étape 3.2</td></tr>
   <tr><td>Le paiement passe mais le lead reste « offered »</td><td>Webhook mal configuré</td><td>Vérifie l'URL du webhook et le <code>whsec_</code>, regarde Stripe → Webhooks → tentatives</td></tr>
-  <tr><td>Login OAuth en boucle ou erreur 400 « invalid state »</td><td><code>VITE_OAUTH_PORTAL_URL</code> / <code>VITE_APP_ID</code> faux, ou domaine non déclaré côté Manus</td><td>Vérifie les variables de build et la config de l'app Manus</td></tr>
-  <tr><td>Pas de rôle admin après login</td><td><code>OWNER_OPEN_ID</code> ne correspond pas</td><td>Récupère ton openId exact (table <code>users</code> après ta 1ʳᵉ connexion) et corrige la variable</td></tr>
+  <tr><td>Login OAuth en boucle ou erreur 400 « invalid state »</td><td><code>PUBLIC_BASE_URL</code> ne correspond pas à l'URL réelle du service, ou <code>VITE_OAUTH_PORTAL_URL</code> / <code>VITE_APP_ID</code> faux, ou domaine non déclaré côté Manus</td><td>Vérifie que <code>PUBLIC_BASE_URL</code> = l'URL exacte affichée dans le dashboard Render, puis les variables de build et la config de l'app Manus</td></tr>
+  <tr><td>Pas de rôle admin après login</td><td><code>OWNER_OPEN_ID</code> ne correspond pas à ton openId</td><td>Récupère ton openId exact (table <code>users</code> après ta 1ʳᵉ connexion) et corrige la variable</td></tr>
   <tr><td>Première visite très lente (~50 s) puis tout va bien</td><td>Tier gratuit Render : le serveur dormait</td><td>Normal — le ping UptimeRobot le maintient éveillé ; plan Starter pour supprimer la veille</td></tr>
 </table>
 
 <footer>
-  Document généré le 10 juin 2026 — accompagne <code>PRODUCTION-PLAN.md</code> (état technique) dans le dépôt <code>datacenter-market-v1</code>.<br>
-  DatacenterMarket est un service d'Anavim Advisory SAS — 10 rue du Colisée, 75008 Paris.
+  Document du 10 juin 2026, mis à jour le 13 juillet 2026 (Blueprint Render, base TiDB à créer, commandes corepack, CSP/e-mails, télémétrie réglée) — généré depuis <code>TUTO-MISE-EN-PRODUCTION.md</code> (source de vérité), accompagne <code>PRODUCTION-PLAN.md</code> (état technique) dans le dépôt <code>datacenter-market-v1</code>.
 </footer>
 
 </body>

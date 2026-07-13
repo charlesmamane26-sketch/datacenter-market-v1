@@ -1,8 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { buildCheckoutSessionParams, applyStripeEvent, getOrigin } from "./stripe";
-import { updateOrder, getOrder, updateLead } from "./db";
+import { updateOrder, getOrder, updateLead, getLead } from "./db";
+import { sendOrderConfirmed, sendPaymentFailed } from "./clientNotifications";
 
-vi.mock("./db", () => ({ updateOrder: vi.fn(), getOrder: vi.fn(), updateLead: vi.fn() }));
+vi.mock("./db", () => ({
+  updateOrder: vi.fn(),
+  getOrder: vi.fn(),
+  updateLead: vi.fn(),
+  getLead: vi.fn(),
+}));
+vi.mock("./clientNotifications", () => ({
+  sendOrderConfirmed: vi.fn(),
+  sendPaymentFailed: vi.fn(),
+}));
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -44,6 +54,7 @@ describe("buildCheckoutSessionParams", () => {
 describe("applyStripeEvent", () => {
   it("marks the order paid and converts the lead on a paid checkout.session.completed", async () => {
     vi.mocked(getOrder).mockResolvedValue({ id: 42, leadId: 3, offerId: 7 } as any);
+    vi.mocked(getLead).mockResolvedValue({ id: 3, email: "client@example.com" } as any);
     const event = {
       type: "checkout.session.completed",
       data: { object: { metadata: { orderId: "42" }, subscription: "sub_123", payment_status: "paid" } },
@@ -57,6 +68,8 @@ describe("applyStripeEvent", () => {
     });
     // The lead is converted only now, on payment success.
     expect(updateLead).toHaveBeenCalledWith(3, { status: "converted", selectedOfferId: 7 });
+    // The customer is told their order is confirmed.
+    expect(sendOrderConfirmed).toHaveBeenCalledWith("client@example.com", 42);
   });
 
   it("treats no_payment_required (100%-off) as paid", async () => {
@@ -96,6 +109,7 @@ describe("applyStripeEvent", () => {
 
   it("cancels the order on checkout.session.async_payment_failed", async () => {
     vi.mocked(getOrder).mockResolvedValue({ id: 42, leadId: 3, offerId: 7, paymentStatus: "pending" } as any);
+    vi.mocked(getLead).mockResolvedValue({ id: 3, email: "client@example.com" } as any);
     const event = {
       type: "checkout.session.async_payment_failed",
       data: { object: { metadata: { orderId: "42" } } },
@@ -103,6 +117,62 @@ describe("applyStripeEvent", () => {
     expect(await applyStripeEvent(event)).toBe(true);
     expect(updateOrder).toHaveBeenCalledWith(42, { paymentStatus: "failed", status: "cancelled" });
     expect(updateLead).not.toHaveBeenCalled(); // lead stays "offered", not converted
+    // The customer is told their payment did not clear.
+    expect(sendPaymentFailed).toHaveBeenCalledWith("client@example.com", 42);
+  });
+
+  it("is idempotent: a redelivered async_payment_failed for an already-failed order is a no-op", async () => {
+    vi.mocked(getOrder).mockResolvedValue({
+      id: 42,
+      leadId: 3,
+      offerId: 7,
+      paymentStatus: "failed",
+      status: "cancelled",
+    } as any);
+    // The lead IS resolvable — the assertion below must prove the guard (not a
+    // missing email address) is what prevents the second email.
+    vi.mocked(getLead).mockResolvedValue({ id: 3, email: "client@example.com" } as any);
+    const event = {
+      type: "checkout.session.async_payment_failed",
+      data: { object: { metadata: { orderId: "42" } } },
+    } as any;
+    expect(await applyStripeEvent(event)).toBe(true); // acknowledged so Stripe stops retrying
+    expect(updateOrder).not.toHaveBeenCalled();
+    expect(sendPaymentFailed).not.toHaveBeenCalled(); // the customer is not emailed twice
+  });
+
+  it("does not re-cancel or email for an order already cancelled by db:cancel-stale", async () => {
+    // cancel-stale leaves paymentStatus "pending" — status alone marks it terminal.
+    vi.mocked(getOrder).mockResolvedValue({
+      id: 42,
+      leadId: 3,
+      offerId: 7,
+      paymentStatus: "pending",
+      status: "cancelled",
+    } as any);
+    vi.mocked(getLead).mockResolvedValue({ id: 3, email: "client@example.com" } as any);
+    const event = {
+      type: "checkout.session.async_payment_failed",
+      data: { object: { metadata: { orderId: "42" } } },
+    } as any;
+    expect(await applyStripeEvent(event)).toBe(true);
+    expect(updateOrder).not.toHaveBeenCalled();
+    expect(sendPaymentFailed).not.toHaveBeenCalled();
+  });
+
+  it("still acknowledges async_payment_failed when the notification email fails", async () => {
+    vi.mocked(getOrder).mockResolvedValue({ id: 42, leadId: 3, offerId: 7, paymentStatus: "pending" } as any);
+    vi.mocked(getLead).mockResolvedValue({ id: 3, email: "client@example.com" } as any);
+    vi.mocked(sendPaymentFailed).mockRejectedValue(new Error("email provider down"));
+    const event = {
+      type: "checkout.session.async_payment_failed",
+      data: { object: { metadata: { orderId: "42" } } },
+    } as any;
+    // An email failure must not fail the webhook (Stripe would retry and double-process).
+    expect(await applyStripeEvent(event)).toBe(true);
+    expect(updateOrder).toHaveBeenCalledWith(42, { paymentStatus: "failed", status: "cancelled" });
+    // Prove the rejecting call was actually exercised (and swallowed), not skipped.
+    expect(sendPaymentFailed).toHaveBeenCalledWith("client@example.com", 42);
   });
 
   it("falls back to client_reference_id and payment_intent", async () => {
