@@ -16,6 +16,8 @@ const SovereignGpuEn = lazy(() => import("@/pages/SovereignGpuEn"));
 const GpuAsAService = lazy(() => import("@/pages/GpuAsAService"));
 const GpuPrixLocation = lazy(() => import("@/pages/GpuPrixLocation"));
 const LocationGpu = lazy(() => import("@/pages/LocationGpu"));
+const ColocationDatacenter = lazy(() => import("@/pages/ColocationDatacenter"));
+const DatacenterColocationEn = lazy(() => import("@/pages/DatacenterColocationEn"));
 const GpuRentalEn = lazy(() => import("@/pages/GpuRentalEn"));
 const GpuSouverainFrance = lazy(() => import("@/pages/GpuSouverainFrance"));
 const WorkloadForm = lazy(() => import("@/pages/WorkloadForm"));
@@ -52,6 +54,8 @@ function Router() {
         <Route path={"/en/gpu-as-a-service"} component={GpuAsAServiceEn} />
         <Route path={"/gpu-as-a-service/prix-location-gpu"} component={GpuPrixLocation} />
         <Route path={"/gpu-as-a-service/location-gpu"} component={LocationGpu} />
+        <Route path={"/colocation-datacenter"} component={ColocationDatacenter} />
+        <Route path={"/en/datacenter-colocation"} component={DatacenterColocationEn} />
         <Route path={"/gpu-as-a-service/gpu-souverain-france"} component={GpuSouverainFrance} />
         <Route path={"/gpu-as-a-service"} component={GpuAsAService} />
         <Route path={"/workload"} component={WorkloadForm} />

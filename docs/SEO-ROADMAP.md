@@ -86,3 +86,12 @@ centralisation/comparaison — jamais par la location en propre (nous ne sommes 
 - Prochains contenus à créer dans cet axe : page « Comparatif des fournisseurs GPU cloud
   en Europe » (tableau normalisé), page « Comment fonctionne l'appel au marché », pages
   par gamme (« comparer les offres H100 »).
+
+### Cluster « capacité datacenter hors GPU » (ouvert le 13 juillet 2026)
+
+Paire /colocation-datacenter/ (FR) ↔ /en/datacenter-colocation/ (EN), niveau racine (pas sous
+/gpu-as-a-service/). Requêtes : « colocation datacenter », « location baie datacenter »,
+« location capacité datacenter », « datacenter colocation ». Règle de véracité : la colocation
+n'est PAS au catalogue standard — toujours formuler « mobilisée via l'appel au marché auprès des
+opérateurs partenaires ». Extensions possibles : satellites « colocation haute densité IA »,
+« prix colocation au kW », pilier dédié si le segment prend.
