@@ -84,9 +84,9 @@ export const SEO_ROUTES: RouteSeo[] = [
   {
     pattern: "/",
     canonicalPath: "/",
-    title: "GPU as a Service : capacité GPU en 72 h | DatacenterMarket",
+    title: "Comparez les offres GPU as a Service | DatacenterMarket",
     description:
-      "Location GPU dédiée : comparez jusqu'à trois offres de fournisseurs européens et mobilisez votre capacité de calcul IA en 72 h. Hébergement UE, RGPD.",
+      "DatacenterMarket centralise les offres GPU as a Service des fournisseurs européens : comparez prix, délais et SLA en un appel au marché. Hébergement UE, RGPD.",
     indexable: true,
     lang: "fr",
     hreflang: HOME_HREFLANG,
@@ -95,9 +95,9 @@ export const SEO_ROUTES: RouteSeo[] = [
   {
     pattern: "/en",
     canonicalPath: "/en/",
-    title: "GPU as a Service in Europe — rent H100 GPUs | DatacenterMarket",
+    title: "Compare GPU-as-a-Service offers | DatacenterMarket",
     description:
-      "European GPU-as-a-Service marketplace: compare up to three quotes from EU providers and get dedicated H100/A100 capacity in 72 h. EU-hosted, GDPR-compliant.",
+      "DatacenterMarket centralises GPU-as-a-Service offers from EU providers: compare pricing, lead times and SLAs in one market call. EU-hosted, GDPR-compliant.",
     indexable: true,
     lang: "en",
     hreflang: HOME_HREFLANG,
@@ -106,9 +106,9 @@ export const SEO_ROUTES: RouteSeo[] = [
   {
     pattern: "/gpu-as-a-service",
     canonicalPath: "/gpu-as-a-service/",
-    title: "GPU as a Service : louer des GPU H100 à la demande",
+    title: "GPU as a Service : comparer les offres du marché",
     description:
-      "Louez des GPU NVIDIA H100, A100, L40S à la demande en Europe. Jusqu'à 3 offres comparées, capacité mobilisée en 72 h, hébergement UE conforme RGPD.",
+      "Le comparateur GPU as a Service : offres H100, A100, L40S des fournisseurs européens centralisées. Jusqu'à 3 offres comparées, capacité en 72 h, RGPD.",
     indexable: true,
     lang: "fr",
     hreflang: PILLAR_HREFLANG,
@@ -121,9 +121,9 @@ export const SEO_ROUTES: RouteSeo[] = [
   {
     pattern: "/en/gpu-as-a-service",
     canonicalPath: "/en/gpu-as-a-service/",
-    title: "GPU as a Service in Europe: rent GPUs on demand",
+    title: "GPU as a Service: compare offers across the market",
     description:
-      "Rent NVIDIA H100, A100, L40S GPUs on demand in Europe. Up to 3 quotes compared, capacity mobilised in 72 h, EU-hosted and GDPR-compliant.",
+      "The GPU-as-a-Service comparison platform: H100, A100, L40S offers from EU providers, centralised. Up to 3 quotes compared, capacity in 72 h, GDPR.",
     indexable: true,
     lang: "en",
     hreflang: PILLAR_HREFLANG,
@@ -136,9 +136,9 @@ export const SEO_ROUTES: RouteSeo[] = [
   {
     pattern: "/gpu-as-a-service/prix-location-gpu",
     canonicalPath: "/gpu-as-a-service/prix-location-gpu/",
-    title: "Location GPU : prix indicatifs €/GPU/h – H100, A100, L40S",
+    title: "Prix GPU comparés : H100, A100, L40S en €/GPU/h",
     description:
-      "Grille indicative de prix de location GPU : H100 ≈ 2,9–3,8 €/GPU/h, A100, L40S, RTX 4090. Facteurs de variation et offre chiffrée via appel au marché.",
+      "Prix de location GPU comparés sur le marché : H100 ≈ 2,9–3,8 €/GPU/h, A100, L40S, RTX 4090. Facteurs de variation et offre ferme via appel au marché.",
     indexable: true,
     lang: "fr",
     hreflang: PRICING_HREFLANG,
@@ -151,9 +151,9 @@ export const SEO_ROUTES: RouteSeo[] = [
   {
     pattern: "/en/gpu-as-a-service/gpu-rental-pricing",
     canonicalPath: "/en/gpu-as-a-service/gpu-rental-pricing/",
-    title: "GPU rental pricing: €/GPU/h — H100, A100, L40S",
+    title: "GPU prices compared: H100, A100, L40S in €/GPU/h",
     description:
-      "Indicative GPU rental pricing: H100 ≈ €2.9–3.8/GPU/h, plus A100, L40S, RTX 4090. Cost drivers and a firm quote via a market call.",
+      "GPU rental prices compared across the market: H100 ≈ €2.9–3.8/GPU/h, plus A100, L40S, RTX 4090. Cost drivers and a firm quote via a market call.",
     indexable: true,
     lang: "en",
     hreflang: PRICING_HREFLANG,
@@ -166,9 +166,9 @@ export const SEO_ROUTES: RouteSeo[] = [
   {
     pattern: "/gpu-as-a-service/gpu-souverain-france",
     canonicalPath: "/gpu-as-a-service/gpu-souverain-france/",
-    title: "GPU souverain : héberger vos workloads IA en France",
+    title: "GPU souverain : comparer les offres UE et France",
     description:
-      "Cloud GPU souverain hébergé en UE, dont Paris : conformité RGPD, jusqu'à 3 offres comparées, capacité mobilisée en 72 h par appel au marché.",
+      "Comparez les offres GPU souverain du marché : hébergement UE dont Paris, conformité RGPD, jusqu'à 3 offres via appel au marché, capacité en 72 h.",
     indexable: true,
     lang: "fr",
     hreflang: SOVEREIGN_HREFLANG,
@@ -181,9 +181,9 @@ export const SEO_ROUTES: RouteSeo[] = [
   {
     pattern: "/en/gpu-as-a-service/sovereign-gpu-europe",
     canonicalPath: "/en/gpu-as-a-service/sovereign-gpu-europe/",
-    title: "Sovereign GPU in Europe: EU-hosted, GDPR-compliant AI",
+    title: "Sovereign GPU: compare EU-hosted offers",
     description:
-      "Sovereign GPU cloud hosted in the EU, including Paris: GDPR compliance, up to 3 quotes compared, capacity mobilised in 72 h via a market call.",
+      "Compare sovereign GPU offers across the market: EU-hosted including Paris, GDPR-compliant, up to 3 quotes via a market call, capacity within 72 h.",
     indexable: true,
     lang: "en",
     hreflang: SOVEREIGN_HREFLANG,
@@ -344,7 +344,7 @@ export function organizationJsonLd(base: string): object {
     url: absoluteUrl(base, "/"),
     logo: absoluteUrl(base, "/favicon.svg"),
     description:
-      "Place de marché de capacité GPU et datacenter : mise en concurrence de fournisseurs européens, offres comparées, hébergement UE conforme RGPD.",
+      "La plateforme qui centralise les offres GPU as a Service du marché : fournisseurs européens mis en concurrence, offres comparées en un appel au marché, hébergement UE conforme RGPD.",
     // Marchés visés — signal géographique pour la France et l'UE.
     areaServed: ["FR", "BE", "LU", "CH", "EU"],
     // Profils officiels rattachés (désambiguïsation d'entité).

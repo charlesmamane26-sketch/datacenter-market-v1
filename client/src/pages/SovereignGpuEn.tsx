@@ -49,7 +49,7 @@ export default function SovereignGpuEn() {
         <article className="space-y-12">
           <header className="space-y-4">
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-              Sovereign GPU: host your AI workloads in Europe
+              Sovereign GPU: compare EU-hosted offers for your AI workloads
             </h1>
             <p className="text-lg text-muted-foreground leading-relaxed">
               Training a model on customer data, fine-tuning an LLM on internal documents, serving

@@ -34,7 +34,7 @@ export default function GpuAsAService() {
         <article className="space-y-12">
           <header className="space-y-4">
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-              GPU as a Service : louer des GPU à la demande pour vos projets IA
+              GPU as a Service : comparer les offres du marché pour vos projets IA
             </h1>
             <p className="text-lg text-muted-foreground leading-relaxed">
               L'accès à la puissance de calcul est devenu le principal goulot d'étranglement des
@@ -44,10 +44,11 @@ export default function GpuAsAService() {
               hébergés en datacenter, plutôt qu'acheter des serveurs.
             </p>
             <p className="text-muted-foreground leading-relaxed">
-              DatacenterMarket est une place de marché de capacité GPU et datacenter en Europe,
-              éditée par Anavim Advisory. Nous ne possédons ni n'exploitons d'infrastructure : nous
-              mettons en concurrence des fournisseurs partenaires — opérateurs de datacenters,
-              clouds GPU — pour vous proposer jusqu'à trois offres, avec une capacité mobilisée en
+              DatacenterMarket est la plateforme qui centralise les offres GPU as a Service du
+              marché européen, éditée par Anavim Advisory. Nous ne possédons ni n'exploitons
+              d'infrastructure : nous agrégeons et normalisons les offres de fournisseurs
+              partenaires — opérateurs de datacenters, clouds GPU — puis les mettons en concurrence
+              pour vous proposer jusqu'à trois offres comparables, avec une capacité mobilisée en
               72 h par appel au marché.
             </p>
             <p className="text-muted-foreground leading-relaxed">

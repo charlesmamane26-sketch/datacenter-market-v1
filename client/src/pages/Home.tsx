@@ -257,13 +257,14 @@ export default function Home() {
               GPU as a Service :
             </span>
             <span className="block text-[42px] font-extrabold uppercase leading-[1.08] tracking-[-0.04em] text-accent md:text-[68px]">
-              la capacité au bon moment.
+              tout le marché, un seul appel.
             </span>
           </h1>
           <p className="m-0 pb-1.5 text-[14.5px] leading-[1.65] text-muted-foreground [text-wrap:pretty]">
-            DatacenterMarket est une place de marché : nous ne possédons pas les GPU, nous mettons
-            en concurrence des fournisseurs européens. Décrivez votre workload, comparez jusqu'à
-            trois offres — capacité mobilisée en 72 h par appel au marché.
+            DatacenterMarket centralise les offres GPU as a Service du marché : nous ne possédons
+            pas les GPU, nous mettons en concurrence les fournisseurs européens. Décrivez votre
+            workload, comparez jusqu'à trois offres — capacité mobilisée en 72 h par appel au
+            marché.
           </p>
         </div>
       </div>

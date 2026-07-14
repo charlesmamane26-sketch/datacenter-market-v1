@@ -61,13 +61,14 @@ export default function LandingEn() {
             GPU as a Service in Europe:
           </span>
           <span className="block text-[42px] font-extrabold uppercase leading-[1.08] tracking-[-0.04em] text-accent md:text-[64px]">
-            capacity when you need it.
+            the whole market, one call.
           </span>
         </h1>
         <p className="m-0 mt-5 max-w-[680px] text-[15.5px] leading-[1.65] text-muted-foreground [text-wrap:pretty]">
-          DatacenterMarket is a marketplace: we don't own the GPUs — we put European providers in
-          competition on your workload. Describe your need, compare up to three quotes, and get
-          dedicated H100/A100 capacity mobilised within 72 hours across EU datacenters.
+          DatacenterMarket centralises the market's GPU-as-a-Service offers: we don't own the GPUs
+          — we put European providers in competition on your workload. Describe your need, compare
+          up to three quotes, and get dedicated H100/A100 capacity mobilised within 72 hours across
+          EU datacenters.
         </p>
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">

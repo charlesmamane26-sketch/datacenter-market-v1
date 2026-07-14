@@ -33,7 +33,7 @@ export default function GpuAsAServiceEn() {
         <article className="space-y-12">
           <header className="space-y-4">
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-              GPU as a Service: rent GPUs on demand for your AI projects
+              GPU as a Service: compare the market's offers for your AI projects
             </h1>
             <p className="text-lg text-muted-foreground leading-relaxed">
               Access to compute power has become the main bottleneck for artificial intelligence
@@ -43,10 +43,11 @@ export default function GpuAsAServiceEn() {
               buying servers.
             </p>
             <p className="text-muted-foreground leading-relaxed">
-              DatacenterMarket is a marketplace for GPU and datacenter capacity in Europe, operated
-              by Anavim Advisory. We neither own nor run infrastructure: we put partner providers —
-              datacenter operators, GPU clouds — in competition to offer you up to three quotes,
-              with capacity mobilised within 72 hours through a market call.
+              DatacenterMarket is the platform that centralises the European market's
+              GPU-as-a-Service offers, operated by Anavim Advisory. We neither own nor run
+              infrastructure: we aggregate and normalise offers from partner providers — datacenter
+              operators, GPU clouds — then put them in competition to return up to three comparable
+              quotes, with capacity mobilised within 72 hours through a market call.
             </p>
             <p className="text-muted-foreground leading-relaxed">
               This guide covers the essentials: definition, use cases, NVIDIA ranges, indicative
