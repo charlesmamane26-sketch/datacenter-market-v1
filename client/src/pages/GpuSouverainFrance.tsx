@@ -39,7 +39,7 @@ export default function GpuSouverainFrance() {
         <article className="space-y-12">
           <header className="space-y-4">
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-              GPU souverain : héberger vos workloads IA en France
+              GPU souverain : comparer les offres hébergées en France et en UE
             </h1>
             <p className="text-lg text-muted-foreground leading-relaxed">
               Entraîner un modèle sur des données clients, affiner un LLM sur des documents

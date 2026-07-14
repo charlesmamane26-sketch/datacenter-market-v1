@@ -39,7 +39,7 @@ export default function GpuPrixLocation() {
         <article className="space-y-12">
           <header className="space-y-4">
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-              Prix de location d'un GPU : grille indicative en €/GPU/h
+              Prix GPU comparés sur le marché : grille indicative en €/GPU/h
             </h1>
             <p className="text-lg text-muted-foreground leading-relaxed">
               Combien coûte la location d'un GPU pour vos projets d'IA ? Le coût d'un GPU cloud

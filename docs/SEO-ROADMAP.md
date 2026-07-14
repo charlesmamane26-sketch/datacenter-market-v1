@@ -70,3 +70,19 @@ Ces leviers pèsent souvent **plus** que la technique :
 Phase 1 (technique FR) est livrée et sûre. L'Europe/monde passe par la phase 2 (anglais) — décision et
 contenu à cadrer ensemble — et surtout par les actions hors-code ci-dessus, que le code ne peut pas
 remplacer.
+
+## Positionnement éditorial (décision du 13 juillet 2026)
+
+**Axe unique : DatacenterMarket est LA plateforme qui centralise les offres GPU as a Service du
+marché.** Tout contenu SEO (title, description, H1, JSON-LD, FAQ, netlinking) attaque par la
+centralisation/comparaison — jamais par la location en propre (nous ne sommes pas un fournisseur).
+
+- Requêtes visées en priorité : « comparateur GPU cloud », « comparer offres GPU as a service »,
+  « prix GPU comparés », « marketplace GPU Europe », « appel au marché GPU ».
+- Vocabulaire canon : « centralise les offres », « tout le marché, un seul appel », « offres
+  normalisées (prix, délai, SLA, localisation) », « mise en concurrence ».
+- Le JSON-LD Service est typé « Centralisation et comparaison d'offres » ; la FAQ ouvre sur
+  « Pourquoi comparer via une place de marché ? » (FR + EN).
+- Prochains contenus à créer dans cet axe : page « Comparatif des fournisseurs GPU cloud
+  en Europe » (tableau normalisé), page « Comment fonctionne l'appel au marché », pages
+  par gamme (« comparer les offres H100 »).

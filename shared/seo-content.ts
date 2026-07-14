@@ -17,6 +17,11 @@ export type FaqItem = { question: string; answer: string };
 /** FAQ de la page pilier /gpu-as-a-service/ — balisée FAQPage. */
 export const GAAS_FAQ: FaqItem[] = [
   {
+    question: "Pourquoi comparer les offres GPU as a Service via une place de marché ?",
+    answer:
+      "Parce que le marché est fragmenté : chaque fournisseur publie ses prix, délais et SLA dans son propre format, quand il les publie. DatacenterMarket centralise ces offres et les normalise (prix mensuel, délai de mobilisation, SLA, localisation) : un seul appel au marché remplace le démarchage fournisseur par fournisseur, et les offres deviennent réellement comparables.",
+  },
+  {
     question: "Qu'est-ce que le GPU as a Service ?",
     answer:
       "C'est la location de puissance de calcul GPU hébergée en datacenter, en souscription mensuelle, plutôt que l'achat de serveurs. L'organisation accède à une infrastructure dédiée provisionnée par un fournisseur et la paie en charge d'exploitation. Sur DatacenterMarket, plusieurs fournisseurs européens sont mis en concurrence sur votre besoin.",
@@ -61,6 +66,11 @@ export const GAAS_FAQ: FaqItem[] = [
 /** FAQ anglaise pour la landing /en — balisée FAQPage. */
 export const GAAS_FAQ_EN: FaqItem[] = [
   {
+    question: "Why compare GPU-as-a-Service offers through a marketplace?",
+    answer:
+      "Because the market is fragmented: every provider publishes its pricing, lead times and SLAs in its own format — when it publishes them at all. DatacenterMarket centralises those offers and normalises them (monthly price, mobilisation lead time, SLA, location): one market call replaces provider-by-provider prospecting, and offers become genuinely comparable.",
+  },
+  {
     question: "What is GPU as a Service?",
     answer:
       "It is renting datacenter-hosted GPU compute on a monthly subscription instead of buying servers. You access dedicated infrastructure provisioned by a provider and pay for it as an operating cost. On DatacenterMarket, several European providers compete on your workload.",
@@ -93,10 +103,10 @@ export function serviceJsonLd(base: string): object {
     "@context": "https://schema.org",
     "@type": "Service",
     "@id": absoluteUrl(base, "/gpu-as-a-service/#service"),
-    name: "GPU as a Service",
-    serviceType: "Location de capacité GPU en datacenter (place de marché)",
+    name: "Comparateur d'offres GPU as a Service",
+    serviceType: "Centralisation et comparaison d'offres de capacité GPU (place de marché)",
     description:
-      "Place de marché de capacité GPU : mise en concurrence de fournisseurs européens, jusqu'à trois offres comparées, capacité mobilisée en 72 h par appel au marché.",
+      "DatacenterMarket centralise les offres GPU as a Service du marché : fournisseurs européens mis en concurrence, jusqu'à trois offres comparées, capacité mobilisée en 72 h par appel au marché.",
     provider: { "@id": absoluteUrl(base, "/#organization") },
     areaServed: "Europe",
     url: absoluteUrl(base, "/gpu-as-a-service/"),
@@ -109,10 +119,10 @@ export function serviceJsonLdEn(base: string): object {
     "@context": "https://schema.org",
     "@type": "Service",
     "@id": absoluteUrl(base, "/en/#service"),
-    name: "GPU as a Service",
-    serviceType: "Datacenter GPU capacity rental (marketplace)",
+    name: "GPU-as-a-Service offer comparison",
+    serviceType: "Centralisation and comparison of GPU capacity offers (marketplace)",
     description:
-      "European GPU capacity marketplace: EU providers put in competition, up to three quotes compared, capacity mobilised within 72 h via a market call.",
+      "DatacenterMarket centralises the market's GPU-as-a-Service offers: EU providers put in competition, up to three quotes compared, capacity mobilised within 72 h via a market call.",
     provider: { "@id": absoluteUrl(base, "/#organization") },
     areaServed: "Europe",
     url: absoluteUrl(base, "/en/"),

@@ -48,7 +48,7 @@ export default function GpuPricingEn() {
         <article className="space-y-12">
           <header className="space-y-4">
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-              GPU rental pricing: indicative rate card in €/GPU/h
+              GPU prices compared across the market: indicative rates in €/GPU/h
             </h1>
             <p className="text-lg text-muted-foreground leading-relaxed">
               How much does it cost to rent a GPU for your AI projects? The cost of a dedicated
