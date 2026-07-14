@@ -14,6 +14,11 @@ export default function SiteFooter() {
                 </Link>
               </li>
               <li>
+                <Link href="/gpu-as-a-service/location-gpu/" className="hover:text-foreground transition-colors">
+                  Location de GPU dédiés
+                </Link>
+              </li>
+              <li>
                 <Link href="/gpu-as-a-service/prix-location-gpu/" className="hover:text-foreground transition-colors">
                   Prix de location d'un GPU
                 </Link>

@@ -5,6 +5,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { clearCheckoutIntent, loadCheckoutIntent } from "@/lib/checkoutIntent";
 import { consumeRoleRedirect } from "@/lib/postLoginRedirect";
 import { getLangPref } from "@/lib/langPref";
+import { GAAS_FAQ } from "@shared/seo-content";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { MarketBrand, MarketOpenChip, MarketTicker, type TickerQuote } from "@/components/market";
 
@@ -394,6 +395,23 @@ export default function Home() {
         </div>
       </div>
 
+      {/* FAQ (parité avec la landing EN — mêmes questions que la page pilier) */}
+      <div className="border-t border-border/50">
+        <div className="mx-auto max-w-[900px] px-5 pb-16 pt-13 md:px-10">
+          <h2 className="mb-6 font-mono text-[11.5px] font-medium uppercase tracking-[.14em] text-accent">
+            Questions fréquentes
+          </h2>
+          <div className="flex flex-col divide-y divide-border/70 overflow-hidden rounded-xl border border-border">
+            {GAAS_FAQ.map(item => (
+              <div key={item.question} className="flex flex-col gap-2 p-5">
+                <h3 className="text-[15px] font-semibold">{item.question}</h3>
+                <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">{item.answer}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Footer */}
       <footer className="border-t border-border/50 bg-surface-sunken">
         <div className="mx-auto max-w-[1240px] px-5 pb-[34px] pt-11 md:px-10">
@@ -412,6 +430,9 @@ export default function Home() {
               </span>
               <a href="/gpu-as-a-service/" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
                 Le guide de la location GPU
+              </a>
+              <a href="/gpu-as-a-service/location-gpu/" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                Location de GPU dédiés
               </a>
               <a href="/gpu-as-a-service/prix-location-gpu/" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
                 Prix de location d'un GPU
