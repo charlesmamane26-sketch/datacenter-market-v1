@@ -29,6 +29,11 @@ export default function SiteFooter() {
                 </Link>
               </li>
               <li>
+                <Link href="/colocation-datacenter/" className="hover:text-foreground transition-colors">
+                  Colocation datacenter
+                </Link>
+              </li>
+              <li>
                 <Link href="/workload" className="hover:text-foreground transition-colors">
                   Décrire mon besoin GPU
                 </Link>

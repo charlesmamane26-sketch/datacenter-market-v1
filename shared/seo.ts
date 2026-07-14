@@ -79,6 +79,11 @@ const RENTAL_HREFLANG: { hreflang: string; path: string }[] = [
   { hreflang: "en", path: "/en/gpu-as-a-service/gpu-rental/" },
   { hreflang: "x-default", path: "/gpu-as-a-service/location-gpu/" },
 ];
+const COLOCATION_HREFLANG: { hreflang: string; path: string }[] = [
+  { hreflang: "fr-FR", path: "/colocation-datacenter/" },
+  { hreflang: "en", path: "/en/datacenter-colocation/" },
+  { hreflang: "x-default", path: "/colocation-datacenter/" },
+];
 const SOVEREIGN_HREFLANG: { hreflang: string; path: string }[] = [
   { hreflang: "fr-FR", path: "/gpu-as-a-service/gpu-souverain-france/" },
   { hreflang: "en", path: "/en/gpu-as-a-service/sovereign-gpu-europe/" },
@@ -196,6 +201,34 @@ export const SEO_ROUTES: RouteSeo[] = [
       { name: "Home", path: "/en/" },
       { name: "GPU as a Service", path: "/en/gpu-as-a-service/" },
       { name: "GPU rental", path: "/en/gpu-as-a-service/gpu-rental/" },
+    ],
+  },
+  {
+    pattern: "/colocation-datacenter",
+    canonicalPath: "/colocation-datacenter/",
+    title: "Colocation datacenter : comparer les offres du marché",
+    description:
+      "Location de capacité datacenter — baies, kW, salles privatives : DatacenterMarket centralise les offres de colocation des opérateurs européens. RGPD.",
+    indexable: true,
+    lang: "fr",
+    hreflang: COLOCATION_HREFLANG,
+    breadcrumb: [
+      { name: "Accueil", path: "/" },
+      { name: "Colocation datacenter", path: "/colocation-datacenter/" },
+    ],
+  },
+  {
+    pattern: "/en/datacenter-colocation",
+    canonicalPath: "/en/datacenter-colocation/",
+    title: "Datacenter colocation: compare market offers",
+    description:
+      "Datacenter capacity rental — racks, kW, private suites: DatacenterMarket centralises colocation offers from European operators in one market call. GDPR.",
+    indexable: true,
+    lang: "en",
+    hreflang: COLOCATION_HREFLANG,
+    breadcrumb: [
+      { name: "Home", path: "/en/" },
+      { name: "Datacenter colocation", path: "/en/datacenter-colocation/" },
     ],
   },
   {

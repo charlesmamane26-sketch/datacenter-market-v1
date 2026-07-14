@@ -440,6 +440,9 @@ export default function Home() {
               <a href="/gpu-as-a-service/gpu-souverain-france/" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
                 GPU souverain en France
               </a>
+              <a href="/colocation-datacenter/" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+                Colocation datacenter
+              </a>
             </div>
             <div className="flex flex-col gap-2.5">
               <span className="font-mono text-[10.5px] font-semibold tracking-[.12em] text-muted-foreground">
