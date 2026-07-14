@@ -74,6 +74,11 @@ const PRICING_HREFLANG: { hreflang: string; path: string }[] = [
   { hreflang: "en", path: "/en/gpu-as-a-service/gpu-rental-pricing/" },
   { hreflang: "x-default", path: "/gpu-as-a-service/prix-location-gpu/" },
 ];
+const RENTAL_HREFLANG: { hreflang: string; path: string }[] = [
+  { hreflang: "fr-FR", path: "/gpu-as-a-service/location-gpu/" },
+  { hreflang: "en", path: "/en/gpu-as-a-service/gpu-rental/" },
+  { hreflang: "x-default", path: "/gpu-as-a-service/location-gpu/" },
+];
 const SOVEREIGN_HREFLANG: { hreflang: string; path: string }[] = [
   { hreflang: "fr-FR", path: "/gpu-as-a-service/gpu-souverain-france/" },
   { hreflang: "en", path: "/en/gpu-as-a-service/sovereign-gpu-europe/" },
@@ -90,7 +95,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     indexable: true,
     lang: "fr",
     hreflang: HOME_HREFLANG,
-    extraJsonLd: base => [webSiteJsonLd(base)],
+    extraJsonLd: base => [webSiteJsonLd(base), serviceJsonLd(base), faqJsonLd(GAAS_FAQ)],
   },
   {
     pattern: "/en",
@@ -161,6 +166,36 @@ export const SEO_ROUTES: RouteSeo[] = [
       { name: "Home", path: "/en/" },
       { name: "GPU as a Service", path: "/en/gpu-as-a-service/" },
       { name: "GPU rental pricing", path: "/en/gpu-as-a-service/gpu-rental-pricing/" },
+    ],
+  },
+  {
+    pattern: "/gpu-as-a-service/location-gpu",
+    canonicalPath: "/gpu-as-a-service/location-gpu/",
+    title: "Location GPU : capacité dédiée comparée sur le marché",
+    description:
+      "Louer des GPU dédiés (H100, A100, L40S) à l'engagement mensuel : coût prévisible, performances constantes, RGPD. Offres du marché comparées en un appel.",
+    indexable: true,
+    lang: "fr",
+    hreflang: RENTAL_HREFLANG,
+    breadcrumb: [
+      { name: "Accueil", path: "/" },
+      { name: "GPU as a Service", path: "/gpu-as-a-service/" },
+      { name: "Location de GPU", path: "/gpu-as-a-service/location-gpu/" },
+    ],
+  },
+  {
+    pattern: "/en/gpu-as-a-service/gpu-rental",
+    canonicalPath: "/en/gpu-as-a-service/gpu-rental/",
+    title: "GPU rental: dedicated capacity compared on the market",
+    description:
+      "Rent dedicated GPUs (H100, A100, L40S) on a monthly commitment: predictable cost, constant performance, GDPR. Market offers compared in one call.",
+    indexable: true,
+    lang: "en",
+    hreflang: RENTAL_HREFLANG,
+    breadcrumb: [
+      { name: "Home", path: "/en/" },
+      { name: "GPU as a Service", path: "/en/gpu-as-a-service/" },
+      { name: "GPU rental", path: "/en/gpu-as-a-service/gpu-rental/" },
     ],
   },
   {

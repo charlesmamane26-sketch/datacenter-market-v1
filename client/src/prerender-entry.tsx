@@ -15,6 +15,8 @@ import GpuPrixLocation from "@/pages/GpuPrixLocation";
 import GpuSouverainFrance from "@/pages/GpuSouverainFrance";
 import GpuAsAServiceEn from "@/pages/GpuAsAServiceEn";
 import GpuPricingEn from "@/pages/GpuPricingEn";
+import GpuRentalEn from "@/pages/GpuRentalEn";
+import LocationGpu from "@/pages/LocationGpu";
 import Home from "@/pages/Home";
 import LandingEn from "@/pages/LandingEn";
 import LegalNotice from "@/pages/LegalNotice";
@@ -31,9 +33,11 @@ export function render(url: string): string {
             <Route path="/" component={Home} />
             <Route path="/en" component={LandingEn} />
             <Route path="/en/gpu-as-a-service/gpu-rental-pricing" component={GpuPricingEn} />
+            <Route path="/en/gpu-as-a-service/gpu-rental" component={GpuRentalEn} />
             <Route path="/en/gpu-as-a-service/sovereign-gpu-europe" component={SovereignGpuEn} />
             <Route path="/en/gpu-as-a-service" component={GpuAsAServiceEn} />
             <Route path="/gpu-as-a-service/prix-location-gpu" component={GpuPrixLocation} />
+            <Route path="/gpu-as-a-service/location-gpu" component={LocationGpu} />
             <Route path="/gpu-as-a-service/gpu-souverain-france" component={GpuSouverainFrance} />
             <Route path="/gpu-as-a-service" component={GpuAsAService} />
             <Route path="/terms" component={TermsOfService} />

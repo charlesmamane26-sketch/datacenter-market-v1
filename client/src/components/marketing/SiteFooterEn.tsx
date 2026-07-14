@@ -15,6 +15,11 @@ export default function SiteFooterEn() {
                 </Link>
               </li>
               <li>
+                <Link href="/en/gpu-as-a-service/gpu-rental" className="hover:text-foreground transition-colors">
+                  Dedicated GPU rental
+                </Link>
+              </li>
+              <li>
                 <Link href="/en/gpu-as-a-service/gpu-rental-pricing" className="hover:text-foreground transition-colors">
                   GPU rental pricing
                 </Link>

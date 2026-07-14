@@ -91,9 +91,24 @@ export const GAAS_FAQ_EN: FaqItem[] = [
       "Yes. Every offer in our catalogue is hosted in the EU and GDPR-compliant, including a configuration in Paris. Sovereign, single-country hosting (e.g. 100% France) can be sourced via a market call, subject to partner-provider availability.",
   },
   {
+    question: "Is it better to rent or buy GPUs?",
+    answer:
+      "Buying (CAPEX) makes sense for a stable workload that will saturate the hardware for several years, with a team to operate it. Renting (OPEX) wins when the need is occasional, evolving or urgent: fast start, monthly budget, obsolescence risk carried by the provider.",
+  },
+  {
+    question: "Which GPU range should I choose for LLM inference?",
+    answer:
+      "The NVIDIA L40S 48 GB is designed for production inference. For very large models or long contexts, high-memory GPUs such as the H200 (141 GB) can be sourced via a market call, subject to availability. For prototyping, the RTX 4090 24 GB remains the most economical option in our catalogue.",
+  },
+  {
     question: "Is DatacenterMarket a cloud provider?",
     answer:
       "No. DatacenterMarket is a marketplace operated by Anavim Advisory SAS: we neither own nor run infrastructure. We put partner providers in competition and return up to three quotes, ordered and paid online.",
+  },
+  {
+    question: "Can I rent H200 or B200 GPUs?",
+    answer:
+      "These ranges are not part of our standard catalogue today. They can be mobilised via a market call: describe your need and we consult our partner providers — availability and pricing to be confirmed.",
   },
 ];
 

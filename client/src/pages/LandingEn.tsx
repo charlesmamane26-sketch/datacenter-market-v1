@@ -156,21 +156,30 @@ export default function LandingEn() {
               <h3 className="text-[16px] font-semibold uppercase tracking-[.02em]">EU-hosted</h3>
               <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
                 Every catalogue offer is hosted in the European Union — including a Paris
-                configuration — so your data and compute stay under EU jurisdiction.
+                configuration — so your data and compute stay under EU jurisdiction.{" "}
+                <Link href="/en/gpu-as-a-service/sovereign-gpu-europe/" className="text-accent hover:underline">
+                  Explore sovereign GPU in Europe
+                </Link>
               </p>
             </div>
             <div className="flex flex-col gap-2.5 rounded-[10px] border border-border p-6">
               <h3 className="text-[16px] font-semibold uppercase tracking-[.02em]">GDPR by design</h3>
               <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
                 Providers are vetted for GDPR compliance. Sovereign, single-country hosting can be
-                sourced via a market call, subject to partner availability.
+                sourced via a market call, subject to partner availability.{" "}
+                <Link href="/en/gpu-as-a-service/" className="text-accent hover:underline">
+                  Read the GPU-as-a-Service guide
+                </Link>
               </p>
             </div>
             <div className="flex flex-col gap-2.5 rounded-[10px] border border-border p-6">
               <h3 className="text-[16px] font-semibold uppercase tracking-[.02em]">GPU range</h3>
               <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
                 H100 and A100 80 GB, L40S 48 GB (inference), RTX 4090 24 GB (R&amp;D), in dedicated
-                4-to-16 GPU configurations. H200/B200 sourced on request.
+                4-to-16 GPU configurations. H200/B200 sourced on request.{" "}
+                <Link href="/en/gpu-as-a-service/gpu-rental-pricing/" className="text-accent hover:underline">
+                  See GPU pricing compared
+                </Link>
               </p>
             </div>
           </div>
