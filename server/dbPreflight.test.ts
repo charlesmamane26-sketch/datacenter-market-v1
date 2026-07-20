@@ -112,13 +112,67 @@ describe("database preflight", () => {
             tag: "0000_first",
             createdAt: 1_000,
             hash: createHash("sha256").update(firstSql).digest("hex"),
+            lineEndingCompatibleHashes: [
+              createHash("sha256").update(firstSql).digest("hex"),
+              createHash("sha256").update("SELECT 1;\r\n").digest("hex"),
+            ],
           },
           {
             tag: "0001_second",
             createdAt: 2_000,
             hash: createHash("sha256").update(secondSql).digest("hex"),
+            lineEndingCompatibleHashes: [
+              createHash("sha256").update("SELECT 2;\n").digest("hex"),
+              createHash("sha256").update(secondSql).digest("hex"),
+            ],
           },
         ]);
+      }
+    );
+  });
+
+  it("accepts a migration registered with the equivalent CRLF hash", async () => {
+    const sql = "CREATE TABLE example (\n  id int NOT NULL\n);\n";
+    await withMigrationDirectory(
+      [{ idx: 0, tag: "0000_first", when: 1_000 }],
+      { "0000_first.sql": sql },
+      async directory => {
+        const [migration] = await loadExpectedMigrations(directory);
+        const crlfHash = createHash("sha256")
+          .update(sql.replaceAll("\n", "\r\n"))
+          .digest("hex");
+
+        expect(() =>
+          assertMigrationRegistrations(
+            [migration!],
+            [{ createdAt: 1_000, hash: crlfHash }]
+          )
+        ).not.toThrow();
+      }
+    );
+  });
+
+  it("still rejects semantic SQL changes with compatible line endings", async () => {
+    const sql = "CREATE TABLE example (\n  id int NOT NULL\n);\n";
+    await withMigrationDirectory(
+      [{ idx: 0, tag: "0000_first", when: 1_000 }],
+      { "0000_first.sql": sql },
+      async directory => {
+        const [migration] = await loadExpectedMigrations(directory);
+        const changedSqlHash = createHash("sha256")
+          .update(sql.replace("id int", "id bigint").replaceAll("\n", "\r\n"))
+          .digest("hex");
+
+        expect(() =>
+          assertMigrationRegistrations(
+            [migration!],
+            [{ createdAt: 1_000, hash: changedSqlHash }]
+          )
+        ).toThrowError(
+          expect.objectContaining<Partial<DatabasePreflightError>>({
+            code: "migration_hash_mismatch",
+          })
+        );
       }
     );
   });
