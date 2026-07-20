@@ -12,6 +12,7 @@
 import "dotenv/config";
 import Stripe from "stripe";
 import { buildCheckoutSessionParams, getStripeSecretKeyMode } from "./stripe";
+import { createInlineResourceRegistry, rememberInlineResources } from "./stripeSmokeCleanup";
 
 const enabled = process.env.STRIPE_SMOKE_TEST_ENABLED === "true";
 const secretKey = process.env.STRIPE_SECRET_KEY?.trim() ?? "";
@@ -98,18 +99,7 @@ const smokeMetadata = {
 
 let sessionId: string | null = null;
 let observedLineItems: Stripe.LineItem[] = [];
-const createdPriceIds = new Set<string>();
-const createdProductIds = new Set<string>();
-
-function rememberInlineResources(items: Stripe.LineItem[]): void {
-  for (const item of items) {
-    if (!item.price || typeof item.price === "string") continue;
-    createdPriceIds.add(item.price.id);
-    const product = item.price.product;
-    if (typeof product === "string") createdProductIds.add(product);
-    else if (product && !product.deleted) createdProductIds.add(product.id);
-  }
-}
+const inlineResources = createInlineResourceRegistry();
 
 try {
   const params = buildCheckoutSessionParams({
@@ -154,7 +144,7 @@ try {
     expand: ["data.price.product"],
   });
   observedLineItems = lineItems.data;
-  rememberInlineResources(observedLineItems);
+  rememberInlineResources(inlineResources, observedLineItems);
 
   assert(session.mode === "subscription", "Stripe returned a non-subscription Checkout Session.");
   assert(session.status === "open", `Expected an open Session, got ${session.status}.`);
@@ -236,7 +226,7 @@ try {
         limit: 10,
         expand: ["data.price.product"],
       });
-      rememberInlineResources(lineItems.data);
+      rememberInlineResources(inlineResources, lineItems.data);
     } catch (error) {
       cleanupFailed = true;
       console.error(
@@ -265,9 +255,13 @@ try {
     }
   }
 
-  for (const priceId of createdPriceIds) {
+  let archivedPrices = 0;
+  let archivedProducts = 0;
+
+  for (const priceId of inlineResources.activePriceIds) {
     try {
       await stripe.prices.update(priceId, { active: false });
+      archivedPrices += 1;
     } catch (error) {
       cleanupFailed = true;
       console.error(
@@ -280,9 +274,10 @@ try {
     }
   }
 
-  for (const productId of createdProductIds) {
+  for (const productId of inlineResources.activeProductIds) {
     try {
       await stripe.products.update(productId, { active: false });
+      archivedProducts += 1;
     } catch (error) {
       cleanupFailed = true;
       console.error(
@@ -295,12 +290,21 @@ try {
     }
   }
 
-  if (createdPriceIds.size > 0 || createdProductIds.size > 0) {
+  if (
+    inlineResources.discoveredPriceIds.size > 0 ||
+    inlineResources.discoveredProductIds.size > 0
+  ) {
     console.log(
       JSON.stringify({
-        cleanup: cleanupFailed ? "partial" : "resources_archived",
-        prices: createdPriceIds.size,
-        products: createdProductIds.size,
+        cleanup: cleanupFailed ? "partial" : "resources_clean",
+        prices: inlineResources.discoveredPriceIds.size,
+        products: inlineResources.discoveredProductIds.size,
+        archivedPrices,
+        archivedProducts,
+        inactiveOrUnexpandedPricesSkipped:
+          inlineResources.discoveredPriceIds.size - inlineResources.activePriceIds.size,
+        inactiveOrUnexpandedProductsSkipped:
+          inlineResources.discoveredProductIds.size - inlineResources.activeProductIds.size,
       }),
     );
   }

@@ -68,6 +68,12 @@ export interface ExpectedMigration {
   tag: string;
   createdAt: number;
   hash: string;
+  /**
+   * Hashes of the same migration with only its line endings converted between
+   * LF and CRLF. This supports databases migrated from another operating
+   * system without accepting any other byte-level change to the SQL.
+   */
+  lineEndingCompatibleHashes?: readonly string[];
 }
 
 export interface AppliedMigration {
@@ -128,6 +134,42 @@ function parseTimeout(raw: string | undefined): number {
 
 function manifestError(message: string): DatabasePreflightError {
   return new DatabasePreflightError("migration_manifest_invalid", message);
+}
+
+function hashBytes(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * Produces the only two cross-platform representations Git can create for a
+ * text migration: every line ending as LF or every line ending as CRLF.
+ * Lone CR bytes are preserved, so this does not silently canonicalize other
+ * content changes.
+ */
+function getLineEndingCompatibleHashes(migrationSql: Buffer): string[] {
+  const lfBytes: number[] = [];
+  for (let index = 0; index < migrationSql.length; index += 1) {
+    const byte = migrationSql[index]!;
+    if (
+      byte === 0x0d &&
+      index + 1 < migrationSql.length &&
+      migrationSql[index + 1] === 0x0a
+    ) {
+      continue;
+    }
+    lfBytes.push(byte);
+  }
+
+  const crlfBytes: number[] = [];
+  for (const byte of lfBytes) {
+    if (byte === 0x0a) crlfBytes.push(0x0d);
+    crlfBytes.push(byte);
+  }
+
+  return [...new Set([
+    hashBytes(Uint8Array.from(lfBytes)),
+    hashBytes(Uint8Array.from(crlfBytes)),
+  ])];
 }
 
 function parseJournal(rawJournal: string): Array<{ tag: string; when: number }> {
@@ -228,7 +270,9 @@ export async function loadExpectedMigrations(
         return {
           tag: entry.tag,
           createdAt: entry.when,
-          hash: createHash("sha256").update(migrationSql).digest("hex"),
+          hash: hashBytes(migrationSql),
+          lineEndingCompatibleHashes:
+            getLineEndingCompatibleHashes(migrationSql),
         };
       })
     );
@@ -290,7 +334,11 @@ export function assertMigrationRegistrations(
         `Required migration ${expected.tag} is not registered in the target database.`
       );
     }
-    if (appliedHash !== expected.hash) {
+    const acceptedHashes = new Set([
+      expected.hash,
+      ...(expected.lineEndingCompatibleHashes ?? []),
+    ]);
+    if (!acceptedHashes.has(appliedHash)) {
       throw new DatabasePreflightError(
         "migration_hash_mismatch",
         `Migration ${expected.tag} is registered with a different hash.`
