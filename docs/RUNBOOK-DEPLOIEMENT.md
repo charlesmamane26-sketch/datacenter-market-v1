@@ -41,7 +41,10 @@ Copier `.env.example` → `.env` (ne jamais committer un vrai `.env`). Deux cat�
 | `TRUST_PROXY_HOPS` | Défaut `1`. Nb de proxys de confiance devant l'app (rate-limit fiable sur `req.ip`). À augmenter si plusieurs proxys en cascade. |
 | `REDIS_URL` | **Si > 1 instance** : active le rate-limit partagé **et** la révocation de session au logout. Sans lui : par-process / désactivé (OK mono-instance). |
 | `CSP_EXTRA_ORIGINS` | Origines CSP additionnelles (analytics Umami, portail OAuth, ingestion Sentry), séparées par des espaces. |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Paiement (§3). Sans elles, `orders.checkout` renvoie `SERVICE_UNAVAILABLE`. |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Paiement (§4). Sans elles, `orders.checkout` renvoie `SERVICE_UNAVAILABLE`. |
+| `STRIPE_LIVE_PAYMENTS_ENABLED` | Garde-fou des clés `sk_live_…` : laisser `false` en test/staging ; passer à `true` uniquement après la recette §4. |
+| `STRIPE_SMOKE_TEST_ENABLED` | Opt-in ponctuel de `pnpm stripe:smoke`. Laisser `false` hors de cette commande ; le script refuse toute clé live. |
+| `DB_READINESS_TIMEOUT_MS` (déf. 5000), `DB_PREFLIGHT_TIMEOUT_MS` (déf. 10000) | Délais max des contrôles DB de readiness et de pré-vol read-only. |
 | `TELEMETRY_INGEST_KEY` | Active `POST /api/telemetry/:orderId` (sinon `503`). |
 | `EMAIL_API_URL`, `EMAIL_API_KEY` | Emails clients (confirmation, infra prête). Sans elles : loggé (destinataire masqué, correctif #9), non envoyé. |
 | `SENTRY_DSN` | Monitoring erreurs serveur. |
@@ -57,26 +60,38 @@ Copier `.env.example` → `.env` (ne jamais committer un vrai `.env`). Deux cat�
 
 ---
 
-## 2. 🔴 Migration base de données — À FAIRE AVANT LE CODE
+## 2. 🔴 Migrations base de données — À FAIRE AVANT LE CODE
 
-La PR #12 ajoute deux colonnes à `leads` (`consentedAt`, `consentPolicyVersion`, migration
-`drizzle/0004_true_omega_sentinel.sql`). Le nouveau `leads.create` **écrit** ces colonnes : si le
-code part avant la migration, **toute capture de lead échoue** (colonnes inexistantes).
+Le code courant dépend de `0004` pour la preuve de consentement RGPD, de `0005` pour le journal
+Stripe durable, les références de souscription et l'idempotence du checkout, et de `0006` pour les
+fournisseurs, l'inventaire fail-closed et le snapshot fournisseur des commandes. Si le code part avant ces
+migrations, la capture de lead, le paiement ou le matching échoue.
 
 ```bash
 # Dans l'environnement qui a accès à la base (DATABASE_URL défini sur la base cible)
 corepack enable
 pnpm install --frozen-lockfile
-pnpm db:push        # applique 0004 : ADD COLUMN consentedAt / consentPolicyVersion (nullable)
+pnpm db:push        # génère, puis applique explicitement toutes les migrations en attente
+pnpm db:preflight   # SELECT-only : connexion + timestamps/hashes exacts de toutes les migrations
 ```
 
-- Colonnes **nullable** → migration **additive**, sans downtime, sans impact sur les lignes existantes.
+- Lire et approuver chaque fichier SQL avant `db:push`; sauvegarde/PITR vérifiés au préalable.
+- `db:preflight` ne crée rien et n'applique rien. Il échoue si la base n'est pas joignable, si la
+  moindre migration du journal manque ou si son timestamp/hash diffère de celui enregistré en
+  base. Il exige aussi une correspondance exacte entre le journal et tous les fichiers SQL ; leurs
+  fins de ligne sont forcées en LF par `.gitattributes` pour stabiliser les hashes Windows/Linux.
+- Si la base a reçu des migrations depuis Windows avant cette règle LF, un écart peut être purement
+  CRLF/LF. Sous sauvegarde/PITR, comparer le hash enregistré et les effets SQL ; ne réconcilier
+  `__drizzle_migrations` qu'après cette preuve. Ne jamais rejouer ni réécrire aveuglément une
+  migration déjà appliquée.
+- `0004`, `0005` et `0006` sont **additives**, sans suppression de données.
 - **Ordre impératif : migration → puis déploiement du code.** L'inverse casse la capture de leads.
-- Revoir le SQL généré avant application en prod (`drizzle/0004_true_omega_sentinel.sql`).
+- Revoir notamment `drizzle/0004_true_omega_sentinel.sql`, `drizzle/0005_soft_toad_men.sql` et
+  `drizzle/0006_mysterious_charles_xavier.sql`.
 
 > Séparation possible : appliquer la migration quelques minutes avant de basculer le code. L'ancien
-> code ignore simplement les nouvelles colonnes (compatibilité ascendante), donc aucun risque à les
-> ajouter en avance.
+> code ignore simplement les nouveaux objets/colonnes (compatibilité ascendante), donc ils peuvent
+> être ajoutés un peu avant la bascule.
 
 ---
 
@@ -84,20 +99,35 @@ pnpm db:push        # applique 0004 : ADD COLUMN consentedAt / consentPolicyVers
 
 ```bash
 pnpm install --frozen-lockfile   # jeu COMPLET de deps (jamais --prod : le serveur importe vite au runtime)
-pnpm db:seed                     # catalogue d'offres (idempotent) — 1ʳᵉ mise en prod uniquement
+pnpm db:seed                     # lignes de DÉMO inactives ; jamais une validation fournisseur
 pnpm build                       # vite -> dist/public + seo:files + prerender + esbuild -> dist/index.js
 pnpm start                       # NODE_ENV=production node dist/index.js
 ```
 
+Le seed est idempotent mais volontairement **fail-closed** : fournisseurs inactifs, offres
+indisponibles, capacité à 0, sans échéance. Dans le back-office, remplacer/valider les données
+commerciales, affecter le bon fournisseur, saisir une capacité et une échéance future, puis activer.
+La capacité reste un snapshot opérateur, pas encore une réservation automatique par commande.
+
 - **Ne pas élaguer en `--prod`** : le bundle serveur importe `vite` au runtime → crash au démarrage sinon.
 - **Compression** : activer gzip/brotli **au reverse proxy** (nginx/Caddy/CDN) — l'Express sert le statique non compressé.
-- **Docker** : voir `DEPLOYMENT.md §4` (passer les `VITE_*` en `--build-arg`, l'image tourne en `USER node`).
+- **Docker** : voir `DEPLOYMENT.md §4` (passer les `VITE_*` en `--build-arg`, l'image tourne en
+  `USER node`). Son entrypoint exécute le pré-vol DB read-only avant Node et refuse d'activer une
+  image si une migration du dépôt manque ou dérive. Il n'applique jamais de migration.
+- **Render** : le Blueprint attend la CI verte (`checksPass`) et sonde `/health` comme liveness.
+  Superviser `/ready` séparément pour la disponibilité MySQL/TiDB et Redis. Le `plan: free` est
+  volontairement conservé pour le **staging/recette uniquement** (mise en veille possible, aucun
+  engagement de production) ; le pré-vol reste dans l'entrypoint Docker.
 
 ---
 
 ## 4. Activation Stripe (paiement)
 
 1. Renseigner `STRIPE_SECRET_KEY` (runtime).
+   - commencer par `sk_test_…` (ou `rk_test_…` si les droits restreints suffisent), avec
+     `STRIPE_LIVE_PAYMENTS_ENABLED=false` ;
+   - pour `sk_live_…` ou `rk_live_…`, ne passer le drapeau à `true` qu'après la recette complète ci-dessous. Une
+     clé live avec le drapeau à `false` est volontairement refusée par le serveur.
 2. Dashboard Stripe → Webhooks → endpoint sur **`POST {PUBLIC_BASE_URL}/api/stripe/webhook`**. Abonner :
    - `checkout.session.completed` (obligatoire) ;
    - **`checkout.session.async_payment_succeeded`** et **`checkout.session.async_payment_failed`**
@@ -105,7 +135,24 @@ pnpm start                       # NODE_ENV=production node dist/index.js
      Le webhook ne marque « payé » que sur `payment_status === "paid"` et réconcilie l'async via ces
      deux événements (correctif #2). En **carte seule**, `checkout.session.completed` suffit.
 3. Copier le *signing secret* du webhook → `STRIPE_WEBHOOK_SECRET`.
+   Le checkout refuse une configuration partielle ou mal typée : clé API et `whsec_…` doivent être
+   présents ensemble ; en production `PUBLIC_BASE_URL` doit être une origine HTTPS sans chemin.
 4. Vérifier que `TRUST_PROXY_HOPS` est correct pour que l'IP/origine se résolvent derrière le LB.
+
+Avant le paiement manuel, valider l'hypothèse technique « abonnement mensuel + frais d'installation
+one-shot » par un appel réel à l'API Stripe **test**. La commande crée une Checkout Session de test,
+vérifie exactement devise/montants/intervalle/métadonnées/URLs, l'expire, puis archive les Price et
+Product inline créés ; elle ne paie rien et refuse systématiquement toute clé live ou inconnue.
+L'opt-in doit rester ponctuel :
+
+```powershell
+$env:STRIPE_SMOKE_TEST_ENABLED = "true"
+pnpm stripe:smoke
+Remove-Item Env:STRIPE_SMOKE_TEST_ENABLED
+```
+
+Critère : sortie `ok: true`, un item `recurring`, un item `one_time`, puis `cleanup: "expired"`.
+Ne pas conserver l'opt-in à `true` dans Render, GitHub ou un fichier `.env` partagé.
 
 > Le webhook est la **source de vérité** du paiement ; `orders.checkout` ne crée qu'une commande
 > *pending*. `updatePaymentStatus`/`updateStatus` restent admin-only.
@@ -134,6 +181,10 @@ pnpm db:purge          # quotidien : supprime les leads non convertis > LEAD_RET
 ## 6. Smoke tests post-déploiement (dans l'ordre)
 
 - [ ] **Liveness** : `GET {PUBLIC_BASE_URL}/health` → `{"status":"ok"}`.
+- [ ] **Readiness** : `GET {PUBLIC_BASE_URL}/ready` → `200`, avec `database: "ready"`, Redis
+      `"ready"` ou `"disabled"`, et Stripe `"ready"` ou `"disabled"` selon la configuration. Cette
+      URL est supervisée séparément ; la
+      sonde liveness Render reste sur `/health`.
 - [ ] **Capture de lead + consentement** (valide la migration §2) : remplir le WorkloadForm jusqu'au
       bout (case de consentement obligatoire) → le lead est créé sans erreur 500.
 - [ ] **Funnel anonyme complet** (valide le jeton de revendication, correctif #1) : depuis le même
@@ -150,8 +201,8 @@ pnpm db:purge          # quotidien : supprime les leads non convertis > LEAD_RET
 
 ## 7. Rollback
 
-- **Code** : redéployer l'image / le commit précédent. La migration `0004` étant **additive et
-  nullable**, l'ancien code fonctionne tel quel avec les colonnes présentes (il les ignore) →
+- **Code** : redéployer l'image / le commit précédent. Les migrations `0004` à `0006` étant
+  **additives**, l'ancien code fonctionne avec les nouveaux objets/colonnes (il les ignore) →
   **pas besoin de rollback de la base.**
 - **Base** : ne pas rétrograder le schéma. En cas d'incident data, restaurer depuis le backup/PITR (§0).
 - **Stripe** : en cas de webhook défaillant, les paiements restent `pending` (aucune sur-facturation) ;
@@ -163,7 +214,8 @@ pnpm db:purge          # quotidien : supprime les leads non convertis > LEAD_RET
 
 - [ ] PR #12 et #13 mergées, CI verte, `main` à jour.
 - [ ] `JWT_SECRET` ≥ 32 car. et `PUBLIC_BASE_URL` définis (sinon le serveur ne démarre pas / refuse Stripe/OAuth).
-- [ ] Migration `0004` **appliquée** (`pnpm db:push`) — **avant** la bascule du code.
+- [ ] Toutes les migrations, dont `0004` à `0006`, **appliquées** (`pnpm db:push`) — **avant** la
+      bascule du code ; `pnpm db:preflight` vert ensuite.
 - [ ] `VITE_*` (dont `VITE_SITE_URL` validé) présents **au build**.
 - [ ] Backup base récent et vérifié.
 - [ ] Smoke tests §6 passés en staging.
@@ -175,7 +227,8 @@ pnpm db:purge          # quotidien : supprime les leads non convertis > LEAD_RET
 ## 9. Deltas introduits par l'audit (vs `DEPLOYMENT.md`)
 
 `DEPLOYMENT.md` précède les correctifs de la PR #12 ; ce runbook fait foi sur ces points :
-- **Migration** : la migration pertinente est désormais **`0004`** (colonnes de consentement), pas 0002/0003.
+- **Migrations** : `0004` porte la preuve de consentement, `0005` le journal/idempotence Stripe et
+  `0006` l'inventaire fournisseur fail-closed ainsi que le snapshot fournisseur des commandes.
 - **Webhook Stripe (§4)** : s'abonner aussi à `async_payment_succeeded` / `async_payment_failed` si
   paiements différés (le handler exige `payment_status === "paid"`).
 - **Purge RGPD (§5)** : purge élargie aux leads non convertis abandonnés ; ne protège que les commandes non annulées.

@@ -51,7 +51,7 @@ export default function LocationGpu() {
             <p className="text-muted-foreground leading-relaxed">
               DatacenterMarket centralise les offres de location GPU des fournisseurs européens et
               les normalise (prix mensuel, délai de mobilisation, SLA, localisation) : décrivez
-              votre besoin une fois, et comparez jusqu'à trois offres fermes plutôt que de démarcher
+              votre besoin une fois, et comparez jusqu'à trois options chiffrées du catalogue plutôt que de démarcher
               les fournisseurs un par un.
             </p>
           </header>

@@ -6,6 +6,8 @@ import { downloadCsv } from "@/lib/downloadCsv";
 import { Download, Loader2 } from "lucide-react";
 import { fmtEUR } from "@/lib/format";
 import { MarketChrome, PanelLabel, StatusPill, type StatusTone } from "@/components/market";
+import { AdminOrdersPanel } from "@/components/admin/AdminOrdersPanel";
+import { AdminInventoryPanel } from "@/components/admin/AdminInventoryPanel";
 
 type LeadStatus = "new" | "qualified" | "offered" | "converted" | "rejected";
 
@@ -30,12 +32,16 @@ const PIPELINE_BG: Record<LeadStatus, string> = {
 export default function AdminDashboard() {
   const { user, loading, logout } = useAuth();
   const [, setLocation] = useLocation();
-  const { data: leads } = trpc.leads.list.useQuery();
-  const { data: stats } = trpc.admin.stats.useQuery();
-  const logoutMutation = trpc.auth.logout.useMutation();
+  const adminEnabled = !loading && user?.role === "admin";
+  const leadsQuery = trpc.leads.list.useQuery(undefined, { enabled: adminEnabled });
+  const statsQuery = trpc.admin.stats.useQuery(undefined, { enabled: adminEnabled });
+  const leads = leadsQuery.data;
+  const stats = statsQuery.data;
   const utils = trpc.useUtils();
   const updateLeadStatus = trpc.leads.update.useMutation({
-    onSuccess: () => utils.leads.list.invalidate(),
+    onSuccess: async () => {
+      await Promise.all([utils.leads.list.invalidate(), utils.admin.stats.invalidate()]);
+    },
   });
 
   // Route guard: unauthenticated → login. Authenticated non-admins fall through
@@ -46,9 +52,11 @@ export default function AdminDashboard() {
   }, [loading, user, setLocation]);
 
   const handleLogout = async () => {
-    await logoutMutation.mutateAsync();
-    logout();
-    setLocation("/");
+    try {
+      await logout();
+    } finally {
+      setLocation("/");
+    }
   };
 
   const today = () => new Date().toISOString().slice(0, 10);
@@ -58,10 +66,13 @@ export default function AdminDashboard() {
       { header: "ID", value: l => l.id },
       { header: "Company", value: l => l.company },
       { header: "Contact", value: l => l.contactName },
+      { header: "Role", value: l => l.contactRole },
       { header: "Email", value: l => l.email },
       { header: "Workload", value: l => l.workloadType },
       { header: "GPU", value: l => l.gpuRequirement },
       { header: "Monthly budget", value: l => l.monthlyBudget },
+      { header: "Duration", value: l => l.deploymentDuration },
+      { header: "Constraints", value: l => l.infrastructureConstraints },
       { header: "Status", value: l => l.status },
       { header: "Created", value: l => l.createdAt },
     ]);
@@ -73,6 +84,7 @@ export default function AdminDashboard() {
       { header: "ID", value: o => o.id },
       { header: "User ID", value: o => o.userId },
       { header: "Offer ID", value: o => o.offerId },
+      { header: "Provider ID", value: o => o.providerId },
       { header: "Status", value: o => o.status },
       { header: "Payment status", value: o => o.paymentStatus },
       { header: "Total amount", value: o => o.totalAmount },
@@ -156,7 +168,7 @@ export default function AdminDashboard() {
               Pilotage<span className="text-accent">.</span>
             </h1>
             <p className="m-0 text-[14.5px] text-muted-foreground">
-              Pipeline des leads, revenus et exports.
+              Pipeline, commandes, inventaire et provisionnement.
             </p>
           </div>
           <div className="flex gap-3">
@@ -178,6 +190,13 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {(leadsQuery.error || statsQuery.error) && (
+          <div className="mb-6 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-[12.5px] text-destructive">
+            Certaines données d'administration n'ont pas pu être chargées :{" "}
+            {leadsQuery.error?.message ?? statsQuery.error?.message}
+          </div>
+        )}
+
         {/* KPI cells */}
         <div className="mb-6 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-border/60 bg-border/60 sm:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col gap-1.5 bg-card p-[22px]">
@@ -194,7 +213,7 @@ export default function AdminDashboard() {
             <span className="font-mono text-[26px] font-bold text-accent">
               {metrics.conversionRate} %
             </span>
-            <span className="text-[12px] text-muted-foreground">30 derniers jours</span>
+            <span className="text-[12px] text-muted-foreground">Historique complet</span>
           </div>
           <div className="flex flex-col gap-1.5 bg-card p-[22px]">
             <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
@@ -250,7 +269,11 @@ export default function AdminDashboard() {
               <span>STATUT</span>
               <span>ACTION</span>
             </div>
-            {leadList.length > 0 ? (
+            {leadsQuery.isLoading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Chargement des leads…
+              </div>
+            ) : leadList.length > 0 ? (
               leadList.map((lead, i) => {
                 const status = (lead.status ?? "new") as LeadStatus;
                 const meta = LEAD_STATUS_META[status] ?? LEAD_STATUS_META.new;
@@ -272,23 +295,28 @@ export default function AdminDashboard() {
                       {lead.monthlyBudget ? fmtEUR(Number(lead.monthlyBudget)) : "—"}
                     </span>
                     <StatusPill tone={meta.tone} label={meta.label} />
-                    <select
-                      value={status}
-                      disabled={updateLeadStatus.isPending}
-                      onChange={e =>
-                        updateLeadStatus.mutate({
-                          id: lead.id,
-                          status: e.target.value as LeadStatus,
-                        })
-                      }
-                      className="rounded-[7px] border border-border bg-input px-2 py-1.5 font-mono text-[11px] text-foreground outline-none transition-colors focus:border-accent/50"
-                    >
-                      <option value="new">nouveau</option>
-                      <option value="qualified">qualifié</option>
-                      <option value="offered">offre</option>
-                      <option value="converted">converti</option>
-                      <option value="rejected">refusé</option>
-                    </select>
+                    {status === "converted" ? (
+                      <span className="font-mono text-[10.5px] text-muted-foreground">
+                        AUTOMATIQUE · PAIEMENT
+                      </span>
+                    ) : (
+                      <select
+                        value={status}
+                        disabled={updateLeadStatus.isPending}
+                        onChange={e =>
+                          updateLeadStatus.mutate({
+                            id: lead.id,
+                            status: e.target.value as Exclude<LeadStatus, "converted">,
+                          })
+                        }
+                        className="rounded-[7px] border border-border bg-input px-2 py-1.5 font-mono text-[11px] text-foreground outline-none transition-colors focus:border-accent/50"
+                      >
+                        <option value="new">nouveau</option>
+                        <option value="qualified">qualifié</option>
+                        <option value="offered">offre</option>
+                        <option value="rejected">refusé</option>
+                      </select>
+                    )}
                   </div>
                 );
               })
@@ -297,6 +325,9 @@ export default function AdminDashboard() {
             )}
           </div>
         </div>
+
+        <AdminOrdersPanel enabled={user.role === "admin"} />
+        <AdminInventoryPanel enabled={user.role === "admin"} />
       </main>
     </div>
   );

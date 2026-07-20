@@ -15,44 +15,118 @@ interface RedisMulti {
 
 export interface SharedRedis {
   multi(): RedisMulti;
-  zrange(key: string, start: number, stop: number, withScores: "WITHSCORES"): Promise<string[]>;
+  zrange(
+    key: string,
+    start: number,
+    stop: number,
+    withScores: "WITHSCORES"
+  ): Promise<string[]>;
   set(key: string, value: string, mode: "PX", ttlMs: number): Promise<unknown>;
   exists(key: string): Promise<number>;
+  ping(): Promise<string>;
+  disconnect?(): void;
 }
 
 let client: SharedRedis | null = null;
-let initialized = false;
+let initialization: Promise<SharedRedis | null> | null = null;
+let lastInitializationFailureAt = 0;
+const REDIS_RETRY_COOLDOWN_MS = 5_000;
+const REDIS_PING_TIMEOUT_MS = 2_000;
 
-/**
- * Returns the shared Redis client, or null if REDIS_URL is unset or the client
- * could not be created. Initialization is attempted once; failures are sticky
- * (null) so callers degrade gracefully to their in-memory / disabled behavior.
- */
-export async function getRedis(): Promise<SharedRedis | null> {
-  if (initialized) return client;
-  initialized = true;
+function redisErrorType(error: unknown): string {
+  return error instanceof Error ? error.name : "UnknownError";
+}
 
-  const url = process.env.REDIS_URL;
-  if (!url) return null;
+async function pingWithTimeout(redis: SharedRedis): Promise<string> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      redis.ping(),
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error("Redis PING timed out")),
+          REDIS_PING_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
+async function initializeRedis(url: string): Promise<SharedRedis | null> {
+  let candidate: SharedRedis | null = null;
   try {
     // @ts-ignore optional dependency, not installed unless Redis is used
     const mod = (await import("ioredis")) as unknown as {
       default: new (url: string, opts?: unknown) => SharedRedis;
     };
     const Redis = mod.default;
-    client = new Redis(url, { maxRetriesPerRequest: 2, lazyConnect: false });
-    console.log("[Redis] Shared client connected");
+    candidate = new Redis(url, {
+      connectTimeout: 5_000,
+      maxRetriesPerRequest: 2,
+      lazyConnect: false,
+    });
+
+    // Constructing an ioredis client starts the connection but does not prove it
+    // is usable. Do not activate Redis-backed features before a real round trip.
+    const pong = await pingWithTimeout(candidate);
+    if (pong !== "PONG") throw new Error("Unexpected Redis PING response");
+
+    client = candidate;
+    console.log("[Redis] Shared client ready");
     return client;
   } catch (error) {
-    console.error("[Redis] REDIS_URL set but client init failed; Redis features disabled", String(error));
+    candidate?.disconnect?.();
+    console.error(
+      `[Redis] Initialization failed (${redisErrorType(error)}); Redis features disabled`
+    );
     client = null;
     return null;
   }
 }
 
+/**
+ * Returns the shared Redis client, or null if REDIS_URL is unset or the client
+ * could not be created. Failed initialization is retried after a short cooldown
+ * so a transient Redis outage does not require a process restart to recover.
+ */
+export async function getRedis(): Promise<SharedRedis | null> {
+  const url = process.env.REDIS_URL;
+  if (!url) return null;
+  if (client) return client;
+  if (initialization) return initialization;
+  if (Date.now() - lastInitializationFailureAt < REDIS_RETRY_COOLDOWN_MS) return null;
+
+  initialization = initializeRedis(url);
+  try {
+    const result = await initialization;
+    if (!result) lastInitializationFailureAt = Date.now();
+    return result;
+  } finally {
+    initialization = null;
+  }
+}
+
+/** A configured Redis dependency is ready only after a fresh successful PING. */
+export async function isRedisReady(): Promise<boolean> {
+  if (!process.env.REDIS_URL) return true;
+  const redis = await getRedis();
+  if (!redis) return false;
+  try {
+    return (await pingWithTimeout(redis)) === "PONG";
+  } catch {
+    redis.disconnect?.();
+    if (client === redis) client = null;
+    lastInitializationFailureAt = Date.now();
+    return false;
+  }
+}
+
 /** Test-only: reset the memoized client so a fresh getRedis() re-evaluates env. */
 export function __resetRedis(): void {
+  client?.disconnect?.();
   client = null;
-  initialized = false;
+  initialization = null;
+  lastInitializationFailureAt = 0;
 }

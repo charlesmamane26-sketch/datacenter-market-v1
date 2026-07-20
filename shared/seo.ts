@@ -96,7 +96,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/",
     title: "Comparez les offres GPU as a Service | DatacenterMarket",
     description:
-      "DatacenterMarket centralise les offres GPU as a Service des fournisseurs européens : comparez prix, délais et SLA en un appel au marché. Hébergement UE, RGPD.",
+      "Comparez les configurations GPU as a Service du catalogue DatacenterMarket par prix, délai indicatif, SLA et localisation européenne.",
     indexable: true,
     lang: "fr",
     hreflang: HOME_HREFLANG,
@@ -107,7 +107,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/en/",
     title: "Compare GPU-as-a-Service offers | DatacenterMarket",
     description:
-      "DatacenterMarket centralises GPU-as-a-Service offers from EU providers: compare pricing, lead times and SLAs in one market call. EU-hosted, GDPR-compliant.",
+      "Compare DatacenterMarket's GPU-as-a-Service catalogue by price, indicative lead time, SLA and European location.",
     indexable: true,
     lang: "en",
     hreflang: HOME_HREFLANG,
@@ -118,7 +118,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/gpu-as-a-service/",
     title: "GPU as a Service : comparer les offres du marché",
     description:
-      "Le comparateur GPU as a Service : offres H100, A100, L40S des fournisseurs européens centralisées. Jusqu'à 3 offres comparées, capacité en 72 h, RGPD.",
+      "Le comparateur GPU as a Service : configurations H100, A100, L40S et RTX 4090 du catalogue, avec prix, SLA, localisation et délai indicatif.",
     indexable: true,
     lang: "fr",
     hreflang: PILLAR_HREFLANG,
@@ -133,7 +133,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/en/gpu-as-a-service/",
     title: "GPU as a Service: compare offers across the market",
     description:
-      "The GPU-as-a-Service comparison platform: H100, A100, L40S offers from EU providers, centralised. Up to 3 quotes compared, capacity in 72 h, GDPR.",
+      "Compare H100, A100, L40S and RTX 4090 catalogue configurations by price, SLA, European location and indicative lead time.",
     indexable: true,
     lang: "en",
     hreflang: PILLAR_HREFLANG,
@@ -148,7 +148,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/gpu-as-a-service/prix-location-gpu/",
     title: "Prix GPU comparés : H100, A100, L40S en €/GPU/h",
     description:
-      "Prix de location GPU comparés sur le marché : H100 ≈ 2,9–3,8 €/GPU/h, A100, L40S, RTX 4090. Facteurs de variation et offre ferme via appel au marché.",
+      "Prix indicatifs du catalogue GPU : H100 ≈ 2,9–3,8 €/GPU/h, A100, L40S et RTX 4090, avec les principaux facteurs de variation.",
     indexable: true,
     lang: "fr",
     hreflang: PRICING_HREFLANG,
@@ -163,7 +163,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/en/gpu-as-a-service/gpu-rental-pricing/",
     title: "GPU prices compared: H100, A100, L40S in €/GPU/h",
     description:
-      "GPU rental prices compared across the market: H100 ≈ €2.9–3.8/GPU/h, plus A100, L40S, RTX 4090. Cost drivers and a firm quote via a market call.",
+      "Indicative catalogue GPU rental prices: H100 ≈ €2.9–3.8/GPU/h, plus A100, L40S and RTX 4090, with the main cost drivers.",
     indexable: true,
     lang: "en",
     hreflang: PRICING_HREFLANG,
@@ -222,7 +222,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/en/datacenter-colocation/",
     title: "Datacenter colocation: compare market offers",
     description:
-      "Datacenter capacity rental — racks, kW, private suites: DatacenterMarket centralises colocation offers from European operators in one market call. GDPR.",
+      "Datacenter capacity rental — racks, kW and private suites: overview of European colocation criteria and a contact path for requirements outside the GPU catalogue.",
     indexable: true,
     lang: "en",
     hreflang: COLOCATION_HREFLANG,
@@ -236,7 +236,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/gpu-as-a-service/gpu-souverain-france/",
     title: "GPU souverain : comparer les offres UE et France",
     description:
-      "Comparez les offres GPU souverain du marché : hébergement UE dont Paris, conformité RGPD, jusqu'à 3 offres via appel au marché, capacité en 72 h.",
+      "Comparez les localisations UE du catalogue GPU, dont Paris, et identifiez les exigences à confirmer pour un hébergement 100 % France.",
     indexable: true,
     lang: "fr",
     hreflang: SOVEREIGN_HREFLANG,
@@ -251,7 +251,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/en/gpu-as-a-service/sovereign-gpu-europe/",
     title: "Sovereign GPU: compare EU-hosted offers",
     description:
-      "Compare sovereign GPU offers across the market: EU-hosted including Paris, GDPR-compliant, up to 3 quotes via a market call, capacity within 72 h.",
+      "Compare EU catalogue locations, including Paris, and identify the requirements that still need confirmation for 100% France hosting.",
     indexable: true,
     lang: "en",
     hreflang: SOVEREIGN_HREFLANG,
@@ -412,7 +412,7 @@ export function organizationJsonLd(base: string): object {
     url: absoluteUrl(base, "/"),
     logo: absoluteUrl(base, "/favicon.svg"),
     description:
-      "La plateforme qui centralise les offres GPU as a Service du marché : fournisseurs européens mis en concurrence, offres comparées en un appel au marché, hébergement UE conforme RGPD.",
+      "La plateforme de comparaison des configurations GPU as a Service actuellement référencées dans un catalogue européen normalisé.",
     // Marchés visés — signal géographique pour la France et l'UE.
     areaServed: ["FR", "BE", "LU", "CH", "EU"],
     // Profils officiels rattachés (désambiguïsation d'entité).

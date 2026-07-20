@@ -9,7 +9,6 @@ import {
   RecapSidebar,
   ServiceTermsCard,
   TechSummaryCard,
-  useOfferCountdown,
 } from "@/components/market/offerPurchase";
 
 export default function OfferDetail() {
@@ -18,10 +17,12 @@ export default function OfferDetail() {
   const leadIdRaw = new URLSearchParams(window.location.search).get("leadId");
   const leadId =
     leadIdRaw && Number.isFinite(Number(leadIdRaw)) ? Number(leadIdRaw) : undefined;
-  const { data: offer, isLoading } = trpc.offers.get.useQuery({
-    id: parseInt(offerId || "0"),
-  });
-  const countdown = useOfferCountdown(leadId ?? offerId);
+  const parsedOfferId = Number(offerId);
+  const validOfferId = Number.isInteger(parsedOfferId) && parsedOfferId > 0;
+  const { data: offer, isLoading, isError, refetch } = trpc.offers.get.useQuery(
+    { id: validOfferId ? parsedOfferId : 1 },
+    { enabled: validOfferId },
+  );
 
   const chrome = (
     <MarketChrome
@@ -29,14 +30,50 @@ export default function OfferDetail() {
       center={<JourneyStepper current={3} />}
       right={
         <span className="inline-flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[.1em] text-accent">
-          <span className="h-1.5 w-1.5 rounded-full bg-accent animate-live-dot" />
-          OFFRE VALABLE {countdown}
+          OPTION DU CATALOGUE
         </span>
       }
     />
   );
 
-  if (isLoading || !offer) {
+  if (!validOfferId || isError || (!isLoading && !offer)) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        {chrome}
+        <div className="mx-auto max-w-[760px] px-5 py-20 text-center md:px-10">
+          <h1 className="mb-3 text-[30px] font-extrabold uppercase tracking-[-0.035em]">
+            {isError ? "Option indisponible" : "Option introuvable"}
+            <span className="text-accent">.</span>
+          </h1>
+          <p className="mb-6 text-muted-foreground">
+            {isError
+              ? "Le détail n'a pas pu être chargé. Vous pouvez réessayer sans perdre votre demande."
+              : "Cette configuration n'existe plus dans le catalogue."}
+          </p>
+          <div className="flex flex-wrap justify-center gap-3">
+            {isError && (
+              <button
+                type="button"
+                onClick={() => refetch()}
+                className="rounded-[9px] bg-accent px-5 py-3 text-sm font-semibold text-accent-foreground"
+              >
+                Réessayer
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setLocation("/results" + (leadId != null ? `?leadId=${leadId}` : ""))}
+              className="rounded-[9px] border border-border px-5 py-3 text-sm font-semibold"
+            >
+              Retour aux résultats
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         {chrome}
@@ -50,6 +87,10 @@ export default function OfferDetail() {
       </div>
     );
   }
+
+  // The preceding loading/error/not-found branches are exhaustive; this guard
+  // also gives TypeScript a concrete non-null offer for the purchase blocks.
+  if (!offer) return null;
 
   return (
     <div className="min-h-screen bg-background text-foreground">

@@ -73,7 +73,7 @@ const STEP_TITLES: Record<FormStep, { title: string; sub: string; label: string;
   },
   contact: {
     title: "Vos coordonnées",
-    sub: "Où envoyer vos 3 offres fermes ?",
+    sub: "Où envoyer les options disponibles pour votre demande ?",
     label: "ÉTAPE 4/4 — CONTACT",
     next: "DERNIÈRE ÉTAPE",
   },
@@ -108,10 +108,11 @@ export default function WorkloadForm() {
 
   const createLeadMutation = trpc.leads.create.useMutation();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
 
   // "Aperçu du marché": matching pool derived client-side from the public catalogue.
-  const { data: catalogue } = trpc.offers.list.useQuery();
+  const { data: catalogue, isError: catalogueError } = trpc.offers.list.useQuery();
 
   const steps: FormStep[] = ["workload", "requirements", "constraints", "contact"];
   const currentStepIndex = steps.indexOf(currentStep);
@@ -147,13 +148,14 @@ export default function WorkloadForm() {
     options.find(o => o.value === value)?.label ?? "—";
 
   const handleSubmit = async () => {
+    setSubmitError(null);
     setIsSubmitting(true);
     try {
       const lead = await createLeadMutation.mutateAsync({
-        email: formData.email,
-        company: formData.company,
-        contactName: formData.contactName,
-        contactRole: formData.contactRole,
+        email: formData.email.trim(),
+        company: formData.company.trim() || undefined,
+        contactName: formData.contactName.trim(),
+        contactRole: formData.contactRole.trim() || undefined,
         workloadType: formData.workloadType,
         gpuRequirement: formData.gpuRequirement,
         monthlyBudget: formData.monthlyBudget ? parseFloat(formData.monthlyBudget) : undefined,
@@ -170,23 +172,28 @@ export default function WorkloadForm() {
       }
 
       // Summary chips for the results screen (leads have no public read).
-      saveWorkloadRecap({
-        chips: [
-          formData.gpuRequirement && formData.gpuRequirement !== "any"
-            ? `GPU ${labelOf(GPU_OPTIONS, formData.gpuRequirement).toUpperCase()}`
-            : "GPU AU CHOIX",
-          labelOf(WORKLOAD_TYPES, formData.workloadType).toUpperCase(),
-          "RÉGION UE",
-          formData.monthlyBudget
-            ? `BUDGET ${labelOf(BUDGET_OPTIONS, formData.monthlyBudget).toUpperCase()}/MOIS`
-            : "BUDGET LIBRE",
-        ],
-      });
+      if (lead?.id) {
+        saveWorkloadRecap(lead.id, {
+          chips: [
+            formData.gpuRequirement && formData.gpuRequirement !== "any"
+              ? `GPU ${labelOf(GPU_OPTIONS, formData.gpuRequirement).toUpperCase()}`
+              : "GPU AU CHOIX",
+            labelOf(WORKLOAD_TYPES, formData.workloadType).toUpperCase(),
+            "CATALOGUE UE",
+            formData.monthlyBudget
+              ? `BUDGET ${labelOf(BUDGET_OPTIONS, formData.monthlyBudget).toUpperCase()}/MOIS`
+              : "BUDGET LIBRE",
+          ],
+        });
+      }
 
       // Carry the lead id through the funnel so results are matched to this workload.
       setLocation(lead?.id ? `/processing?leadId=${lead.id}` : "/processing");
     } catch (error) {
       console.error("Error submitting form:", error);
+      setSubmitError(
+        "Votre demande n'a pas pu être envoyée. Vérifiez votre adresse e-mail puis réessayez.",
+      );
       setIsSubmitting(false);
     }
   };
@@ -200,7 +207,11 @@ export default function WorkloadForm() {
       case "constraints":
         return true; // Optional step
       case "contact":
-        return formData.email !== "" && formData.contactName !== "" && consent;
+        return (
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim()) &&
+          formData.contactName.trim() !== "" &&
+          consent
+        );
       default:
         return false;
     }
@@ -236,7 +247,14 @@ export default function WorkloadForm() {
             <span className="text-accent">{meta.label}</span>
             <span className="hidden md:block">{meta.next}</span>
           </div>
-          <div className="grid grid-cols-4 gap-1.5">
+          <div
+            className="grid grid-cols-4 gap-1.5"
+            role="progressbar"
+            aria-label="Progression de la demande"
+            aria-valuemin={1}
+            aria-valuemax={steps.length}
+            aria-valuenow={currentStepIndex + 1}
+          >
             {steps.map((s, i) => (
               <div
                 key={s}
@@ -263,6 +281,7 @@ export default function WorkloadForm() {
                           key={w.value}
                           type="button"
                           onClick={() => set("workloadType", w.value)}
+                          aria-pressed={selected}
                           className={`${cardBase} ${selected ? cardSelected : cardIdle}`}
                         >
                           <span className="flex items-center justify-between text-[14px] font-semibold">
@@ -285,6 +304,7 @@ export default function WorkloadForm() {
                         key={g.value}
                         type="button"
                         onClick={() => set("gpuRequirement", g.value)}
+                        aria-pressed={formData.gpuRequirement === g.value}
                         className={`${chipBase} ${
                           formData.gpuRequirement === g.value ? chipSelected : chipIdle
                         }`}
@@ -307,6 +327,7 @@ export default function WorkloadForm() {
                         key={b.value}
                         type="button"
                         onClick={() => set("monthlyBudget", b.value)}
+                        aria-pressed={formData.monthlyBudget === b.value}
                         className={`${chipBase} ${
                           formData.monthlyBudget === b.value ? chipSelected : chipIdle
                         }`}
@@ -324,6 +345,7 @@ export default function WorkloadForm() {
                         key={d.value}
                         type="button"
                         onClick={() => set("deploymentDuration", d.value)}
+                        aria-pressed={formData.deploymentDuration === d.value}
                         className={`${chipBase} ${
                           formData.deploymentDuration === d.value ? chipSelected : chipIdle
                         }`}
@@ -338,18 +360,19 @@ export default function WorkloadForm() {
 
             {currentStep === "constraints" && (
               <div className="flex flex-col gap-2.5">
-                <span className="text-[15px] font-semibold">
+                <label htmlFor="infrastructureConstraints" className="text-[15px] font-semibold">
                   Contraintes d'infrastructure{" "}
                   <span className="font-normal text-muted-foreground">(optionnel)</span>
-                </span>
+                </label>
                 <textarea
+                  id="infrastructureConstraints"
                   placeholder="ex. : UE uniquement, RGPD, haute disponibilité, bare metal…"
                   value={formData.infrastructureConstraints}
                   onChange={e => set("infrastructureConstraints", e.target.value)}
                   className={`${inputClass} min-h-[130px] resize-y font-sans`}
                 />
                 <span className="text-[12.5px] text-muted-foreground">
-                  Décrivez toute exigence spécifique — elle sera prise en compte par le matching.
+                  Ces exigences sont transmises avec votre demande. Le classement automatique utilise le GPU et le budget sélectionnés.
                 </span>
               </div>
             )}
@@ -358,11 +381,14 @@ export default function WorkloadForm() {
               <div className="flex flex-col gap-5">
                 <div className="grid gap-[18px] md:grid-cols-2">
                   <div className="flex flex-col gap-2">
-                    <span className="text-[13.5px] font-semibold">
+                    <label htmlFor="email" className="text-[13.5px] font-semibold">
                       Adresse e-mail <span className="text-accent">*</span>
-                    </span>
+                    </label>
                     <input
+                      id="email"
+                      name="email"
                       type="email"
+                      autoComplete="email"
                       placeholder="vous@societe.com"
                       value={formData.email}
                       onChange={e => set("email", e.target.value)}
@@ -370,11 +396,14 @@ export default function WorkloadForm() {
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <span className="text-[13.5px] font-semibold">
+                    <label htmlFor="contactName" className="text-[13.5px] font-semibold">
                       Nom complet <span className="text-accent">*</span>
-                    </span>
+                    </label>
                     <input
+                      id="contactName"
+                      name="name"
                       type="text"
+                      autoComplete="name"
                       placeholder="Prénom Nom"
                       value={formData.contactName}
                       onChange={e => set("contactName", e.target.value)}
@@ -423,6 +452,12 @@ export default function WorkloadForm() {
                   </span>
                 </label>
               </div>
+            )}
+
+            {submitError && (
+              <p role="alert" className="m-0 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                {submitError}
+              </p>
             )}
 
             <div className="flex gap-3.5">
@@ -498,9 +533,9 @@ export default function WorkloadForm() {
               </div>
               <div className="flex flex-col gap-[5px] border-t border-border/70 pt-3.5">
                 <span className="text-[22px] font-bold text-accent">
-                  {matchingPool.length}{" "}
+                  {catalogueError ? "—" : matchingPool.length}{" "}
                   <span className="text-[12px] font-medium text-muted-foreground">
-                    offres correspondantes
+                    options du catalogue
                   </span>
                 </span>
                 <span className="text-[10.5px] tracking-[.08em] text-muted-foreground">

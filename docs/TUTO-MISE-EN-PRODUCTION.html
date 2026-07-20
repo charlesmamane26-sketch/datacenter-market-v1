@@ -74,7 +74,7 @@
   <strong>Sommaire</strong>
   <ol>
     <li><a href="#etape1">La base de données MySQL cloud (~30 min)</a></li>
-    <li><a href="#etape2">L'hébergement gratuit sur Render (~45 min)</a></li>
+    <li><a href="#etape2">Le staging gratuit sur Render (~45 min)</a></li>
     <li><a href="#etape3">Stripe (~45 min + vérification du compte)</a></li>
     <li><a href="#etape4">Monitoring et go-live (~30 min)</a></li>
     <li><a href="#problemes">En cas de problème</a></li>
@@ -88,15 +88,15 @@
 <table>
   <tr><th>Étape</th><th>Service</th><th>Compte à créer</th><th>Coût</th></tr>
   <tr><td>1. Base de données</td><td>TiDB Serverless</td><td>tidbcloud.com</td><td><strong>0 €</strong> (jusqu'à 5 Go)</td></tr>
-  <tr><td>2. Hébergement</td><td>Render (free tier)</td><td>render.com</td><td><strong>0 €</strong></td></tr>
+  <tr><td>2. Hébergement de recette</td><td>Render (free tier)</td><td>render.com</td><td><strong>0 €</strong></td></tr>
   <tr><td>2bis. Crons RGPD</td><td>GitHub Actions</td><td>déjà en place</td><td><strong>0 €</strong></td></tr>
   <tr><td>3. Paiements</td><td>Stripe</td><td>stripe.com</td><td><strong>0 €</strong> fixe (commission ~1,5 % + 0,25 € par vente uniquement)</td></tr>
   <tr><td>4. Monitoring</td><td>Sentry + UptimeRobot</td><td>sentry.io, uptimerobot.com</td><td><strong>0 €</strong> (tiers free)</td></tr>
 </table>
 
-<p><strong>Budget total : 0 € de coût fixe.</strong> Tu ne paies que la commission Stripe quand un client paie réellement.</p>
+<p><strong>Budget de recette : 0 € de coût fixe.</strong> L'hébergement de production n'est volontairement pas chiffré ici : le Blueprint Free sert uniquement au staging, sans paiement client réel.</p>
 
-<div class="box warn">⚠️ <strong>Limite à connaître du tier gratuit Render :</strong> le serveur s'endort après 15 min sans trafic et met ~50 s à se réveiller à la visite suivante. Le ping UptimeRobot toutes les 5 min (étape 4.2) le maintient éveillé en pratique. Quand les premiers clients arrivent, passe au plan Starter (~7 $/mois) pour supprimer cette limite.</div>
+<div class="box warn">⚠️ <strong>Périmètre du tier gratuit Render :</strong> staging/recette uniquement. La mise en veille et l'absence d'engagement de production sont acceptables pour les tests, pas pour recevoir du trafic client ou activer Stripe live. Le choix de l'hébergement de production est une décision séparée.</div>
 
 <p><strong>Règle d'or : ne jamais mettre une clé secrète dans Git.</strong> Toutes les clés vont dans les variables d'environnement de l'hébergeur.</p>
 
@@ -138,23 +138,30 @@ corepack enable
 # Crée les tables
 corepack pnpm db:push
 
-# Insère le catalogue des 7 offres
+# Vérifie en lecture seule toutes les migrations (timestamp + hash SQL exact)
+corepack pnpm db:preflight
+
+# Insère 7 offres de DÉMO inactives
 corepack pnpm db:seed
 
-# Vérifie le tunnel complet contre cette base
+# Après activation d'au moins une vraie offre/fournisseur dans /admin
 corepack pnpm integration-check</code></pre>
+
+<div class="box warn">Le seed ne constitue jamais un inventaire commercial : fournisseurs inactifs, capacité 0 et offres indisponibles. Valide fournisseurs, prix, SLA et échéances dans <code>/admin</code>, puis active seulement les offres réellement confirmées.</div>
+
+<p>Le pré-vol exige que le journal, tous les fichiers <code>drizzle/*.sql</code> et toutes les lignes de <code>__drizzle_migrations</code> correspondent exactement. <code>.gitattributes</code> fixe les SQL en LF. Si une base existante signale un hash différent après une ancienne application Windows, ne rejoue pas la migration : sous sauvegarde/PITR, prouve d'abord que l'unique différence est CRLF/LF avant toute réconciliation du journal.</p>
 
 <div class="box ok">✅ <strong>Critère de réussite :</strong> <code>integration-check</code> affiche « Full funnel verified against the real database ».</div>
 
 <div class="box tip">💡 <em>Alternative OVH :</em> si tu préfères rester chez OVH (cohérent avec ton infra existante), une instance « Web Cloud Databases MySQL » fonctionne aussi — récupère simplement l'URL de connexion au même format.</div>
 
-<h2 id="etape2">Étape 2 — L'hébergement gratuit sur Render (~45 min)</h2>
+<h2 id="etape2">Étape 2 — Le staging gratuit sur Render (~45 min)</h2>
 
-<p>Le projet a un Dockerfile prêt. <strong>Render</strong> offre un tier gratuit qui suffit pour démarrer.</p>
+<p>Le projet a un Dockerfile prêt. Le tier gratuit <strong>Render</strong> suffit pour la recette ; il ne constitue pas l'hébergement de production.</p>
 
 <h3>2.1 Créer le service Render</h3>
 
-<p>Le repo contient un <strong>Blueprint</strong> (<code>render.yaml</code> à la racine) qui pré-configure tout (Docker, région Frankfurt, plan Free, health check <code>/health</code>, liste des variables) :</p>
+<p>Le repo contient un <strong>Blueprint</strong> (<code>render.yaml</code> à la racine) qui pré-configure tout (Docker, région Frankfurt, plan Free staging-only, liveness <code>/health</code>, déploiement après CI verte, liste des variables) :</p>
 
 <ol>
   <li>Va sur <strong>https://render.com</strong> → <em>Sign up with GitHub</em>.</li>
@@ -162,7 +169,7 @@ corepack pnpm integration-check</code></pre>
   <li>Render lit <code>render.yaml</code>, crée le service et te présente la liste des variables à remplir (celles marquées <code>sync: false</code>) — passe à l'étape 2.2 pour les valeurs.</li>
 </ol>
 
-<p><em>(Chemin manuel équivalent si tu préfères : New → Web Service → Language <strong>Docker</strong>, Instance Type <strong>Free</strong>, Région <strong>Frankfurt</strong>.)</em></p>
+<p><em>(Chemin manuel équivalent pour le staging : New → Web Service → Language <strong>Docker</strong>, Instance Type <strong>Free</strong>, Région <strong>Frankfurt</strong>.)</em></p>
 
 <h3>2.2 Configurer les variables d'environnement</h3>
 
@@ -181,6 +188,7 @@ corepack pnpm integration-check</code></pre>
   <tr><td><code>BUILT_IN_FORGE_API_KEY</code></td><td>clé API Manus côté serveur</td><td>secrète</td></tr>
   <tr><td><code>STRIPE_SECRET_KEY</code></td><td><em>(étape 3)</em></td><td>commence par <code>sk_test_</code> puis <code>sk_live_</code></td></tr>
   <tr><td><code>STRIPE_WEBHOOK_SECRET</code></td><td><em>(étape 3)</em></td><td>commence par <code>whsec_</code></td></tr>
+  <tr><td><code>STRIPE_LIVE_PAYMENTS_ENABLED</code></td><td><code>false</code></td><td>garde-fou Blueprint ; ne passer à <code>true</code> qu'à l'étape 3.4</td></tr>
   <tr><td><code>SENTRY_DSN</code></td><td><em>(étape 4)</em></td><td>optionnel au début</td></tr>
 </table>
 
@@ -210,12 +218,12 @@ corepack pnpm integration-check</code></pre>
 <h3>2.4 Domaine et déploiement</h3>
 
 <ol>
-  <li>Render te donne d'office un domaine gratuit en <code>xxx.onrender.com</code> — suffisant pour démarrer.</li>
+  <li>Render te donne d'office un domaine gratuit en <code>xxx.onrender.com</code> — suffisant pour la recette.</li>
   <li><em>(Optionnel, toujours 0 €)</em> : pour <code>compute.anavim-infra.com</code>, ajoute un <strong>Custom Domain</strong> dans Render → Settings, puis crée le CNAME indiqué dans ta zone DNS OVH (le domaine anavim-infra.com est déjà payé). Certificat TLS automatique.</li>
-  <li>Chaque <code>git push</code> sur <code>main</code> redéploie automatiquement.</li>
+  <li>Chaque <code>git push</code> sur <code>main</code> redéploie seulement après réussite des checks GitHub. Le conteneur exécute aussi un pré-vol DB <strong>read-only</strong> avant de démarrer ; toute migration absente ou dont le timestamp/hash dérive bloque la nouvelle image sans modifier la base.</li>
 </ol>
 
-<div class="box ok">✅ <strong>Critère de réussite :</strong> <code>https://ton-domaine/health</code> répond <code>{"status":"ok"}</code> et la landing s'affiche.</div>
+<div class="box ok">✅ <strong>Critère de réussite :</strong> <code>https://ton-domaine/health</code> répond <code>{"status":"ok"}</code>, <code>/ready</code> répond 200 avec <code>database: "ready"</code>, et la landing s'affiche.</div>
 
 <h3>2.5 Les crons RGPD — gratuits via GitHub Actions</h3>
 
@@ -225,7 +233,7 @@ corepack pnpm integration-check</code></pre>
 
 <h2 id="etape3">Étape 3 — Stripe (~45 min + délai de vérification du compte)</h2>
 
-<div class="box tip">💡 <strong>Configure d'abord UptimeRobot (étape 4.2).</strong> Sur le tier gratuit, un webhook Stripe qui arrive pendant que le serveur dort échoue à sa première livraison (réveil ~50 s &gt; timeout Stripe) et n'est rattrapé que par les retries — le statut de paiement peut alors traîner. Le ping toutes les 5 min élimine ce cas en pratique.</div>
+<div class="box warn">⚠️ Le tier gratuit reste réservé à la recette : ne l'utilise pas pour Stripe live. Les retries Stripe permettent de tester les webhooks, mais seule une instance de production non dormante convient aux encaissements clients.</div>
 
 <h3>3.1 Créer le compte</h3>
 
@@ -238,7 +246,7 @@ corepack pnpm integration-check</code></pre>
 
 <ol>
   <li>Dashboard Stripe → active le <strong>mode Test</strong> (toggle en haut à droite).</li>
-  <li><strong>Développeurs → Clés API</strong> : copie la <strong>clé secrète</strong> <code>sk_test_...</code> → variable <code>STRIPE_SECRET_KEY</code> dans Render.</li>
+  <li><strong>Développeurs → Clés API</strong> : copie la <strong>clé secrète</strong> <code>sk_test_...</code> → variable <code>STRIPE_SECRET_KEY</code> dans Render. Garde <code>STRIPE_LIVE_PAYMENTS_ENABLED=false</code>.</li>
   <li><strong>Développeurs → Webhooks → Ajouter un endpoint</strong> :
     <ul>
       <li>URL : <code>https://ton-domaine/api/stripe/webhook</code></li>
@@ -250,6 +258,14 @@ corepack pnpm integration-check</code></pre>
 </ol>
 
 <h3>3.3 Tester un paiement de bout en bout</h3>
+
+<p>Commence par valider l'hypothèse « abonnement + frais d'installation » directement sur l'API Stripe test. Cette commande crée une session sans payer, vérifie les deux line items puis l'expire ; elle refuse toute clé live :</p>
+
+<pre><code>$env:STRIPE_SMOKE_TEST_ENABLED = "true"
+pnpm stripe:smoke
+Remove-Item Env:STRIPE_SMOKE_TEST_ENABLED</code></pre>
+
+<p>Attends <code>ok: true</code>, un item <code>recurring</code>, un <code>one_time</code>, puis <code>cleanup: "expired"</code>. Ne configure pas <code>STRIPE_SMOKE_TEST_ENABLED=true</code> durablement dans Render ou <code>.env</code>.</p>
 
 <ol>
   <li>Sur ton site : remplis le formulaire workload → choisis une offre → connecte-toi → <strong>Confirm Order</strong>.</li>
@@ -264,7 +280,7 @@ corepack pnpm integration-check</code></pre>
   </li>
 </ol>
 
-<div class="box warn">⚠️ <strong>Point à valider explicitement</strong> (hypothèse non testée du code) : choisis une offre <strong>avec frais d'installation</strong> (setup fee &gt; 0) pour vérifier que Stripe accepte le line-item one-time dans une session subscription. Si Stripe renvoie une erreur à la création de session, dis-le moi — le contournement est connu (facturer le setup via <code>subscription_data.add_invoice_items</code>).</div>
+<div class="box warn">⚠️ Le smoke test valide la forme de la Checkout Session mais ne simule ni paiement ni webhook. Choisis donc aussi une offre <strong>avec frais d'installation</strong> (setup fee &gt; 0) dans le test navigateur.</div>
 
 <h3>3.4 Passage en live</h3>
 
@@ -273,6 +289,7 @@ corepack pnpm integration-check</code></pre>
 <ol>
   <li>Désactive le mode test → copie <code>sk_live_...</code> → remplace <code>STRIPE_SECRET_KEY</code>.</li>
   <li>Recrée le webhook en mode live (nouveau secret <code>whsec_...</code> — l'URL, elle, ne change pas) → remplace <code>STRIPE_WEBHOOK_SECRET</code>.</li>
+  <li>Après vérification contractuelle/fournisseur et du webhook, passe <code>STRIPE_LIVE_PAYMENTS_ENABLED=true</code> puis redéploie. Sans ce drapeau, une clé live est volontairement refusée.</li>
   <li>Fais <strong>un vrai paiement</strong> avec ta propre carte sur l'offre la moins chère, puis rembourse-le depuis le dashboard Stripe.</li>
   <li>Active <strong>Stripe Tax</strong> si tu factures de la TVA UE (B2B : autoliquidation avec numéro de TVA).</li>
 </ol>
@@ -291,14 +308,12 @@ corepack pnpm integration-check</code></pre>
 
 <ol>
   <li><strong>https://uptimerobot.com</strong> → compte gratuit → <strong>Add Monitor</strong> :
-    <ul><li>Type : HTTP(s) — URL : <code>https://ton-domaine/health</code> — intervalle : 5 min.</li></ul>
+    <ul><li>Type : HTTP(s) — URL : <code>https://ton-domaine/ready</code> — intervalle : 5 min.</li></ul>
   </li>
   <li>Configure l'alerte e-mail vers <code>contact@anavim-infra.com</code>.</li>
 </ol>
 
-<p>Double rôle sur le tier gratuit Render : le ping toutes les 5 min <strong>empêche aussi le serveur de s'endormir</strong> (mise en veille après 15 min d'inactivité).</p>
-
-<div class="box warn">⚠️ <strong>Budget d'heures du tier gratuit :</strong> Render alloue <strong>750 h d'instance/mois</strong> au workspace. Un service maintenu éveillé 24/7 en consomme ~744 — ne lance donc <strong>jamais un second service free</strong> dans le même workspace (staging, test…) : le dépassement suspend <strong>tous</strong> les services free, production comprise, jusqu'au mois suivant. Si Render envoie un e-mail de suspension, c'est le signal de passer au plan Starter.</div>
+<p>Sur le plan Free, une mise en veille et un cold start sont attendus. Le monitor <code>/ready</code> sert à alerter sur MySQL/TiDB/Redis ; la sonde Render reste <code>/health</code>. Ne détourne pas le monitoring pour transformer ce staging en pseudo-production toujours éveillée.</p>
 
 <h3>4.3 Télémétrie GPU — réglé pour le lancement</h3>
 
@@ -308,6 +323,7 @@ corepack pnpm integration-check</code></pre>
 
 <ul class="checklist">
   <li><code>https://ton-domaine/health</code> → <code>{"status":"ok"}</code></li>
+  <li><code>https://ton-domaine/ready</code> → 200, base <code>"ready"</code> (Redis <code>"ready"</code> ou <code>"disabled"</code>)</li>
   <li>Landing, formulaire, résultats, CGU/confidentialité/mentions légales s'affichent</li>
   <li>Login OAuth fonctionne et <strong>ton compte a bien le rôle admin</strong> (<code>/admin</code> accessible)</li>
   <li>Paiement test 4242… complet : lead <code>converted</code> + webhook 200</li>
@@ -322,16 +338,18 @@ corepack pnpm integration-check</code></pre>
 <table>
   <tr><th>Symptôme</th><th>Cause probable</th><th>Solution</th></tr>
   <tr><td>Le serveur ne démarre pas, log « JWT_SECRET must be at least 32 characters »</td><td>Secret trop court</td><td>Régénère avec la commande de l'étape 2.2</td></tr>
+  <tr><td>Le conteneur s'arrête sur <code>[DB preflight] Failed</code></td><td>Base inaccessible, migration en attente ou hash différent</td><td>Vérifie les identifiants ; révise/applique explicitement les migrations avec <code>db:push</code>, puis relance <code>db:preflight</code></td></tr>
   <tr><td>« Database not available » sur le site</td><td><code>DATABASE_URL</code> absente ou fausse</td><td>Vérifie la variable dans Render, teste avec <code>integration-check</code> en local</td></tr>
-  <tr><td>« Payments are not configured » au checkout</td><td><code>STRIPE_SECRET_KEY</code> absente</td><td>Étape 3.2</td></tr>
+  <tr><td>« Payments are not configured » au checkout</td><td>clé Stripe, <code>whsec_…</code> ou origine HTTPS absente/invalide</td><td>Étape 3.2 et <code>GET /ready</code></td></tr>
+  <tr><td>« Live Stripe payments are disabled »</td><td>Clé <code>sk_live_…</code>/<code>rk_live_…</code> présente mais garde-fou encore à <code>false</code></td><td>Termine la checklist 3.4, puis passe <code>STRIPE_LIVE_PAYMENTS_ENABLED=true</code> et redéploie</td></tr>
   <tr><td>Le paiement passe mais le lead reste « offered »</td><td>Webhook mal configuré</td><td>Vérifie l'URL du webhook et le <code>whsec_</code>, regarde Stripe → Webhooks → tentatives</td></tr>
   <tr><td>Login OAuth en boucle ou erreur 400 « invalid state »</td><td><code>PUBLIC_BASE_URL</code> ne correspond pas à l'URL réelle du service, ou <code>VITE_OAUTH_PORTAL_URL</code> / <code>VITE_APP_ID</code> faux, ou domaine non déclaré côté Manus</td><td>Vérifie que <code>PUBLIC_BASE_URL</code> = l'URL exacte affichée dans le dashboard Render, puis les variables de build et la config de l'app Manus</td></tr>
   <tr><td>Pas de rôle admin après login</td><td><code>OWNER_OPEN_ID</code> ne correspond pas à ton openId</td><td>Récupère ton openId exact (table <code>users</code> après ta 1ʳᵉ connexion) et corrige la variable</td></tr>
-  <tr><td>Première visite très lente (~50 s) puis tout va bien</td><td>Tier gratuit Render : le serveur dormait</td><td>Normal — le ping UptimeRobot le maintient éveillé ; plan Starter pour supprimer la veille</td></tr>
+  <tr><td>Première visite de recette lente puis tout va bien</td><td>Tier gratuit Render : le serveur dormait</td><td>Normal en staging ; ne route aucun trafic de production vers ce service Free</td></tr>
 </table>
 
 <footer>
-  Document du 10 juin 2026, mis à jour le 13 juillet 2026 (Blueprint Render, base TiDB à créer, commandes corepack, CSP/e-mails, télémétrie réglée) — généré depuis <code>TUTO-MISE-EN-PRODUCTION.md</code> (source de vérité), accompagne <code>PRODUCTION-PLAN.md</code> (état technique) dans le dépôt <code>datacenter-market-v1</code>.
+  Document du 10 juin 2026, mis à jour le 20 juillet 2026 (liveness/readiness, préflight complet et staging Render Free) — généré depuis <code>TUTO-MISE-EN-PRODUCTION.md</code> (source de vérité), accompagne <code>PRODUCTION-PLAN.md</code> (état technique) dans le dépôt <code>datacenter-market-v1</code>.
 </footer>
 
 </body>

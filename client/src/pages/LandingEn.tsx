@@ -22,7 +22,7 @@ const REGIONS = [
 const HOW_IT_WORKS = [
   { num: "01", title: "Describe", text: "GPU, region, budget, duration — your workload in 2 minutes." },
   { num: "02", title: "Compare", text: "Up to 3 priced quotes side by side: best value, fastest, cheapest." },
-  { num: "03", title: "Provision", text: "Contract, secure payment and go-live within 72 h." },
+  { num: "03", title: "Provision", text: "Secure payment and go-live on the lead time shown for the option." },
 ];
 
 const CATALOGUE = [
@@ -61,14 +61,13 @@ export default function LandingEn() {
             GPU as a Service in Europe:
           </span>
           <span className="block text-[42px] font-extrabold uppercase leading-[1.08] tracking-[-0.04em] text-accent md:text-[64px]">
-            the whole market, one call.
+            compare the available catalogue.
           </span>
         </h1>
         <p className="m-0 mt-5 max-w-[680px] text-[15.5px] leading-[1.65] text-muted-foreground [text-wrap:pretty]">
-          DatacenterMarket centralises the market's GPU-as-a-Service offers: we don't own the GPUs
-          — we put European providers in competition on your workload. Describe your need, compare
-          up to three quotes, and get dedicated H100/A100 capacity mobilised within 72 hours across
-          EU datacenters.
+          DatacenterMarket does not own the GPUs. Describe your workload and compare the European
+          configurations currently referenced in the catalogue by price, SLA and indicative
+          provisioning lead time.
         </p>
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">

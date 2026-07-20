@@ -53,33 +53,19 @@ function readQueryNumber(key: string): number | undefined {
   const raw = new URLSearchParams(window.location.search).get(key);
   if (!raw) return undefined;
   const n = Number(raw);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function frDateUTC(d: Date): string {
-  const months = [
-    "JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN",
-    "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE",
-  ];
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${d.getUTCDate()} ${months[d.getUTCMonth()]}, ${hh}:${mm} UTC`;
-}
-
-function deploymentHours(deploymentTime: string | undefined): number {
-  if (!deploymentTime) return 72;
-  const h = deploymentTime.match(/(\d+)\s*h/i);
-  if (h) return Number(h[1]);
-  const d = deploymentTime.match(/(\d+)(?:\s*[–-]\s*\d+)?\s*j/i);
-  if (d) return Number(d[1]) * 24;
-  return 72;
+  return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
 export default function Confirmation() {
   const [, setLocation] = useLocation();
   const orderId = readQueryNumber("orderId");
 
-  const { data: order, isLoading: orderLoading } = trpc.orders.get.useQuery(
+  const {
+    data: order,
+    isLoading: orderLoading,
+    error: orderError,
+    refetch: refetchOrder,
+  } = trpc.orders.get.useQuery(
     { id: orderId ?? 0 },
     {
       enabled: orderId != null,
@@ -88,13 +74,14 @@ export default function Confirmation() {
         query.state.data?.paymentStatus === "pending" ? 4000 : false,
     },
   );
+  const paymentSucceeded = order?.paymentStatus === "succeeded";
   // Real-time provisioning updates via SSE; falls back to polling when the
   // stream is down (or unsupported) so the timeline still advances.
-  const { connected } = useProvisioningStream(orderId ?? undefined);
+  const { connected } = useProvisioningStream(paymentSucceeded ? orderId : undefined);
   const { data: events } = trpc.provisioning.getEvents.useQuery(
     { orderId: orderId ?? 0 },
     {
-      enabled: orderId != null,
+      enabled: orderId != null && paymentSucceeded,
       refetchInterval: query => {
         if (connected) return false; // SSE is pushing updates — no need to poll.
         const evts = query.state.data ?? [];
@@ -137,16 +124,67 @@ export default function Confirmation() {
     );
   }
 
-  const failed = order?.paymentStatus === "failed";
-  const succeeded = order?.paymentStatus === "succeeded";
-  const eta = order?.createdAt
-    ? frDateUTC(
-        new Date(
-          new Date(order.createdAt).getTime() +
-            deploymentHours(offer?.deploymentTime) * 3600 * 1000,
-        ),
-      )
-    : "SOUS 72 H";
+  if (orderLoading) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <MarketChrome
+          onBrandClick={() => setLocation("/")}
+          center={<JourneyStepper current={4} />}
+          right={<span className="font-mono text-[11px] text-muted-foreground">{orderRef(orderId)}</span>}
+        />
+        <div className="mx-auto max-w-[760px] space-y-4 px-5 py-20 md:px-10">
+          <Skeleton className="mx-auto h-16 w-16 rounded-full" />
+          <Skeleton className="mx-auto h-10 w-72" />
+          <Skeleton className="mx-auto h-5 w-full max-w-[520px]" />
+        </div>
+      </div>
+    );
+  }
+
+  if (orderError || !order) {
+    const notFound = orderError?.data?.code === "NOT_FOUND" || !order;
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <MarketChrome onBrandClick={() => setLocation("/")} />
+        <div className="flex flex-col items-center px-5 py-24 text-center">
+          <h1 className="mb-3 text-[30px] font-extrabold uppercase tracking-[-0.035em]">
+            {notFound ? "Commande introuvable" : "Commande indisponible"}
+            <span className="text-destructive">.</span>
+          </h1>
+          <p className="mb-6 max-w-[540px] text-muted-foreground">
+            {notFound
+              ? "Cette commande n'existe pas ou vous n'êtes pas autorisé à la consulter."
+              : "La commande n'a pas pu être chargée. Vous pouvez réessayer sans relancer le paiement."}
+          </p>
+          <div className="flex flex-wrap justify-center gap-3">
+            {!notFound && (
+              <button
+                type="button"
+                onClick={() => refetchOrder()}
+                className="rounded-[9px] bg-accent px-5 py-3 text-[14px] font-semibold text-accent-foreground"
+              >
+                Réessayer
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setLocation("/dashboard")}
+              className="rounded-[9px] border border-border px-5 py-3 text-[14px] font-semibold"
+            >
+              Retour au dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const failed = order.paymentStatus === "failed";
+  const succeeded = order.paymentStatus === "succeeded";
+  const paymentCancelled = order.paymentStatus === "cancelled";
+  const cancelled = paymentCancelled || order.status === "cancelled";
+  const pending = !failed && !succeeded && !cancelled;
+  const deploymentEstimate = offer?.deploymentTime ?? "délai fournisseur à confirmer";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -162,23 +200,37 @@ export default function Confirmation() {
 
       <div className="mx-auto flex max-w-[900px] flex-col items-center px-5 pb-16 pt-14 md:px-10">
         {/* Status header */}
-        {failed ? (
+        {failed || cancelled ? (
           <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border-2 border-destructive bg-destructive/10 text-[26px] font-bold text-destructive">
             ✗
           </div>
-        ) : (
+        ) : succeeded ? (
           <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border-2 border-accent bg-accent/10 text-[26px] font-bold text-accent">
             ✓
           </div>
+        ) : (
+          <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border-2 border-chart-5 bg-chart-5/10 text-[26px] font-bold text-chart-5">
+            …
+          </div>
         )}
         <h1 className="mb-3 text-center text-[30px] font-extrabold uppercase leading-none tracking-[-0.035em] md:text-[40px]">
-          {failed ? "Paiement refusé" : "Commande confirmée"}
-          <span className={failed ? "text-destructive" : "text-accent"}>.</span>
+          {failed
+            ? "Paiement refusé"
+            : cancelled
+              ? paymentCancelled ? "Paiement annulé" : "Commande annulée"
+              : succeeded
+                ? "Commande confirmée"
+                : "Confirmation du paiement"}
+          <span className={failed || cancelled ? "text-destructive" : succeeded ? "text-accent" : "text-chart-5"}>.</span>
         </h1>
         <p className="mb-4 max-w-[540px] text-center text-[15.5px] text-muted-foreground">
           {failed
-            ? "Aucune somme n'a été débitée. Votre offre reste verrouillée — vous pouvez relancer le paiement."
-            : "Votre infrastructure est en cours de provisionnement. Vous recevrez un e-mail à chaque étape."}
+            ? "Le paiement n'a pas été confirmé. Vous pouvez relancer le parcours de paiement."
+            : cancelled
+              ? `${paymentCancelled ? "Le paiement" : "La commande"} a été annulé${paymentCancelled ? "" : "e"} et aucun provisionnement ne sera lancé.`
+              : succeeded
+                ? "Le paiement est confirmé. Le suivi du provisionnement est maintenant disponible."
+                : "Nous attendons la confirmation Stripe. Aucun provisionnement ne démarre avant sa réception."}
         </p>
         <div className="mb-9 flex flex-wrap justify-center gap-2.5">
           {failed ? (
@@ -187,11 +239,12 @@ export default function Confirmation() {
                 <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
                 PAIEMENT ÉCHOUÉ
               </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-accent/35 bg-accent/10 px-[15px] py-[7px] font-mono text-[11px] font-semibold tracking-[.1em] text-accent">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent animate-live-dot" />
-                OFFRE MAINTENUE 72 H
-              </span>
             </>
+          ) : cancelled ? (
+            <span className="inline-flex items-center gap-2 rounded-full border border-destructive/40 bg-destructive/10 px-[15px] py-[7px] font-mono text-[11px] font-semibold tracking-[.1em] text-destructive">
+              <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+              {paymentCancelled ? "PAIEMENT ANNULÉ" : "COMMANDE ANNULÉE"}
+            </span>
           ) : succeeded ? (
             <span className="inline-flex items-center gap-2 rounded-full border border-accent/35 bg-accent/10 px-[15px] py-[7px] font-mono text-[11px] font-semibold tracking-[.1em] text-accent">
               <span className="h-1.5 w-1.5 rounded-full bg-accent" />
@@ -207,14 +260,7 @@ export default function Confirmation() {
 
         {/* Order cells */}
         <div className="mb-[22px] grid w-full grid-cols-1 gap-px overflow-hidden rounded-xl border border-border/60 bg-border/60 sm:grid-cols-3">
-          {orderLoading || !order ? (
-            [1, 2, 3].map(i => (
-              <div key={i} className="bg-card p-5">
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ))
-          ) : (
-            <>
+          <>
               <div className="flex flex-col gap-1 bg-card px-5 py-[18px]">
                 <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">
                   COMMANDE
@@ -237,41 +283,44 @@ export default function Confirmation() {
                   {fmtEUR(Number(order.monthlyRecurring))}
                 </span>
               </div>
-            </>
-          )}
+          </>
         </div>
 
-        {failed ? (
+        {failed || cancelled ? (
           <>
             {/* Common failure causes */}
             <div className="mb-[26px] w-full rounded-xl border border-border bg-card p-[26px]">
-              <PanelLabel className="mb-5">Causes fréquentes</PanelLabel>
-              <ul className="m-0 flex list-none flex-col gap-3 p-0 text-[13.5px] leading-[1.55] text-muted-foreground">
-                {FAILURE_CAUSES.map(cause => (
-                  <li key={cause} className="flex gap-[9px]">
-                    <span className="font-bold text-destructive">·</span>
-                    <span>{cause}</span>
-                  </li>
-                ))}
-              </ul>
+              <PanelLabel className="mb-5">{failed ? "Causes fréquentes" : "Paiement annulé"}</PanelLabel>
+              {failed ? (
+                <ul className="m-0 flex list-none flex-col gap-3 p-0 text-[13.5px] leading-[1.55] text-muted-foreground">
+                  {FAILURE_CAUSES.map(cause => (
+                    <li key={cause} className="flex gap-[9px]">
+                      <span className="font-bold text-destructive">·</span>
+                      <span>{cause}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
+                  Aucun provisionnement ne sera lancé. Vous pouvez reprendre le checkout si vous souhaitez poursuivre.
+                </p>
+              )}
             </div>
 
             <div className="flex w-full flex-col gap-3.5 md:flex-row">
               <button
                 onClick={() =>
-                  setLocation(`/checkout?offerId=${order?.offerId}&leadId=${order?.leadId}`)
+                  setLocation(`/checkout?offerId=${order.offerId}&leadId=${order.leadId}`)
                 }
                 className="glow-accent flex flex-1 items-center justify-center gap-2 rounded-[9px] bg-accent p-[13px] text-[14px] font-semibold text-accent-foreground transition-transform active:scale-[0.98]"
               >
-                Réessayer le paiement →
+                {failed ? "Réessayer le paiement →" : "Reprendre le paiement →"}
               </button>
               <button
-                onClick={() =>
-                  setLocation(`/checkout?offerId=${order?.offerId}&leadId=${order?.leadId}`)
-                }
+                onClick={() => setLocation("/dashboard")}
                 className="flex flex-1 items-center justify-center rounded-[9px] border border-border p-[13px] text-[14px] font-medium text-foreground transition-colors hover:bg-card"
               >
-                Changer de moyen de paiement
+                Retour au dashboard
               </button>
             </div>
             <a
@@ -283,15 +332,31 @@ export default function Confirmation() {
               Parler à un conseiller
             </a>
           </>
+        ) : pending ? (
+          <>
+            <div role="status" aria-live="polite" className="mb-[26px] w-full rounded-xl border border-chart-5/40 bg-chart-5/10 p-[26px]">
+              <PanelLabel className="mb-3">Confirmation Stripe en attente</PanelLabel>
+              <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
+                Cette page se met à jour automatiquement. Aucun provisionnement n'est lancé tant que le paiement n'est pas confirmé.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLocation("/dashboard")}
+              className="flex w-full items-center justify-center rounded-[9px] border border-border p-[13px] text-[14px] font-medium text-foreground transition-colors hover:bg-card"
+            >
+              Voir mes commandes
+            </button>
+          </>
         ) : (
           <>
             {/* ETA banner */}
             <div className="mb-[22px] flex w-full flex-col items-start justify-between gap-2 rounded-[10px] border border-accent/35 bg-accent/7 px-5 py-3.5 md:flex-row md:items-center">
               <span className="font-mono text-[11px] font-semibold tracking-[.08em]">
-                MISE EN SERVICE ESTIMÉE — {eta}
+                DÉLAI DE MISE EN SERVICE — {deploymentEstimate.toUpperCase()}
               </span>
               <span className="font-mono text-[11px] tracking-[.08em] text-accent">
-                SLA {offer?.sla ?? "99,9 %"}
+                {offer?.sla ? `SLA ${offer.sla}` : "SLA À CONFIRMER"}
               </span>
             </div>
 
@@ -380,7 +445,7 @@ export default function Confirmation() {
               <div className="rounded-xl border border-border bg-card p-[26px]">
                 <h3 className="mb-3 text-[15px] font-semibold">Support</h3>
                 <p className="m-0 text-[13.5px] text-muted-foreground">
-                  Notre équipe est disponible 24/7 pour toute question sur votre commande.
+                  Contactez notre équipe pour toute question sur votre commande et les conditions de support associées.
                 </p>
               </div>
             </div>

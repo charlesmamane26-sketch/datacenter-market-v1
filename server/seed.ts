@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { offers } from "../drizzle/schema";
+import { offers, providers } from "../drizzle/schema";
 import { getDb } from "./db";
 
 /**
@@ -9,10 +9,20 @@ import { getDb } from "./db";
  * This is a flat catalogue of infrastructure configurations. The "best value / fastest /
  * cheapest" cards shown on the results screen are computed per lead by the matching engine
  * (see server/matching.ts) — they are not fixed per offer, so there is no `category` column.
- * Prices are EUR/month.
+ * Prices are EUR/month. Supplier names and prices are demo catalogue data, not
+ * verified commercial inventory: every inserted provider/offer is fail-closed
+ * and must be reviewed and explicitly activated in the admin back-office.
  */
+const SEED_PROVIDERS = [
+  { name: "Central Europe Compute", slug: "central-europe-compute", isActive: false },
+  { name: "Hexagone Accelerated", slug: "hexagone-accelerated", isActive: false },
+  { name: "North Sea Compute", slug: "north-sea-compute", isActive: false },
+  { name: "Iberia GPU Cloud", slug: "iberia-gpu-cloud", isActive: false },
+] satisfies (typeof providers.$inferInsert)[];
+
 const SEED_OFFERS = [
   {
+    providerSlug: "central-europe-compute",
     name: "H100 Production Cluster",
     gpuType: "NVIDIA H100",
     gpuCount: 8,
@@ -32,8 +42,10 @@ const SEED_OFFERS = [
       "EU data residency (GDPR compliant)",
       "24/7 support",
     ],
+    availableCapacity: 2,
   },
   {
+    providerSlug: "hexagone-accelerated",
     name: "H100 Rapid Deploy",
     gpuType: "NVIDIA H100",
     gpuCount: 8,
@@ -53,8 +65,10 @@ const SEED_OFFERS = [
       "99.99% uptime SLA",
       "Priority 24/7 support",
     ],
+    availableCapacity: 1,
   },
   {
+    providerSlug: "central-europe-compute",
     name: "A100 Training Pod",
     gpuType: "NVIDIA A100",
     gpuCount: 8,
@@ -74,8 +88,10 @@ const SEED_OFFERS = [
       "Standard support",
       "Flexible scaling",
     ],
+    availableCapacity: 3,
   },
   {
+    providerSlug: "north-sea-compute",
     name: "H100 Scale-Out Cluster",
     gpuType: "NVIDIA H100",
     gpuCount: 16,
@@ -95,8 +111,10 @@ const SEED_OFFERS = [
       "Dedicated bare metal",
       "24/7 support",
     ],
+    availableCapacity: 1,
   },
   {
+    providerSlug: "iberia-gpu-cloud",
     name: "A100 Starter",
     gpuType: "NVIDIA A100",
     gpuCount: 4,
@@ -116,8 +134,10 @@ const SEED_OFFERS = [
       "Standard support",
       "Flexible scaling",
     ],
+    availableCapacity: 4,
   },
   {
+    providerSlug: "north-sea-compute",
     name: "L40S Inference Node",
     gpuType: "NVIDIA L40S",
     gpuCount: 8,
@@ -137,8 +157,10 @@ const SEED_OFFERS = [
       "EU data residency",
       "Standard support",
     ],
+    availableCapacity: 2,
   },
   {
+    providerSlug: "north-sea-compute",
     name: "RTX 4090 Budget Pod",
     gpuType: "NVIDIA RTX 4090",
     gpuCount: 8,
@@ -158,8 +180,9 @@ const SEED_OFFERS = [
       "No setup fee",
       "Community support",
     ],
+    availableCapacity: 3,
   },
-] satisfies (typeof offers.$inferInsert)[];
+] satisfies Array<typeof offers.$inferInsert & { providerSlug: string }>;
 
 async function seed() {
   const db = await getDb();
@@ -170,17 +193,46 @@ async function seed() {
     process.exit(1);
   }
 
-  const existing = await db.select().from(offers);
-  if (existing.length > 0) {
-    console.log(
-      `[Seed] offers table already contains ${existing.length} row(s); skipping insert. ` +
-        "To re-seed, empty the table first (e.g. TRUNCATE TABLE offers).",
-    );
-    process.exit(0);
+  const existingProviders = await db.select().from(providers);
+  const existingProviderSlugs = new Set(existingProviders.map(provider => provider.slug));
+  const missingProviders = SEED_PROVIDERS.filter(
+    provider => !existingProviderSlugs.has(provider.slug),
+  );
+  if (missingProviders.length > 0) {
+    await db.insert(providers).values(missingProviders);
+    console.log(`[Seed] Inserted ${missingProviders.length} provider(s).`);
   }
 
-  await db.insert(offers).values(SEED_OFFERS);
-  console.log(`[Seed] Inserted ${SEED_OFFERS.length} offers into the catalogue.`);
+  const seededProviders = await db.select().from(providers);
+  const providerIds = new Map(seededProviders.map(provider => [provider.slug, provider.id]));
+  const seededOffers = SEED_OFFERS.map(({ providerSlug, ...offer }) => {
+    const providerId = providerIds.get(providerSlug);
+    if (!providerId) throw new Error(`[Seed] Provider ${providerSlug} could not be resolved.`);
+    return {
+      ...offer,
+      providerId,
+      isActive: false,
+      availabilityStatus: "unavailable" as const,
+      availableCapacity: 0,
+      availabilityExpiresAt: null,
+    };
+  });
+
+  const existing = await db.select().from(offers);
+  const existingKeys = new Set(
+    existing.map(offer => `${offer.name}\u0000${offer.gpuType}\u0000${offer.location}`),
+  );
+  const missingOffers = seededOffers.filter(
+    offer => !existingKeys.has(`${offer.name}\u0000${offer.gpuType}\u0000${offer.location}`),
+  );
+  if (missingOffers.length > 0) {
+    await db.insert(offers).values(missingOffers);
+    console.log(
+      `[Seed] Inserted ${missingOffers.length} inactive demo offer(s); verify and activate them in admin.`,
+    );
+  } else {
+    console.log(`[Seed] All ${seededOffers.length} demo offer(s) already exist; no changes made.`);
+  }
   process.exit(0);
 }
 

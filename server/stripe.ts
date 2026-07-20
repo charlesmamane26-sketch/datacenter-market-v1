@@ -2,16 +2,144 @@ import Stripe from "stripe";
 import express, { type Express } from "express";
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./_core/env";
-import { updateOrder, getOrder, updateLead, getLead } from "./db";
+import {
+  claimStripeEvent,
+  completeStripeEvent,
+  failStripeEvent,
+  getLead,
+  getOrder,
+  getOrderByStripeCheckoutSessionId,
+  getOrderByStripeSubscriptionId,
+  type StripeTransitionPlan,
+} from "./db";
 import { enforceRateLimit, clientIp } from "./rateLimit";
 import { sendOrderConfirmed, sendPaymentFailed } from "./clientNotifications";
 import type { TrpcContext } from "./_core/context";
 
 let _stripe: Stripe | null = null;
+let configurationWarningLogged = false;
 
-/** Returns a lazily-constructed Stripe client, or null if STRIPE_SECRET_KEY is not set. */
+export type StripeSecretKeyMode = "missing" | "test" | "live" | "invalid";
+
+export type StripeConfigurationIssue =
+  | "secret_key_missing"
+  | "secret_key_invalid"
+  | "webhook_secret_missing"
+  | "webhook_secret_invalid"
+  | "live_payments_disabled"
+  | "public_base_url_missing"
+  | "public_base_url_invalid";
+
+export interface StripeConfigurationInput {
+  secretKey: string;
+  webhookSecret: string;
+  livePaymentsEnabled: boolean;
+  publicBaseUrl: string;
+  isProduction: boolean;
+}
+
+export interface StripeConfigurationStatus {
+  mode: StripeSecretKeyMode;
+  ready: boolean;
+  secretKeyConfigured: boolean;
+  webhookSecretConfigured: boolean;
+  publicBaseUrlConfigured: boolean;
+  issues: StripeConfigurationIssue[];
+}
+
+/** Classify both standard and restricted Stripe API keys without exposing them. */
+export function getStripeSecretKeyMode(secretKey: string): StripeSecretKeyMode {
+  const key = secretKey.trim();
+  if (!key) return "missing";
+  if (/^(?:sk|rk)_test_.+/.test(key)) return "test";
+  if (/^(?:sk|rk)_live_.+/.test(key)) return "live";
+  return "invalid";
+}
+
+function isValidPublicBaseUrl(value: string, requireHttps: boolean): boolean {
+  try {
+    const url = new URL(value);
+    const validProtocol = requireHttps
+      ? url.protocol === "https:"
+      : url.protocol === "https:" || url.protocol === "http:";
+    return (
+      validProtocol &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      (url.pathname === "" || url.pathname === "/") &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pure operational readiness evaluation. Checkout is ready only when its API
+ * key and webhook signing secret are configured as a pair; production also
+ * requires the trusted HTTPS origin used for Stripe return URLs.
+ */
+export function evaluateStripeConfiguration(
+  input: StripeConfigurationInput,
+): StripeConfigurationStatus {
+  const secretKey = input.secretKey.trim();
+  const webhookSecret = input.webhookSecret.trim();
+  const publicBaseUrl = input.publicBaseUrl.trim();
+  const mode = getStripeSecretKeyMode(secretKey);
+  const issues: StripeConfigurationIssue[] = [];
+
+  if (mode === "missing") issues.push("secret_key_missing");
+  if (mode === "invalid") issues.push("secret_key_invalid");
+
+  if (!webhookSecret) issues.push("webhook_secret_missing");
+  else if (!/^whsec_.+/.test(webhookSecret)) issues.push("webhook_secret_invalid");
+
+  if (mode === "live" && !input.livePaymentsEnabled) {
+    issues.push("live_payments_disabled");
+  }
+
+  if (input.isProduction && !publicBaseUrl) {
+    issues.push("public_base_url_missing");
+  } else if (
+    publicBaseUrl &&
+    !isValidPublicBaseUrl(publicBaseUrl, input.isProduction)
+  ) {
+    issues.push("public_base_url_invalid");
+  }
+
+  return {
+    mode,
+    ready: issues.length === 0,
+    secretKeyConfigured: Boolean(secretKey),
+    webhookSecretConfigured: Boolean(webhookSecret),
+    publicBaseUrlConfigured: Boolean(publicBaseUrl),
+    issues,
+  };
+}
+
+/** Sanitized Stripe readiness status suitable for health/admin diagnostics. */
+export function getStripeConfigurationStatus(): StripeConfigurationStatus {
+  return evaluateStripeConfiguration({
+    secretKey: ENV.stripeSecretKey,
+    webhookSecret: ENV.stripeWebhookSecret,
+    livePaymentsEnabled: ENV.stripeLivePaymentsEnabled,
+    publicBaseUrl: ENV.publicBaseUrl,
+    isProduction: ENV.isProduction,
+  });
+}
+
+/** Returns a lazily-constructed Stripe client only for a fully safe configuration. */
 export function getStripe(): Stripe | null {
-  if (!ENV.stripeSecretKey) return null;
+  const status = getStripeConfigurationStatus();
+  if (!status.ready) {
+    if (!configurationWarningLogged) {
+      configurationWarningLogged = true;
+      console.error(`[Stripe] Payments disabled: ${status.issues.join(", ")}.`);
+    }
+    return null;
+  }
   if (!_stripe) _stripe = new Stripe(ENV.stripeSecretKey);
   return _stripe;
 }
@@ -23,7 +151,15 @@ export function getStripe(): Stripe | null {
  * influenceable and must not drive these URLs in production.
  */
 export function getOrigin(req: TrpcContext["req"]): string {
-  if (ENV.publicBaseUrl) return ENV.publicBaseUrl.replace(/\/+$/, "");
+  const configuredPublicBaseUrl = ENV.publicBaseUrl.trim();
+  if (configuredPublicBaseUrl) {
+    if (!isValidPublicBaseUrl(configuredPublicBaseUrl, ENV.isProduction)) {
+      throw new Error(
+        `PUBLIC_BASE_URL must be an absolute ${ENV.isProduction ? "https:// " : "http(s):// "}origin without a path, query, or fragment.`,
+      );
+    }
+    return configuredPublicBaseUrl.replace(/\/+$/, "");
+  }
   // In production, refuse to fall back to request headers: a missing
   // PUBLIC_BASE_URL is a misconfiguration, not a reason to trust the Host header.
   if (ENV.isProduction) {
@@ -89,124 +225,354 @@ export function buildCheckoutSessionParams(
     cancel_url: `${params.origin}/checkout?offerId=${params.offerId}&leadId=${params.leadId}`,
     client_reference_id: String(params.orderId),
     metadata: { orderId: String(params.orderId) },
+    // Invoice/subscription events do not reliably copy Checkout Session metadata.
+    // Put the immutable order reference on the subscription itself as well.
+    subscription_data: { metadata: { orderId: String(params.orderId) } },
   };
 }
 
-/** Creates a Stripe-hosted Checkout Session for an order and returns its URL. */
-export async function createCheckoutSession(params: CheckoutParams): Promise<string | null> {
+/** Creates one Stripe-hosted Checkout Session per application idempotency key. */
+export async function createCheckoutSession(
+  params: CheckoutParams,
+  idempotencyKey: string,
+): Promise<Stripe.Checkout.Session> {
   const stripe = getStripe();
   if (!stripe) {
     throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Payments are not configured." });
   }
-  const session = await stripe.checkout.sessions.create(buildCheckoutSessionParams(params));
-  return session.url;
+  return stripe.checkout.sessions.create(buildCheckoutSessionParams(params), { idempotencyKey });
 }
 
-/** Resolves the order id a session refers to, or null if it carries none/invalid. */
-function sessionOrderId(session: Stripe.Checkout.Session): number | null {
-  const orderId = Number(session.metadata?.orderId ?? session.client_reference_id);
-  return Number.isFinite(orderId) && orderId > 0 ? orderId : null;
-}
-
-/** A payment reference to persist (subscription > payment_intent > session id). */
-function sessionReference(session: Stripe.Checkout.Session): string {
-  return typeof session.subscription === "string"
-    ? session.subscription
-    : typeof session.payment_intent === "string"
-      ? session.payment_intent
-      : session.id;
+export async function retrieveCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
+  const stripe = getStripe();
+  if (!stripe) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Payments are not configured." });
+  }
+  return stripe.checkout.sessions.retrieve(sessionId);
 }
 
 /**
- * Marks the referenced order paid, converts its lead, and emails the customer.
- * Idempotent: a re-delivery for an already-paid order is a no-op so later
- * transitions (provisioning, etc.) aren't clobbered.
+ * Chooses a safe destination when an application-level checkout request is retried.
+ * An open Stripe session can still be paid; a completed session belongs on our
+ * confirmation page (including deferred payments that are still pending). An
+ * expired session must never be presented as payable again.
  */
-async function markSessionPaid(session: Stripe.Checkout.Session): Promise<boolean> {
-  const orderId = sessionOrderId(session);
-  if (orderId == null) return false;
+export function getCheckoutSessionRedirectUrl(
+  session: Stripe.Checkout.Session,
+  orderId: number,
+  origin: string,
+): string {
+  const confirmationUrl = `${origin.replace(/\/+$/, "")}/confirmation?orderId=${orderId}`;
+  const paid = session.payment_status === "paid" || session.payment_status === "no_payment_required";
+  if (paid || session.status === "complete") return confirmationUrl;
+  if (session.status === "open" && session.url) return session.url;
 
-  const order = await getOrder(orderId);
-  if (!order) return false;
-  if (order.paymentStatus === "succeeded") return true;
-
-  await updateOrder(orderId, {
-    paymentStatus: "succeeded",
-    status: "processing",
-    stripePaymentIntentId: sessionReference(session),
+  throw new TRPCError({
+    code: "CONFLICT",
+    message: "This Checkout Session is no longer payable. Start a new checkout attempt.",
   });
+}
 
-  // Payment succeeded — the lead is genuinely converted now (not at checkout start).
-  await updateLead(order.leadId, { status: "converted", selectedOfferId: order.offerId });
+function objectId(value: unknown): string | null {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (value && typeof value === "object" && typeof (value as { id?: unknown }).id === "string") {
+    return (value as { id: string }).id;
+  }
+  return null;
+}
 
-  // Best-effort: notify the customer their order is confirmed. Never let an email
-  // failure break the webhook (Stripe would retry and double-process otherwise).
+function metadataOrderId(value: unknown): number | null {
+  if (!value || typeof value !== "object") return null;
+  const metadata = (value as { metadata?: unknown }).metadata;
+  if (!metadata || typeof metadata !== "object") return null;
+  const parsed = Number((metadata as { orderId?: unknown }).orderId);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function subscriptionStatus(value: unknown): string | null {
+  return value && typeof value === "object" && typeof (value as { status?: unknown }).status === "string"
+    ? (value as { status: string }).status
+    : null;
+}
+
+export function getCheckoutSessionReferences(session: Stripe.Checkout.Session) {
+  return {
+    sessionId: session.id,
+    customerId: objectId(session.customer),
+    subscriptionId: objectId(session.subscription),
+    subscriptionStatus: subscriptionStatus(session.subscription),
+    paymentReference:
+      objectId(session.payment_intent) ?? objectId(session.subscription) ?? session.id,
+  };
+}
+
+function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+  const raw = invoice as unknown as {
+    subscription?: unknown;
+    parent?: { subscription_details?: { subscription?: unknown } };
+  };
+  return objectId(raw.subscription) ?? objectId(raw.parent?.subscription_details?.subscription);
+}
+
+function invoiceOrderId(invoice: Stripe.Invoice): number | null {
+  const raw = invoice as unknown as {
+    parent?: { subscription_details?: { metadata?: unknown } };
+  };
+  return metadataOrderId(invoice) ?? metadataOrderId(raw.parent?.subscription_details);
+}
+
+function invoicePaymentReference(invoice: Stripe.Invoice): string | null {
+  const raw = invoice as unknown as { payment_intent?: unknown; charge?: unknown };
+  return objectId(raw.payment_intent) ?? objectId(raw.charge);
+}
+
+async function resolveSubscriptionOrder(subscriptionId: string | null, fallbackOrderId: number | null) {
+  if (subscriptionId) {
+    const bySubscription = await getOrderByStripeSubscriptionId(subscriptionId);
+    if (bySubscription) return bySubscription;
+  }
+  return fallbackOrderId != null ? getOrder(fallbackOrderId) : null;
+}
+
+function stripeReferencePatch(refs: {
+  customerId?: string | null;
+  subscriptionId?: string | null;
+  subscriptionStatus?: string | null;
+  paymentReference?: string | null;
+}): NonNullable<StripeTransitionPlan["order"]> {
+  return {
+    ...(refs.customerId ? { stripeCustomerId: refs.customerId } : {}),
+    ...(refs.subscriptionId ? { stripeSubscriptionId: refs.subscriptionId } : {}),
+    ...(refs.subscriptionStatus ? { stripeSubscriptionStatus: refs.subscriptionStatus } : {}),
+    ...(refs.paymentReference ? { stripePaymentIntentId: refs.paymentReference } : {}),
+  };
+}
+
+async function notifyCustomer(
+  kind: "confirmed" | "failed",
+  order: { id: number; leadId: number } | null,
+): Promise<void> {
+  if (!order) return;
   try {
     const lead = await getLead(order.leadId);
-    if (lead?.email) await sendOrderConfirmed(lead.email, orderId);
+    if (!lead?.email) return;
+    if (kind === "confirmed") await sendOrderConfirmed(lead.email, order.id);
+    else await sendPaymentFailed(lead.email, order.id);
   } catch (error) {
-    console.warn("[Stripe] order-confirmed email failed:", String(error));
+    console.warn(`[Stripe] ${kind} email failed:`, String(error));
   }
+}
+
+async function applyCheckoutEvent(event: Stripe.Event, session: Stripe.Checkout.Session): Promise<boolean> {
+  if (!session.id) {
+    await completeStripeEvent(event.id, null, event.created, "checkout");
+    return false;
+  }
+  const order = await getOrderByStripeCheckoutSessionId(session.id);
+  if (!order) {
+    // Never trust metadata alone for Checkout events: the session id persisted at
+    // creation is the binding between this Stripe object and the local order.
+    await completeStripeEvent(event.id, null, event.created, "checkout");
+    return false;
+  }
+
+  const refs = getCheckoutSessionReferences(session);
+  const isPaid = session.payment_status === "paid" || session.payment_status === "no_payment_required";
+  const isFailed = event.type === "checkout.session.async_payment_failed";
+  let notify: "confirmed" | "failed" | null = null;
+  const result = await completeStripeEvent(event.id, order.id, event.created, "checkout", current => {
+    if (current.stripeCheckoutSessionId !== session.id) {
+      throw new Error("Stripe Checkout Session does not match the persisted order binding.");
+    }
+    const referencePatch = stripeReferencePatch(refs);
+    if (isPaid) {
+      if (current.stripeTerminalAt) {
+        // A deleted/cancelled/unpaid subscription is terminal for this order.
+        // Even a later paid Checkout event must not resurrect it.
+        return Object.keys(referencePatch).length > 0 ? { order: referencePatch } : null;
+      }
+      if (current.paymentStatus !== "succeeded") notify = "confirmed";
+      return {
+        order: {
+          ...referencePatch,
+          paymentStatus: "succeeded",
+          ...(current.status === "pending" || current.status === "cancelled"
+            ? { status: "processing" as const }
+            : {}),
+        },
+        // Always repair the lead invariant, even if an older/manual path already
+        // marked the order paid before this journaled event arrived.
+        lead: { status: "converted", selectedOfferId: current.offerId },
+      };
+    }
+    if (isFailed && current.paymentStatus !== "succeeded") {
+      if (current.paymentStatus !== "failed" && current.status !== "cancelled") notify = "failed";
+      return { order: { ...referencePatch, paymentStatus: "failed", status: "cancelled" } };
+    }
+    return Object.keys(referencePatch).length > 0 ? { order: referencePatch } : null;
+  });
+  if (notify && result.changed) await notifyCustomer(notify, result.order);
   return true;
 }
 
-/**
- * Applies a verified Stripe event. Returns true if it acted on the event. Pure of
- * HTTP/raw-body concerns so it can be unit-tested with a constructed event.
- *
- * Payment is confirmed by `session.payment_status`, NOT by the session merely
- * completing: for asynchronous methods (SEPA debit, etc.) `checkout.session.
- * completed` fires immediately with `payment_status: "unpaid"`, and the real
- * outcome arrives later as `checkout.session.async_payment_succeeded/failed`.
- * Treating "completed" as paid would provision infrastructure and book revenue
- * for a debit that may never clear.
- */
+async function applyInvoiceEvent(event: Stripe.Event, invoice: Stripe.Invoice): Promise<boolean> {
+  const subscriptionId = invoiceSubscriptionId(invoice);
+  const order = await resolveSubscriptionOrder(subscriptionId, invoiceOrderId(invoice));
+  if (!order) {
+    await completeStripeEvent(event.id, null, event.created, "invoice");
+    return false;
+  }
+  const customerId = objectId(invoice.customer);
+  const paymentReference = invoicePaymentReference(invoice);
+  const paid = event.type === "invoice.paid";
+  const actionRequired = event.type === "invoice.payment_action_required";
+  let notify: "confirmed" | "failed" | null = null;
+  const result = await completeStripeEvent(event.id, order.id, event.created, "invoice", current => {
+    if (subscriptionId && current.stripeSubscriptionId && current.stripeSubscriptionId !== subscriptionId) {
+      throw new Error("Stripe invoice subscription does not match the persisted order binding.");
+    }
+    const referencePatch = stripeReferencePatch({ customerId, subscriptionId, paymentReference });
+    if (paid) {
+      if (current.stripeTerminalAt) {
+        return Object.keys(referencePatch).length > 0 ? { order: referencePatch } : null;
+      }
+      if (current.paymentStatus !== "succeeded") notify = "confirmed";
+      return {
+        order: {
+          ...referencePatch,
+          paymentStatus: "succeeded",
+          ...(current.status === "pending" || current.status === "cancelled"
+            ? { status: "processing" as const }
+            : {}),
+        },
+        lead: { status: "converted", selectedOfferId: current.offerId },
+      };
+    }
+
+    // Stripe timestamps have one-second precision. If success and failure-like
+    // events share a timestamp, keep the confirmed payment: delivery order is
+    // undefined and downgrading a paid order would be the unsafe outcome.
+    const conflictsWithConfirmedPaymentAtSameTimestamp =
+      current.paymentStatus === "succeeded" &&
+      current.stripeLastInvoiceEventCreated != null &&
+      event.created <= current.stripeLastInvoiceEventCreated;
+    if (conflictsWithConfirmedPaymentAtSameTimestamp) {
+      return Object.keys(referencePatch).length > 0 ? { order: referencePatch } : null;
+    }
+
+    if (actionRequired) {
+      // Customer authentication is still possible; this is not a terminal
+      // payment failure and must not cancel provisioning or send a failure email.
+      return { order: { ...referencePatch, paymentStatus: "pending" } };
+    }
+
+    if (current.paymentStatus !== "failed") notify = "failed";
+    // A recurring failure makes the order non-billable immediately. Preserve an
+    // already provisioned/active status until a terminal subscription event tells
+    // us to cancel service; pending/processing orders are safe to cancel now.
+    const cancelBeforeProvisioning = current.status === "pending" || current.status === "processing";
+    return {
+      order: {
+        ...referencePatch,
+        paymentStatus: "failed",
+        ...(cancelBeforeProvisioning ? { status: "cancelled" as const } : {}),
+      },
+    };
+  });
+  if (notify && result.changed) await notifyCustomer(notify, result.order);
+  return true;
+}
+
+async function applySubscriptionEvent(event: Stripe.Event, subscription: Stripe.Subscription): Promise<boolean> {
+  const subscriptionId = subscription.id;
+  const order = await resolveSubscriptionOrder(subscriptionId, metadataOrderId(subscription));
+  if (!order) {
+    await completeStripeEvent(event.id, null, event.created, "subscription");
+    return false;
+  }
+  const status = subscription.status;
+  const deleted = event.type === "customer.subscription.deleted";
+  const terminal = deleted || ["canceled", "unpaid", "incomplete_expired"].includes(status);
+  await completeStripeEvent(event.id, order.id, event.created, "subscription", current => {
+    if (current.stripeSubscriptionId && current.stripeSubscriptionId !== subscriptionId) {
+      throw new Error("Stripe subscription does not match the persisted order binding.");
+    }
+    const referencePatch = stripeReferencePatch({
+      customerId: objectId(subscription.customer),
+      subscriptionId,
+      subscriptionStatus: status,
+    });
+    if (terminal) {
+      return {
+        order: {
+          ...referencePatch,
+          paymentStatus: status === "unpaid" ? "failed" : "cancelled",
+          status: "cancelled",
+          stripeTerminalAt: new Date(event.created * 1000),
+        },
+      };
+    }
+    if (status === "past_due" || status === "incomplete") {
+      return { order: { ...referencePatch, paymentStatus: status === "past_due" ? "failed" : "pending" } };
+    }
+    if (status === "paused") {
+      // Stripe subscriptions can resume from paused. Mark the order non-billable
+      // for now, but do not set the irreversible terminal guard.
+      return { order: { ...referencePatch, paymentStatus: "pending" } };
+    }
+    return { order: referencePatch };
+  });
+  return true;
+}
+
+const SUPPORTED_EVENT_TYPES = new Set([
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "invoice.paid",
+  "invoice.payment_failed",
+  "invoice.payment_action_required",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+]);
+
+/** Apply a verified Stripe event through the durable event-id journal. */
 export async function applyStripeEvent(event: Stripe.Event): Promise<boolean> {
-  switch (event.type) {
-    case "checkout.session.completed":
-    case "checkout.session.async_payment_succeeded": {
-      const session = event.data.object as Stripe.Checkout.Session;
-      // "paid" (card, immediate) or "no_payment_required" (100%-off) → fulfil.
-      // "unpaid" here means an async method is still pending; wait for the
-      // async_payment_succeeded/failed event and acknowledge this one as a no-op.
-      if (session.payment_status === "paid" || session.payment_status === "no_payment_required") {
-        return markSessionPaid(session);
-      }
-      // Async payment still pending: nothing to do yet. Acknowledge only if it
-      // references a known order (mirrors the unknown-order/no-reference guards).
-      const orderId = sessionOrderId(session);
-      if (orderId == null) return false;
-      const order = await getOrder(orderId);
-      return order != null;
-    }
+  if (!SUPPORTED_EVENT_TYPES.has(event.type)) return false;
+  if (!event.id) throw new Error("Stripe event id is required for deduplication.");
+  if (!Number.isInteger(event.created) || event.created < 0) {
+    throw new Error("Stripe event created timestamp is required for monotonic processing.");
+  }
 
-    case "checkout.session.async_payment_failed": {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const orderId = sessionOrderId(session);
-      if (orderId == null) return false;
-      const order = await getOrder(orderId);
-      if (!order || order.paymentStatus === "succeeded") return order != null;
-      // Idempotent: a failure redelivered for an already-failed order, or arriving
-      // after the order was already cancelled (e.g. by db:cancel-stale, which leaves
-      // paymentStatus "pending"), is acknowledged as a no-op — no rewrite, and the
-      // customer is not emailed for an order that was already dealt with.
-      if (order.paymentStatus === "failed" || order.status === "cancelled") return true;
-      // The deferred payment did not clear: mark the order failed and cancel it so
-      // no infrastructure is provisioned for it. The lead stays "offered".
-      await updateOrder(orderId, { paymentStatus: "failed", status: "cancelled" });
-      // Best-effort: tell the customer their payment did not clear. Never let an
-      // email failure break the webhook (Stripe would retry and double-process).
-      try {
-        const lead = await getLead(order.leadId);
-        if (lead?.email) await sendPaymentFailed(lead.email, orderId);
-      } catch (error) {
-        console.warn("[Stripe] payment-failed email failed:", String(error));
-      }
-      return true;
-    }
+  const claim = await claimStripeEvent(event.id, event.type);
+  if (claim === "processed") return true;
+  if (claim === "in_progress") {
+    throw new Error(`Stripe event ${event.id} is already being processed.`);
+  }
 
-    default:
-      return false;
+  try {
+    switch (event.type) {
+      case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded":
+      case "checkout.session.async_payment_failed":
+        return await applyCheckoutEvent(event, event.data.object as Stripe.Checkout.Session);
+      case "invoice.paid":
+      case "invoice.payment_failed":
+      case "invoice.payment_action_required":
+        return await applyInvoiceEvent(event, event.data.object as Stripe.Invoice);
+      case "customer.subscription.updated":
+      case "customer.subscription.deleted":
+        return await applySubscriptionEvent(event, event.data.object as Stripe.Subscription);
+      default:
+        return false;
+    }
+  } catch (error) {
+    try {
+      await failStripeEvent(event.id, error);
+    } catch (journalError) {
+      console.error("[Stripe] Failed to mark event as failed:", String(journalError));
+    }
+    throw error;
   }
 }
 

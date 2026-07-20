@@ -5,9 +5,11 @@ FROM node:22-slim AS build
 WORKDIR /app
 RUN corepack enable
 
-# Install dependencies first (better layer caching).
+# Install dependencies first (better layer caching). pnpm-workspace.yaml is
+# required here: it owns the security overrides, patchedDependencies mapping and
+# build-script allow-list used by this install layer.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # patches/ is required because pnpm applies a patched dependency (wouter).
-COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
 RUN pnpm install --frozen-lockfile
 
@@ -39,11 +41,14 @@ ENV PORT=3000
 # must therefore be present at runtime — do NOT prune to production-only deps.
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/drizzle ./drizzle
 COPY --from=build --chown=node:node /app/package.json ./package.json
 
 # Run unprivileged: a compromise of the Node process must not yield container root.
 USER node
 
 EXPOSE 3000
-# NODE_ENV is set above, so we run node directly (no need for cross-env here).
-CMD ["node", "dist/index.js"]
+# Refuse to activate a new container when its database cannot be reached or the
+# timestamp/hash of any committed migration is absent or different. The preflight issues SELECTs only; it
+# never applies migrations. `exec` preserves correct SIGTERM handling for Node.
+CMD ["sh", "-c", "node dist/db-preflight.js && exec node dist/index.js"]

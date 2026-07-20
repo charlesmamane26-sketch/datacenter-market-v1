@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { deploymentHours, matchOffers } from "./matching";
 import type { Offer } from "../drizzle/schema";
 
-function offer(partial: Partial<Offer>): Offer {
+function offer(partial: Partial<Offer>): Offer & { provider: { isActive: boolean } } {
   return {
     id: 0,
     name: "test",
@@ -18,10 +18,18 @@ function offer(partial: Partial<Offer>): Offer {
     deploymentTime: "72h",
     description: null,
     features: null,
+    providerId: 1,
+    isActive: true,
+    availabilityStatus: "available",
+    availableCapacity: 1,
+    availabilityUpdatedAt: new Date(),
+    inventoryVersion: 1,
+    availabilityExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
+    provider: { isActive: true },
     createdAt: new Date(),
     updatedAt: new Date(),
     ...partial,
-  } as Offer;
+  } as Offer & { provider: { isActive: boolean } };
 }
 
 describe("deploymentHours", () => {
@@ -64,9 +72,8 @@ describe("matchOffers", () => {
     expect(m.fastest.id).toBe(2); // fastest H100
   });
 
-  it("falls back to the full catalogue when no GPU matches", () => {
-    const m = matchOffers(catalogue, { gpuRequirement: "l40s" })!;
-    expect(m.cheapest.id).toBe(3);
+  it("returns null when no GPU matches", () => {
+    expect(matchOffers(catalogue, { gpuRequirement: "l40s" })).toBeNull();
   });
 
   it("prefers offers within budget", () => {
@@ -76,9 +83,8 @@ describe("matchOffers", () => {
     expect(m.fastest.id).toBe(4); // 48h beats 7 days
   });
 
-  it("ignores budget when nothing is affordable", () => {
-    const m = matchOffers(catalogue, { monthlyBudget: 1000 })!;
-    expect(m.cheapest.id).toBe(3);
+  it("returns null when nothing is affordable", () => {
+    expect(matchOffers(catalogue, { monthlyBudget: 1000 })).toBeNull();
   });
 
   it("balances price and speed for best value (distinct from the extremes)", () => {

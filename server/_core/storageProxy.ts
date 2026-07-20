@@ -17,7 +17,7 @@ export function registerStorageProxy(app: Express) {
     try {
       const forgeUrl = new URL(
         "v1/storage/presign/get",
-        ENV.forgeApiUrl.replace(/\/+$/, "") + "/",
+        ENV.forgeApiUrl.replace(/\/+$/, "") + "/"
       );
       forgeUrl.searchParams.set("path", key);
 
@@ -26,8 +26,12 @@ export function registerStorageProxy(app: Express) {
       });
 
       if (!forgeResp.ok) {
-        const body = await forgeResp.text().catch(() => "");
-        console.error(`[StorageProxy] forge error: ${forgeResp.status} ${body}`);
+        // Upstream error bodies may echo paths, tokens, or provider internals.
+        // Discard them and keep the operational signal to the HTTP status only.
+        await forgeResp.body?.cancel().catch(() => undefined);
+        console.error(
+          `[StorageProxy] Upstream request failed (status=${forgeResp.status})`
+        );
         res.status(502).send("Storage backend error");
         return;
       }
@@ -41,7 +45,8 @@ export function registerStorageProxy(app: Express) {
       res.set("Cache-Control", "no-store");
       res.redirect(307, url);
     } catch (err) {
-      console.error("[StorageProxy] failed:", err);
+      const errorType = err instanceof Error ? err.name : "UnknownError";
+      console.error(`[StorageProxy] Request failed (${errorType})`);
       res.status(502).send("Storage proxy error");
     }
   });

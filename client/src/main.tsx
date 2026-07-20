@@ -10,6 +10,11 @@ import "./index.css";
 
 const queryClient = new QueryClient();
 
+function sampleRate(value: string | undefined, fallback: number): number {
+  const parsed = value == null || value === "" ? fallback : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : fallback;
+}
+
 // Import dynamique : le SDK Sentry (~100 ko) sort du bundle critique et n'est
 // chargé qu'aux builds où un DSN est configuré (perf Lighthouse, lot 4 SEO).
 if (import.meta.env.VITE_SENTRY_DSN) {
@@ -20,12 +25,18 @@ if (import.meta.env.VITE_SENTRY_DSN) {
         Sentry.browserTracingIntegration(),
         Sentry.replayIntegration(),
       ],
-      tracesSampleRate: 1.0,
+      tracesSampleRate: sampleRate(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE, 0.1),
       // The API is same-origin (/api/*), so propagate tracing headers to this
       // deployment's own origin rather than a hard-coded host.
       tracePropagationTargets: ["localhost", `${window.location.origin}/api`],
-      replaysSessionSampleRate: 0.1,
-      replaysOnErrorSampleRate: 1.0,
+      replaysSessionSampleRate: sampleRate(
+        import.meta.env.VITE_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
+        0,
+      ),
+      replaysOnErrorSampleRate: sampleRate(
+        import.meta.env.VITE_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
+        0.1,
+      ),
     });
     console.log("[Sentry] Client monitoring initialized.");
   });

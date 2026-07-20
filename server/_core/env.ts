@@ -13,6 +13,10 @@ export const ENV = {
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  // A live Stripe key is deliberately inert until the operator acknowledges
+  // that contractual/provider readiness has been completed. Test keys are not
+  // gated so staging and integration work remain frictionless.
+  stripeLivePaymentsEnabled: process.env.STRIPE_LIVE_PAYMENTS_ENABLED === "true",
   // Shared bearer key a provider-side agent uses to POST real GPU/CPU telemetry
   // to /api/telemetry/:orderId. Unset -> ingestion route disabled (503).
   telemetryIngestKey: process.env.TELEMETRY_INGEST_KEY ?? "",
