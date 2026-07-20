@@ -2,7 +2,9 @@ import express, { type Express } from "express";
 import { timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { ENV } from "./_core/env";
+import { asyncHandler } from "./_core/asyncHandler";
 import { createInfrastructureMetrics, getOrder } from "./db";
+import { clientIp, enforceRateLimit } from "./rateLimit";
 import { processMetricAlerts } from "./telemetryAlerts";
 
 /**
@@ -17,20 +19,39 @@ import { processMetricAlerts } from "./telemetryAlerts";
  */
 
 // Decimals are stored as strings (mirrors the schema's decimal columns and how
-// simulate-telemetry writes them); ints stay numbers. All fields optional except
-// none — at least the GPU/CPU usage is expected, but partial samples are allowed.
-const MetricSchema = z.object({
-  gpuUsagePercent: z.coerce.number().min(0).max(100).optional(),
-  gpuMemoryUsedGb: z.coerce.number().min(0).optional(),
-  gpuMemoryTotalGb: z.coerce.number().int().min(0).optional(),
-  cpuUsagePercent: z.coerce.number().min(0).max(100).optional(),
-  ramUsedGb: z.coerce.number().min(0).optional(),
-  ramTotalGb: z.coerce.number().int().min(0).optional(),
-  costThisMonth: z.coerce.number().min(0).optional(),
-  costProjected: z.coerce.number().min(0).optional(),
-});
+// simulate-telemetry writes them); ints stay numbers. Individual fields are
+// optional so partial samples work, but an empty sample is rejected.
+const MetricSchema = z
+  .object({
+    gpuUsagePercent: z.coerce.number().min(0).max(100).optional(),
+    gpuMemoryUsedGb: z.coerce.number().min(0).optional(),
+    gpuMemoryTotalGb: z.coerce.number().int().min(0).optional(),
+    cpuUsagePercent: z.coerce.number().min(0).max(100).optional(),
+    ramUsedGb: z.coerce.number().min(0).optional(),
+    ramTotalGb: z.coerce.number().int().min(0).optional(),
+    costThisMonth: z.coerce.number().min(0).optional(),
+    costProjected: z.coerce.number().min(0).optional(),
+  })
+  .refine(sample => Object.values(sample).some(value => value !== undefined), {
+    message: "At least one metric field is required.",
+  });
 
 type MetricInput = z.infer<typeof MetricSchema>;
+const TELEMETRY_ORDER_STATUSES = new Set([
+  "processing",
+  "provisioning",
+  "active",
+]);
+
+function isTelemetryEligibleOrder(order: {
+  paymentStatus: string;
+  status: string;
+}): boolean {
+  return (
+    order.paymentStatus === "succeeded" &&
+    TELEMETRY_ORDER_STATUSES.has(order.status)
+  );
+}
 
 /** Constant-time bearer-key check. Returns false unless a key is configured. */
 function isAuthorized(header: string | undefined): boolean {
@@ -48,7 +69,8 @@ function isAuthorized(header: string | undefined): boolean {
 
 /** Decimal columns are stored as strings; ints as numbers. */
 function toRow(orderId: number, m: MetricInput) {
-  const str = (v: number | undefined) => (v === undefined ? undefined : v.toFixed(2));
+  const str = (v: number | undefined) =>
+    v === undefined ? undefined : v.toFixed(2);
   return {
     orderId,
     gpuUsagePercent: str(m.gpuUsagePercent),
@@ -63,50 +85,75 @@ function toRow(orderId: number, m: MetricInput) {
 }
 
 export function registerTelemetryIngest(app: Express) {
-  app.post("/api/telemetry/:orderId", express.json({ limit: "16kb" }), async (req, res) => {
-    if (!ENV.telemetryIngestKey) {
-      res.status(503).json({ error: "Telemetry ingestion is not configured." });
-      return;
-    }
-    if (!isAuthorized(req.headers.authorization)) {
-      res.status(401).json({ error: "Unauthorized." });
-      return;
-    }
+  app.post(
+    "/api/telemetry/:orderId",
+    express.json({ limit: "16kb" }),
+    asyncHandler(async (req, res) => {
+      if (!ENV.telemetryIngestKey) {
+        res
+          .status(503)
+          .json({ error: "Telemetry ingestion is not configured." });
+        return;
+      }
+      if (!isAuthorized(req.headers.authorization)) {
+        res.status(401).json({ error: "Unauthorized." });
+        return;
+      }
 
-    const orderId = Number(req.params.orderId);
-    if (!Number.isInteger(orderId) || orderId <= 0) {
-      res.status(400).json({ error: "Invalid orderId." });
-      return;
-    }
+      const orderId = Number(req.params.orderId);
+      if (!Number.isInteger(orderId) || orderId <= 0) {
+        res.status(400).json({ error: "Invalid orderId." });
+        return;
+      }
 
-    const parsed = MetricSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: "Invalid metric payload.", issues: parsed.error.issues });
-      return;
-    }
-
-    // The order must exist; reject metrics for unknown orders so the table can't
-    // be seeded with orphan rows.
-    const order = await getOrder(orderId);
-    if (!order) {
-      res.status(404).json({ error: "Order not found." });
-      return;
-    }
-
-    try {
-      await createInfrastructureMetrics(toRow(orderId, parsed.data));
-      res.status(202).json({ accepted: true });
-      // Threshold alerting — fire-and-forget so it never delays the 202 response
-      // and a failure can't turn a successful ingest into an error.
-      void processMetricAlerts(orderId, parsed.data).catch(err =>
-        console.warn("[Telemetry] Alert dispatch failed:", String(err)),
+      const limit = await enforceRateLimit(
+        `telemetry:${orderId}:${clientIp(req)}`,
+        120,
+        60_000
       );
-    } catch (error) {
-      console.error("[Telemetry] Failed to persist metric:", error);
-      res.status(500).json({ error: "Failed to persist metric." });
-    }
-  });
+      if (!limit.allowed) {
+        res.status(429).json({ error: "Too many telemetry samples." });
+        return;
+      }
+
+      const parsed = MetricSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: "Invalid metric payload.",
+          issues: parsed.error.issues,
+        });
+        return;
+      }
+
+      // The order must exist; reject metrics for unknown orders so the table can't
+      // be seeded with orphan rows.
+      const order = await getOrder(orderId);
+      if (!order) {
+        res.status(404).json({ error: "Order not found." });
+        return;
+      }
+      if (!isTelemetryEligibleOrder(order)) {
+        res
+          .status(409)
+          .json({ error: "Order is not eligible for telemetry ingestion." });
+        return;
+      }
+
+      try {
+        await createInfrastructureMetrics(toRow(orderId, parsed.data));
+        res.status(202).json({ accepted: true });
+        // Threshold alerting — fire-and-forget so it never delays the 202 response
+        // and a failure can't turn a successful ingest into an error.
+        void processMetricAlerts(orderId, parsed.data).catch(err =>
+          console.warn("[Telemetry] Alert dispatch failed:", String(err))
+        );
+      } catch (error) {
+        console.error("[Telemetry] Failed to persist metric:", error);
+        res.status(500).json({ error: "Failed to persist metric." });
+      }
+    })
+  );
 }
 
 // Exported for unit tests.
-export { MetricSchema, isAuthorized, toRow };
+export { MetricSchema, isAuthorized, isTelemetryEligibleOrder, toRow };

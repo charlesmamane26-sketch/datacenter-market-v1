@@ -32,9 +32,17 @@ function makeRedisStore(redis: SharedRedis): RateLimitStore {
         .pexpire(redisKey, windowMs)
         .exec();
 
-      // ZCARD is the 3rd command (index 2). If the pipeline failed, fail open
-      // (allow) rather than locking everyone out on a Redis hiccup.
-      const count = Number(results?.[2]?.[1] ?? 0);
+      // Surface pipeline and per-command failures to enforceRateLimit(), whose
+      // central availability policy is a deliberate fail-open decision.
+      if (!results)
+        throw new Error("Redis rate-limit pipeline returned no result");
+      const commandError = results.find(([error]) => error != null)?.[0];
+      if (commandError) throw commandError;
+
+      // ZCARD is the 3rd command (index 2).
+      const count = Number(results[2]?.[1]);
+      if (!Number.isFinite(count))
+        throw new Error("Invalid Redis rate-limit count");
       if (count <= limit) {
         return { allowed: true, retryAfterMs: 0 };
       }
@@ -42,7 +50,10 @@ function makeRedisStore(redis: SharedRedis): RateLimitStore {
       // Over the limit: retry once the oldest in-window hit ages out.
       const oldest = await redis.zrange(redisKey, 0, 0, "WITHSCORES");
       const oldestTs = oldest.length >= 2 ? Number(oldest[1]) : now;
-      return { allowed: false, retryAfterMs: Math.max(0, oldestTs + windowMs - now) };
+      return {
+        allowed: false,
+        retryAfterMs: Math.max(0, oldestTs + windowMs - now),
+      };
     },
   };
 }

@@ -13,5 +13,8 @@ export const AXIOS_TIMEOUT_MS = 30_000;
 // lead (consentPolicyVersion) as proof of consent (RGPD Art. 7-1); bump it when
 // the policy materially changes so older consents are distinguishable.
 export const CONSENT_POLICY_VERSION = "2026-07-12";
+// Version of the purchase terms accepted immediately before Stripe Checkout.
+// Persist this value on the order so the accepted text remains auditable.
+export const PURCHASE_TERMS_VERSION = "2026-05-27";
 export const UNAUTHED_ERR_MSG = 'Please login (10001)';
 export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';

@@ -11,7 +11,12 @@ export interface RateLimitResult {
  * `check` records a hit and returns the decision atomically for the given key.
  */
 export interface RateLimitStore {
-  check(key: string, limit: number, windowMs: number, now: number): Promise<RateLimitResult>;
+  check(
+    key: string,
+    limit: number,
+    windowMs: number,
+    now: number
+  ): Promise<RateLimitResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,7 +48,7 @@ export function rateLimit(
   key: string,
   limit: number,
   windowMs: number,
-  now: number = Date.now(),
+  now: number = Date.now()
 ): RateLimitResult {
   sweep(now);
   const cutoff = now - windowMs;
@@ -51,7 +56,10 @@ export function rateLimit(
 
   if (hits.length >= limit) {
     store.set(key, hits);
-    return { allowed: false, retryAfterMs: Math.max(0, hits[0] + windowMs - now) };
+    return {
+      allowed: false,
+      retryAfterMs: Math.max(0, hits[0] + windowMs - now),
+    };
   }
 
   hits.push(now);
@@ -60,7 +68,8 @@ export function rateLimit(
 }
 
 const memoryStore: RateLimitStore = {
-  check: (key, limit, windowMs, now) => Promise.resolve(rateLimit(key, limit, windowMs, now)),
+  check: (key, limit, windowMs, now) =>
+    Promise.resolve(rateLimit(key, limit, windowMs, now)),
 };
 
 // ---------------------------------------------------------------------------
@@ -68,6 +77,8 @@ const memoryStore: RateLimitStore = {
 // ---------------------------------------------------------------------------
 
 let activeStore: RateLimitStore = memoryStore;
+let lastStoreFailureLogAt: number | null = null;
+const STORE_FAILURE_LOG_INTERVAL_MS = 60_000;
 
 /** Swap the backing store (used by the Redis bootstrap; see ./_core/redisRateLimit). */
 export function setRateLimitStore(s: RateLimitStore): void {
@@ -78,13 +89,30 @@ export function setRateLimitStore(s: RateLimitStore): void {
  * Async entry point used by request handlers. Routes through the active store
  * (in-memory by default, Redis when configured) so limits hold across replicas.
  */
-export function enforceRateLimit(
+export async function enforceRateLimit(
   key: string,
   limit: number,
   windowMs: number,
-  now: number = Date.now(),
+  now: number = Date.now()
 ): Promise<RateLimitResult> {
-  return activeStore.check(key, limit, windowMs, now);
+  try {
+    return await activeStore.check(key, limit, windowMs, now);
+  } catch (error) {
+    // Availability wins when a shared limiter fails: authentication, checkout,
+    // and signed webhooks fall back to per-process protection rather than failing.
+    // Throttle this warning so a prolonged outage cannot flood logs.
+    if (
+      lastStoreFailureLogAt === null ||
+      now - lastStoreFailureLogAt >= STORE_FAILURE_LOG_INTERVAL_MS
+    ) {
+      lastStoreFailureLogAt = now;
+      const errorType = error instanceof Error ? error.name : "UnknownError";
+      console.warn(
+        `[RateLimit] Store unavailable (${errorType}); using local fallback`
+      );
+    }
+    return memoryStore.check(key, limit, windowMs, now);
+  }
 }
 
 /** Test-only: number of keys currently tracked (in-memory store). */
@@ -106,5 +134,6 @@ export function clientIp(req: TrpcContext["req"]): string {
 export function __resetRateLimit(): void {
   store.clear();
   lastSweep = 0;
+  lastStoreFailureLogAt = null;
   activeStore = memoryStore;
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import {
   rateLimit,
   enforceRateLimit,
@@ -71,10 +71,34 @@ describe("enforceRateLimit (pluggable store)", () => {
   });
 
   it("reverts to the in-memory store after __resetRateLimit", async () => {
-    setRateLimitStore({ check: () => Promise.resolve({ allowed: false, retryAfterMs: 1 }) });
+    setRateLimitStore({
+      check: () => Promise.resolve({ allowed: false, retryAfterMs: 1 }),
+    });
     __resetRateLimit();
     // Back to the real sliding window: first hit on a fresh key is allowed.
-    expect((await enforceRateLimit("fresh", 1, 1000, 1_000)).allowed).toBe(true);
+    expect((await enforceRateLimit("fresh", 1, 1000, 1_000)).allowed).toBe(
+      true
+    );
+  });
+
+  it("falls back to the local limiter when the active shared store rejects", async () => {
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    setRateLimitStore({
+      check: () => Promise.reject(new Error("redis unavailable")),
+    });
+
+    await expect(
+      enforceRateLimit("checkout:7", 10, 60_000, 1_000)
+    ).resolves.toEqual({
+      allowed: true,
+      retryAfterMs: 0,
+    });
+    expect(warning).toHaveBeenCalledWith(
+      "[RateLimit] Store unavailable (Error); using local fallback"
+    );
+    warning.mockRestore();
   });
 });
 

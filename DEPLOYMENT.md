@@ -19,15 +19,19 @@ Tick these before every production deploy. Details in the linked sections.
       (fine for a single instance). One Redis connection is shared by both features.
 - [ ] All prior runtime + `VITE_*` build-time vars filled (§2). Remember `VITE_*` are baked in at
       **build** time.
+- [ ] If `STRIPE_SECRET_KEY` is a live key, `STRIPE_LIVE_PAYMENTS_ENABLED=true` only after the
+      provider, contract, webhook and end-to-end payment checks in §10. Keep it `false` otherwise.
 
 **Database (§5)**
-- [ ] `pnpm db:push` applies all pending migrations. The latest is **`0004`** — adds nullable
-      `leads.consentedAt` + `leads.consentPolicyVersion` (RGPD proof-of-consent); additive, no
-      downtime. Earlier: **`0002`** (indexes on FK columns), **`0003`** (drops the unused
-      `offers.category` column). Review the SQL first.
+- [ ] Review every pending SQL file, then run `pnpm db:push` from a controlled migration job.
+- [ ] `pnpm db:preflight` passes against the target database. This command is **read-only**: it
+      verifies connectivity and every journaled migration's exact timestamp + SQL hash; it
+      never creates a table or applies SQL.
 - [ ] ⚠️ **Apply migrations _before_ deploying the new code.** `leads.create` now writes the consent
-      columns, so shipping the code ahead of migration `0004` breaks lead capture. The migration is
-      backward-compatible (old code ignores the new columns), so it is safe to apply a bit early.
+      columns from `0004`, while checkout requires the Stripe journal/idempotency columns from
+      `0005` and inventory filtering requires the provider/availability fields from `0006`.
+      Shipping the code first breaks those flows. These migrations are additive and can be applied
+      before the new code.
 
 **Install / build (§3)**
 - [ ] `pnpm install` (full set — not `--prod`; regenerates `pnpm-lock.yaml` and pulls the optional
@@ -51,10 +55,14 @@ Copy `.env.example` to `.env` and fill it in. Two categories:
 
 - **Runtime (server)** — `DATABASE_URL`, `JWT_SECRET`, `OAUTH_SERVER_URL`, `OWNER_OPEN_ID`,
   `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY`, `STRIPE_SECRET_KEY`,
-  `STRIPE_WEBHOOK_SECRET`, `PORT`, `LEAD_RETENTION_DAYS`,
+  `STRIPE_WEBHOOK_SECRET`, **`STRIPE_LIVE_PAYMENTS_ENABLED`** (live-key safety gate), `PORT`,
+  `LEAD_RETENTION_DAYS`,
   **`PUBLIC_BASE_URL`** (required in prod — trusted origin), **`CSP_EXTRA_ORIGINS`** (optional —
   extra CSP origins, space-separated), **`REDIS_URL`** (optional — shared rate-limit + session
   revocation; needed for multi-instance), **`SENTRY_DSN`** (optional — server error monitoring),
+  **`DB_READINESS_TIMEOUT_MS`** (optional, default 5000) and **`DB_PREFLIGHT_TIMEOUT_MS`**
+  (optional, default 10000),
+  **`STRIPE_SMOKE_TEST_ENABLED`** (command-local opt-in only; keep false otherwise),
   **`TELEMETRY_INGEST_KEY`** (optional — enables the telemetry ingestion route, §11),
   **`EMAIL_API_URL`** + **`EMAIL_API_KEY`** (optional — client email notifications; unset = log only),
   **`ALERT_GPU_USAGE_PCT`** / **`ALERT_CPU_USAGE_PCT`** / **`ALERT_GPU_MEMORY_PCT`** (optional —
@@ -72,14 +80,20 @@ Copy `.env.example` to `.env` and fill it in. Two categories:
 corepack enable
 pnpm install --frozen-lockfile     # full install (see notes below)
 pnpm db:push                       # create/apply schema migrations (drizzle-kit)
-pnpm db:seed                       # seed the offers catalogue (idempotent)
+pnpm db:preflight                  # SELECT-only: connectivity + every migration timestamp/hash
+pnpm db:seed                       # seed inactive DEMO rows; verify/activate inventory in admin
 pnpm build                         # vite build -> dist/public, esbuild -> dist/index.js
 pnpm start                         # NODE_ENV=production node dist/index.js
 ```
 
+`pnpm integration-check` creates its own active provider/offer with run-unique identifiers, then
+removes them with every other test row even when the check fails. The temporary offer also expires
+after 15 minutes as a hard-kill fallback. Do not activate the DEMO seed rows just to run this check.
+
 Build output:
 - `dist/public/` — static client assets (served by Express in production).
 - `dist/index.js` — bundled server (~46 KB).
+- `dist/db-preflight.js` — read-only database/migration gate used by the container entrypoint.
 
 > ⚠️ **Do not prune to production-only dependencies.** The server is bundled with
 > `esbuild --packages=external` and statically imports `vite` (via the dev/prod branch in
@@ -102,12 +116,24 @@ docker run -p 3000:3000 --env-file .env datacenter-market
 ```
 
 (Runtime/server env vars come from `--env-file`; `VITE_*` are baked in at build time via
-the build args above.)
+the build args above.) The image runs `db-preflight.js` before Node: a new container never becomes
+active against an unreachable database or one missing/drifting any repository migration. The check
+only issues `SELECT` statements; apply migrations explicitly before deploying.
 
 ## 5. Database migrations
 
 - `pnpm db:push` runs `drizzle-kit generate && drizzle-kit migrate`. Run it on every deploy
   that changes `drizzle/schema.ts`.
+- `pnpm db:preflight` is the non-mutating counterpart for CI/CD and operator checks. It compares
+  **every** entry in `drizzle/meta/_journal.json` (timestamp + SHA-256 of the exact SQL bytes) with
+  `__drizzle_migrations`, and requires the journal and `drizzle/*.sql` file set to match exactly.
+  It exits non-zero on missing credentials, connectivity failure, any pending migration or hash
+  drift and never logs the connection string / raw driver error. `.gitattributes` forces migration
+  SQL to LF so hashes remain deterministic across Windows and Linux checkouts.
+- If migrations were already applied from a Windows checkout before the LF rule existed, run the
+  preflight before rollout. On a hash mismatch, compare the recorded hash and SQL effects under a
+  backup/PITR window; only reconcile `__drizzle_migrations` after proving the bytes differ solely by
+  CRLF/LF. Never re-run or blindly rewrite an already-applied migration.
 - Migrations live in `drizzle/`. Review generated SQL before applying in production.
 - **Apply migrations before deploying the new server code** (see §0): `leads.create` writes the
   consent columns added by `0004`.
@@ -116,7 +142,12 @@ the build args above.)
   `recordedAt`) — query-pattern aligned, no data change; **`0003`** drops the unused `offers.category`
   column (the matching engine computes views per lead, and the API still attaches `category` to each
   offer at response time); **`0004`** adds `leads.consentedAt` + `leads.consentPolicyVersion` (both
-  nullable) to record RGPD proof-of-consent — additive, no data change.
+  nullable) to record RGPD proof-of-consent — additive, no data change; **`0005`** adds the durable
+  Stripe event journal plus checkout/subscription/idempotency evidence and indexes used by the
+  webhook flow; **`0006`** creates `providers`, adds fail-closed offer activation/capacity/freshness
+  and snapshots `providerId` on each order. Migrated and seeded rows stay inactive/unavailable until
+  an operator verifies the supplier, price, SLA and expiry, then explicitly activates them in admin.
+  `availableCapacity` is an operator snapshot used as a sales gate, not yet a reservation ledger.
 
 ## 6. RGPD data retention (cron)
 
@@ -145,12 +176,20 @@ pending/unpaid past `STALE_ORDER_HOURS` (default 24h). Paid orders are never aff
 `.github/workflows/ci.yml` runs `install → check → test → build` on push/PR. Add the
 `VITE_*` repo secrets for a deploy-ready build artifact.
 
-## 9. Health & observability — known gaps
+## 9. Health & observability
 
 - **Health endpoint**: `GET /health` returns `{ "status": "ok" }` for liveness probes.
-- **No structured logging / error monitoring** (Sentry) — deferred (needs a dependency).
+- **Readiness endpoint**: `GET /ready` returns `200` only when MySQL/TiDB answers, configured Redis
+  answers, and any configured Stripe key/webhook/origin set is coherent; otherwise it returns `503`.
+  Render probes `/health`
+  so a transient external dependency outage does not restart a healthy process; monitor `/ready`
+  separately for dependency availability. Tune the database query timeout with
+  `DB_READINESS_TIMEOUT_MS` (default 5000 ms).
+- **Render Blueprint scope**: `render.yaml` deliberately keeps `plan: free` for staging/recette
+  only. Free instances can sleep and are not the production target.
+- **Sentry error monitoring** is wired but remains disabled until its DSN is configured.
 - **Rate limiting** covers `leads.create` (5/min/IP), `/api/oauth/callback` (20/min/IP), the Stripe
-  webhook (100/min/IP), and both `orders.create` and `checkout` (10/min/user). The store is in-memory by default
+  webhook (100/min/IP), and `orders.checkout` (10/min/user). The store is in-memory by default
   (**process-local**) and switches to a shared Redis sliding-window when `REDIS_URL` is set — set it
   for multi-instance deployments. Set `app.set("trust proxy", ...)` so `req.ip` is accurate behind a
   load balancer (already done in production via `TRUST_PROXY_HOPS`).
@@ -168,6 +207,11 @@ Checkout uses **Stripe-hosted Checkout** (subscription mode) with a signed webho
 source of truth for payment status.
 
 1. Set `STRIPE_SECRET_KEY` (runtime).
+   - test key (`sk_test_…` or restricted `rk_test_…`): no additional gate;
+   - live key (`sk_live_…` or restricted `rk_live_…`): also set
+     `STRIPE_LIVE_PAYMENTS_ENABLED=true`, but only after the
+     staging/live checklist below. With the default `false`, the server refuses to initialize a
+     live Stripe client. Unknown key prefixes are always refused.
 2. In the Stripe dashboard, add a webhook endpoint pointing at `POST /api/stripe/webhook`, put its
    signing secret in `STRIPE_WEBHOOK_SECRET`, and subscribe to:
    - `checkout.session.completed` (required);
@@ -175,7 +219,16 @@ source of truth for payment status.
      — **required if you enable a deferred payment method** (SEPA debit, bank transfer…). The
      handler only fulfils on `payment_status === "paid"` and reconciles async outcomes via these
      events. Card-only checkout needs just `checkout.session.completed`.
+   Checkout remains disabled until the API key and a valid `whsec_…` signing secret are both set;
+   production additionally requires a path-free HTTPS `PUBLIC_BASE_URL` origin.
 3. Behind a load balancer, set `app.set("trust proxy", ...)` so request origins / IPs resolve.
+
+Before live activation, run the opt-in `pnpm stripe:smoke` once with a test key. It makes real
+Stripe test-API calls, verifies the exact EUR amounts, monthly interval, metadata and return URLs
+for one recurring item plus the one-time setup fee, expires the session, then archives the inline
+test Prices/Products it created. It accepts `sk_test_…`/`rk_test_…` and refuses every live or
+unknown key. Set
+`STRIPE_SMOKE_TEST_ENABLED=true` only for that command and unset it immediately afterwards.
 
 Flow: `orders.checkout` creates a pending order + a Checkout Session and returns its URL; the
 browser is redirected to Stripe; on success Stripe returns to `/confirmation?orderId=...`. The

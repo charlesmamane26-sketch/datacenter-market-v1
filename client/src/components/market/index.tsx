@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,17 +24,16 @@ export function MarketLogo({ size = 20 }: { size?: number }) {
 export function MarketBrand({
   size = 20,
   onClick,
+  href,
   className,
 }: {
   size?: number;
   onClick?: () => void;
+  href?: string;
   className?: string;
 }) {
-  return (
-    <div
-      className={cn("flex items-center gap-2.5", onClick && "cursor-pointer", className)}
-      onClick={onClick}
-    >
+  const content = (
+    <>
       <MarketLogo size={size} />
       <span
         className="font-bold tracking-[-0.01em] text-foreground"
@@ -41,8 +41,23 @@ export function MarketBrand({
       >
         DatacenterMarket
       </span>
-    </div>
+    </>
   );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        onClick={onClick}
+        aria-label="DatacenterMarket — accueil"
+        className={cn("flex items-center gap-2.5", className)}
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return <div className={cn("flex items-center gap-2.5", className)}>{content}</div>;
 }
 
 /** "MARCHÉ OUVERT" chip — bordered pill with a pulsing lime dot. */
@@ -149,7 +164,7 @@ export function MarketChrome({
         className="mx-auto flex max-w-[1240px] items-center justify-between px-5 md:px-10"
         style={{ height }}
       >
-        <MarketBrand size={logoSize} onClick={onBrandClick} />
+        <MarketBrand size={logoSize} href="/" onClick={onBrandClick} />
         {center}
         {right}
       </div>

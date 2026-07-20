@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { fmtEUR } from "@/lib/format";
 import { PanelLabel } from "@/components/market";
 
@@ -44,7 +44,7 @@ export function OfferHeader({ offer, leadId }: { offer: PurchasableOffer; leadId
         {offer.name}
       </h1>
       <span className="font-mono text-[11.5px] uppercase tracking-[.08em] text-muted-foreground">
-        {offer.location} · BARE METAL DÉDIÉ{leadId != null ? ` · LEAD #${leadId}` : ""}
+        {offer.location}{leadId != null ? ` · LEAD #${leadId}` : ""}
       </span>
     </div>
   );
@@ -79,28 +79,27 @@ export function ServiceTermsCard({ offer }: { offer: PurchasableOffer }) {
   return (
     <div className="rounded-xl border border-border bg-card p-[26px]">
       <PanelLabel className="mb-[18px]">Conditions de service</PanelLabel>
-      <div className="grid grid-cols-1 gap-px overflow-hidden rounded-[10px] border border-border/60 bg-border/60 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-px overflow-hidden rounded-[10px] border border-border/60 bg-border/60 sm:grid-cols-2">
         <Cell label="SLA GARANTI" value={offer.sla} />
         <Cell label="MISE EN SERVICE" value={offer.deploymentTime} accent />
-        <Cell label="SUPPORT" value="24/7" />
       </div>
     </div>
   );
 }
 
-const COMPLIANCE_ITEMS = [
-  "Traitement conforme RGPD",
-  "Résidence des données UE",
-  "Haute disponibilité",
-  "Support 24/7 inclus",
+const TRANSPARENCY_ITEMS = [
+  "Localisation affichée avant commande",
+  "SLA propre à la configuration",
+  "Prix et frais détaillés",
+  "Paiement hébergé par Stripe",
 ];
 
 export function ComplianceCard() {
   return (
     <div className="rounded-xl border border-accent/30 bg-card p-[26px]">
-      <div className="mb-3.5 text-[15px] font-semibold">Contrat &amp; conformité</div>
+      <div className="mb-3.5 text-[15px] font-semibold">Contrat &amp; transparence</div>
       <div className="grid grid-cols-1 gap-2.5 text-[13.5px] sm:grid-cols-2">
-        {COMPLIANCE_ITEMS.map(item => (
+        {TRANSPARENCY_ITEMS.map(item => (
           <div key={item} className="flex gap-[9px]">
             <span className="font-bold text-accent">✓</span>
             <span>{item}</span>
@@ -111,7 +110,11 @@ export function ComplianceCard() {
   );
 }
 
-const REASSURANCE = ["Offre ferme 72 h", "Sans engagement de durée", "Facturation transparente"];
+const REASSURANCE = [
+  "Prix HT affiché avant paiement",
+  "Frais d'installation détaillés",
+  "Paiement hébergé par Stripe",
+];
 
 export function RecapSidebar({
   offer,
@@ -169,36 +172,4 @@ export function HelpCard() {
       </p>
     </div>
   );
-}
-
-/**
- * 72h offer-validity countdown shown in the chrome. Starts on first view of
- * this lead's offer (persisted in sessionStorage so navigating keeps the clock).
- */
-export function useOfferCountdown(key: string | number | undefined): string {
-  const storageKey = `dcm-offer-seen-${key ?? "anon"}`;
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  let start = now;
-  try {
-    const raw = sessionStorage.getItem(storageKey);
-    if (raw) {
-      start = Number(raw);
-    } else {
-      sessionStorage.setItem(storageKey, String(now));
-    }
-  } catch {
-    // Private mode: countdown simply starts at 72:00:00.
-  }
-
-  const remaining = Math.max(0, 72 * 3600 - Math.floor((now - start) / 1000));
-  const hh = String(Math.floor(remaining / 3600)).padStart(2, "0");
-  const mm = String(Math.floor((remaining % 3600) / 60)).padStart(2, "0");
-  const ss = String(remaining % 60).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
 }

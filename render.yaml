@@ -13,10 +13,15 @@ services:
   - type: web
     name: datacenter-market
     runtime: docker
-    plan: free # passer à "starter" quand les premiers clients arrivent (supprime la mise en veille)
+    # Environnement de staging/recette uniquement : le plan Free se met en veille
+    # et ne porte aucun engagement de production. Le Blueprint reste volontairement gratuit.
+    plan: free
     region: frankfurt # données en UE, cohérent avec le positionnement RGPD
+    # La sonde Render est une liveness stable et indépendante des services externes.
+    # Superviser /ready séparément pour détecter DB/Redis indisponibles ou Stripe mal configuré.
     healthCheckPath: /health
-    autoDeployTrigger: commit # chaque push sur la branche connectée redéploie
+    # Ne construire/déployer que les commits dont les checks GitHub sont verts.
+    autoDeployTrigger: checksPass
     envVars:
       # ---- Runtime (serveur) ----
       - key: DATABASE_URL # chaîne de connexion TiDB Serverless (étape 1 du tutoriel)
@@ -37,6 +42,17 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET # whsec_… du endpoint /api/stripe/webhook
         sync: false
+      # Garde-fou explicite : une clé sk_live_ reste inutilisable tant que ce
+      # drapeau n'est pas passé à true dans l'environnement après la recette live.
+      # Saisir false à la création ; pour un service existant, l'ajouter manuellement.
+      - key: STRIPE_LIVE_PAYMENTS_ENABLED
+        sync: false
+      - key: TRUST_PROXY_HOPS # Render est le premier proxy de confiance
+        value: "1"
+      - key: DB_READINESS_TIMEOUT_MS # tolère un réveil TiDB Serverless sans masquer une panne longue
+        value: "5000"
+      - key: DB_PREFLIGHT_TIMEOUT_MS # connexion du contrôle read-only au démarrage du conteneur
+        value: "10000"
       - key: SENTRY_DSN # optionnel — monitoring d'erreurs serveur
         sync: false
       - key: CSP_EXTRA_ORIGINS # REQUIS si VITE_SENTRY_DSN ou analytics : origines à autoriser

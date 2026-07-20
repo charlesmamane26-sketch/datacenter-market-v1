@@ -2,12 +2,7 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fmtEUR, leadRef } from "@/lib/format";
-import {
-  JourneyStepper,
-  MarketChrome,
-  MeterBar,
-  PageTitle,
-} from "@/components/market";
+import { JourneyStepper, MarketChrome, PageTitle } from "@/components/market";
 import { loadWorkloadRecap } from "@/lib/workloadRecap";
 import { loadLeadClaim } from "@/lib/leadClaim";
 
@@ -17,6 +12,7 @@ interface OfferCard {
   id: number;
   name: string;
   category: Category;
+  categories?: Category[];
   gpuType: string;
   gpuCount: number;
   cpuCores: number;
@@ -33,115 +29,28 @@ interface OfferCard {
 
 const CATEGORY_META: Record<
   Category,
-  { badge: string; text: string; bg: string; barTone: "lime" | "cyan" | "violet" }
+  { badge: string; text: string; bg: string }
 > = {
-  best_value: { badge: "MEILLEUR RAPPORT", text: "text-accent", bg: "bg-accent/10", barTone: "lime" },
-  fastest: { badge: "LE PLUS RAPIDE", text: "text-chart-2", bg: "bg-chart-2/10", barTone: "cyan" },
-  cheapest: { badge: "LE PLUS ÉCONOMIQUE", text: "text-chart-3", bg: "bg-chart-3/15", barTone: "violet" },
+  best_value: { badge: "MEILLEUR COMPROMIS", text: "text-accent", bg: "bg-accent/10" },
+  fastest: { badge: "DÉLAI LE PLUS COURT", text: "text-chart-2", bg: "bg-chart-2/10" },
+  cheapest: { badge: "PRIX LE PLUS BAS", text: "text-chart-3", bg: "bg-chart-3/15" },
 };
-
-function hoursOf(deploymentTime: string): number {
-  const h = deploymentTime.match(/(\d+)\s*h/i);
-  if (h) return Number(h[1]);
-  const d = deploymentTime.match(/(\d+)(?:\s*[–-]\s*\d+)?\s*j/i);
-  if (d) return Number(d[1]) * 24;
-  return 24 * 7;
-}
-
-function gpuSpecScore(o: OfferCard): number {
-  const tier = /h100/i.test(o.gpuType) ? 100 : /a100/i.test(o.gpuType) ? 78 : /l40s/i.test(o.gpuType) ? 70 : 60;
-  const ram = Math.min(1, o.ramGb / 512);
-  return Math.round(tier * 0.7 + ram * 100 * 0.3);
-}
-
-function slaScore(sla: string): number {
-  const pct = Number((sla.match(/99[.,]?(\d*)/)?.[0] ?? "99").replace(",", "."));
-  return pct >= 99.99 ? 100 : pct >= 99.9 ? 100 : 95;
-}
-
-/**
- * Client-side explainable scores (the matching API doesn't expose numbers):
- * price and delay are normalized across the displayed pool, specs from GPU tier
- * + RAM, conformity from the SLA. Global = 40 % budget · 30 % délai · 30 % specs.
- */
-function computeScores(offers: OfferCard[]) {
-  const prices = offers.map(o => Number(o.monthlyPrice));
-  const hours = offers.map(o => hoursOf(o.deploymentTime));
-  const minP = Math.min(...prices);
-  const maxP = Math.max(...prices);
-  const minH = Math.min(...hours);
-  const maxH = Math.max(...hours);
-  return offers.map((o, i) => {
-    const prix = maxP === minP ? 90 : Math.round(58 + 42 * ((maxP - prices[i]) / (maxP - minP)));
-    const delai = maxH === minH ? 90 : Math.round(58 + 42 * ((maxH - hours[i]) / (maxH - minH)));
-    const specs = gpuSpecScore(o);
-    const conformite = slaScore(o.sla);
-    const global = Math.round(prix * 0.4 + delai * 0.3 + specs * 0.3);
-    return { prix, delai, specs, conformite, global };
-  });
-}
-
-function verdictFor(
-  offer: OfferCard,
-  all: OfferCard[],
-): { headline: string; detail: string } {
-  const price = Number(offer.monthlyPrice);
-  const fastest = all.find(o => o.category === "fastest");
-  const best = all.find(o => o.category === "best_value");
-  const bestPrice = best ? Number(best.monthlyPrice) : price;
-  const fastestPrice = fastest ? Number(fastest.monthlyPrice) : price;
-  switch (offer.category) {
-    case "fastest": {
-      const premium = bestPrice ? Math.round(((price - bestPrice) / bestPrice) * 100) : 0;
-      return {
-        headline: `EN LIGNE DEMAIN — PREMIUM +${premium} %`,
-        detail: "Des jours de calcul gagnés vs l'offre recommandée.",
-      };
-    }
-    case "cheapest": {
-      const cut = bestPrice ? Math.round(((bestPrice - price) / bestPrice) * 100) : 0;
-      const yearly = Math.max(0, (bestPrice - price) * 12);
-      return {
-        headline: `−${cut} % — MAIS ${offer.gpuType.toUpperCase()} ET ${offer.deploymentTime.toUpperCase()}`,
-        detail: `~${fmtEUR(yearly)} économisés par an, si le délai convient.`,
-      };
-    }
-    default: {
-      const yearly = Math.max(0, (fastestPrice - price) * 12);
-      const cut = fastestPrice ? Math.round(((fastestPrice - price) / fastestPrice) * 100) : 0;
-      return {
-        headline: `MEILLEUR €/GPU DU POOL — ÉCONOMIE ${fmtEUR(yearly)}/AN`,
-        detail: `−${cut} % vs l'offre la plus rapide à specs équivalentes.`,
-      };
-    }
-  }
-}
-
-const SCORE_ROWS: { key: "prix" | "delai" | "specs" | "conformite"; label: string }[] = [
-  { key: "prix", label: "PRIX" },
-  { key: "delai", label: "DÉLAI" },
-  { key: "specs", label: "SPECS" },
-  { key: "conformite", label: "CONFORMITÉ" },
-];
 
 export default function ResultsScreen() {
   const [, setLocation] = useLocation();
   const leadIdParam = new URLSearchParams(window.location.search).get("leadId");
-  const leadId =
-    leadIdParam && Number.isFinite(Number(leadIdParam)) ? Number(leadIdParam) : undefined;
-  const { data: offers, isLoading } = trpc.offers.match.useQuery(
+  const parsedLeadId = leadIdParam == null ? Number.NaN : Number(leadIdParam);
+  const leadId = Number.isInteger(parsedLeadId) && parsedLeadId > 0 ? parsedLeadId : undefined;
+  const { data: offers, isLoading, isError, refetch } = trpc.offers.match.useQuery(
     // The claim token lets the server tailor the ranking to this lead's private
     // criteria; without it the match falls back to the full-catalogue ranking.
     leadId != null ? { leadId, claimToken: loadLeadClaim(leadId) } : {},
   );
-  const recap = loadWorkloadRecap();
+  const recap = loadWorkloadRecap(leadId);
 
-  const bestValueOffer = offers?.find(o => o.category === "best_value");
-  const fastestOffer = offers?.find(o => o.category === "fastest");
-  const cheapestOffer = offers?.find(o => o.category === "cheapest");
-  // Recommended card in the middle, as in the design.
-  const displayOffers = [fastestOffer, bestValueOffer, cheapestOffer].filter(Boolean) as OfferCard[];
-  const scores = computeScores(displayOffers);
+  // The API returns one row per distinct offer. `categories` preserves every
+  // factual distinction earned when one configuration wins several views.
+  const displayOffers = (offers ?? []) as OfferCard[];
 
   const goDetail = (offer: OfferCard) =>
     setLocation(`/offer-detail/${offer.id}` + (leadId != null ? `?leadId=${leadId}` : ""));
@@ -153,7 +62,7 @@ export default function ResultsScreen() {
         center={<JourneyStepper current={2} />}
         right={
           <span className="font-mono text-[11px] tracking-[.08em] text-muted-foreground">
-            {leadId != null ? leadRef(leadId) : "47 DC ANALYSÉS"}
+            {isLoading ? "ANALYSE…" : `${displayOffers.length} OPTION${displayOffers.length > 1 ? "S" : ""}`}
           </span>
         }
       />
@@ -170,17 +79,18 @@ export default function ResultsScreen() {
           <div className="flex flex-col gap-2.5">
             <PageTitle>Vos options</PageTitle>
             <p className="m-0 text-[16px] text-muted-foreground">
-              3 offres fermes — chaque score est décomposé, vous savez pourquoi une offre sort du
-              lot.
+              {isLoading
+                ? "Nous classons les configurations disponibles."
+                : `${displayOffers.length} option${displayOffers.length > 1 ? "s" : ""} disponible${displayOffers.length > 1 ? "s" : ""}, classée${displayOffers.length > 1 ? "s" : ""} selon le prix et le délai.`}
             </p>
           </div>
           <span className="whitespace-nowrap font-mono text-[11.5px] tracking-[.08em] text-muted-foreground">
-            {leadId != null ? `${leadRef(leadId)} · ` : ""}47 DC ANALYSÉS
+            {leadId != null ? leadRef(leadId) : "CATALOGUE DISPONIBLE"}
           </span>
         </div>
 
         <div className="mb-[34px] flex flex-wrap items-center gap-2.5">
-          {(recap?.chips ?? ["RÉGION UE", "OFFRES FERMES 72 H"]).map(chip => (
+          {(recap?.chips ?? ["CATALOGUE DISPONIBLE"]).map(chip => (
             <span
               key={chip}
               className="rounded-full border border-border bg-card px-3.5 py-[7px] font-mono text-[11px] tracking-[.08em] text-foreground"
@@ -194,9 +104,6 @@ export default function ResultsScreen() {
           >
             MODIFIER
           </button>
-          <span className="ml-auto hidden font-mono text-[10.5px] tracking-[.08em] text-muted-foreground md:block">
-            PONDÉRATION : BUDGET 40 % · DÉLAI 30 % · SPECS 30 %
-          </span>
         </div>
 
         {isLoading ? (
@@ -211,16 +118,43 @@ export default function ResultsScreen() {
               </div>
             ))}
           </div>
+        ) : isError ? (
+          <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-6">
+            <h2 className="mb-2 text-lg font-semibold">Résultats indisponibles</h2>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Le catalogue n'a pas pu être chargé. Votre demande n'est pas perdue.
+            </p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="rounded-[9px] bg-accent px-5 py-3 text-sm font-semibold text-accent-foreground"
+            >
+              Réessayer
+            </button>
+          </div>
+        ) : displayOffers.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-8 text-center">
+            <h2 className="mb-2 text-lg font-semibold">Aucune option disponible</h2>
+            <p className="mb-5 text-sm text-muted-foreground">
+              Modifiez votre demande ou contactez-nous pour une recherche personnalisée.
+            </p>
+            <button
+              type="button"
+              onClick={() => setLocation("/workload")}
+              className="rounded-[9px] bg-accent px-5 py-3 text-sm font-semibold text-accent-foreground"
+            >
+              Modifier ma demande
+            </button>
+          </div>
         ) : (
-          <div className="grid items-stretch gap-[22px] pt-3 md:grid-cols-3">
-            {displayOffers.map((offer, idx) => {
+          <div className="grid items-stretch gap-[22px] pt-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))]">
+            {displayOffers.map(offer => {
               const meta = CATEGORY_META[offer.category];
-              const s = scores[idx];
-              const recommended = offer.category === "best_value";
-              const verdict = verdictFor(offer, displayOffers);
+              const categories = offer.categories ?? [offer.category];
+              const recommended = categories.includes("best_value");
               return (
                 <div
-                  key={offer.category}
+                  key={offer.id}
                   className={`relative flex flex-col gap-[18px] rounded-xl border bg-card p-[26px] transition-colors duration-200 ${
                     recommended
                       ? "border-accent/65 shadow-[0_0_0_1px_color-mix(in_oklch,var(--accent)_20%,transparent),0_0_44px_color-mix(in_oklch,var(--accent)_10%,transparent)]"
@@ -231,17 +165,25 @@ export default function ResultsScreen() {
                 >
                   {recommended && (
                     <span className="absolute -top-[11px] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-[5px] bg-accent px-3 py-1 font-mono text-[10px] font-bold tracking-[.12em] text-accent-foreground">
-                      RECOMMANDÉ · MATCH {s.global} %
+                      RECOMMANDÉ
                     </span>
                   )}
 
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex flex-col gap-2">
-                      <span
-                        className={`self-start rounded-md px-2.5 py-[5px] font-mono text-[10.5px] font-semibold tracking-[.1em] ${meta.text} ${meta.bg}`}
-                      >
-                        {meta.badge}
-                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {categories.map(category => {
+                          const categoryMeta = CATEGORY_META[category];
+                          return (
+                            <span
+                              key={category}
+                              className={`self-start rounded-md px-2.5 py-[5px] font-mono text-[10.5px] font-semibold tracking-[.1em] ${categoryMeta.text} ${categoryMeta.bg}`}
+                            >
+                              {categoryMeta.badge}
+                            </span>
+                          );
+                        })}
+                      </div>
                       <div className="flex flex-col gap-0.5">
                         <h3 className="m-0 text-[20px] font-bold">{offer.name}</h3>
                         <span className="font-mono text-[10.5px] uppercase tracking-[.08em] text-muted-foreground">
@@ -250,7 +192,6 @@ export default function ResultsScreen() {
                         </span>
                       </div>
                     </div>
-                    <span className={`font-mono text-[24px] font-bold ${meta.text}`}>{s.global}</span>
                   </div>
 
                   <div
@@ -267,26 +208,30 @@ export default function ResultsScreen() {
                     <span className={`font-mono text-[12px] ${meta.text}`}>{offer.deploymentTime}</span>
                   </div>
 
-                  <div className="flex flex-col gap-2.5">
-                    {SCORE_ROWS.map(row => (
-                      <div key={row.key} className="flex items-center gap-2.5">
-                        <span className="w-[78px] font-mono text-[10px] tracking-[.08em] text-muted-foreground">
-                          {row.label}
-                        </span>
-                        <MeterBar value={s[row.key]} tone={meta.barTone} height={4} className="flex-1" />
-                        <span className="w-[26px] text-right font-mono text-[10.5px]">{s[row.key]}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <dl className="grid grid-cols-2 gap-3 border-t border-border/70 pt-3.5 text-[12.5px]">
+                    <div>
+                      <dt className="font-mono text-[10px] tracking-[.08em] text-muted-foreground">CPU</dt>
+                      <dd className="mt-1 font-semibold">{offer.cpuCores} cœurs</dd>
+                    </div>
+                    <div>
+                      <dt className="font-mono text-[10px] tracking-[.08em] text-muted-foreground">MÉMOIRE</dt>
+                      <dd className="mt-1 font-semibold">{offer.ramGb} Go</dd>
+                    </div>
+                    <div>
+                      <dt className="font-mono text-[10px] tracking-[.08em] text-muted-foreground">STOCKAGE</dt>
+                      <dd className="mt-1 font-semibold">{offer.storageGb} Go</dd>
+                    </div>
+                    <div>
+                      <dt className="font-mono text-[10px] tracking-[.08em] text-muted-foreground">SLA</dt>
+                      <dd className="mt-1 font-semibold">{offer.sla}</dd>
+                    </div>
+                  </dl>
 
-                  <div className="flex flex-col gap-1.5 border-t border-border/70 pt-3.5">
-                    <span className={`font-mono text-[10.5px] tracking-[.08em] ${meta.text}`}>
-                      {verdict.headline}
-                    </span>
-                    <span className="text-[12.5px] leading-[1.55] text-muted-foreground">
-                      {verdict.detail}
-                    </span>
-                  </div>
+                  {offer.description && (
+                    <p className="m-0 text-[12.5px] leading-[1.55] text-muted-foreground">
+                      {offer.description}
+                    </p>
+                  )}
 
                   <div className="mt-auto">
                     {recommended ? (
@@ -312,13 +257,13 @@ export default function ResultsScreen() {
         )}
 
         <div className="mt-[30px] flex flex-wrap items-center justify-center gap-3 text-[13px] text-muted-foreground md:gap-5">
-          <span>Prix HT · offres fermes valables 72 h</span>
+          <span>Prix HT · disponibilité confirmée au moment de la commande</span>
           <span className="hidden h-[3px] w-[3px] rounded-full bg-border md:block" />
           <button
             onClick={() => setLocation("/workload")}
             className="text-accent transition-colors hover:text-accent/80"
           >
-            Ajuster la pondération
+            Modifier ma demande
           </button>
         </div>
       </div>

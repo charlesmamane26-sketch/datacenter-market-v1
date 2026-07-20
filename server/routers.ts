@@ -1,4 +1,4 @@
-import { COOKIE_NAME, CONSENT_POLICY_VERSION } from "@shared/const";
+import { COOKIE_NAME, CONSENT_POLICY_VERSION, PURCHASE_TERMS_VERSION } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
 import { signLeadClaim, verifyLeadClaim } from "./leadClaim";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -9,11 +9,18 @@ import { sendInfrastructureReady } from "./clientNotifications";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
-import type { User } from "../drizzle/schema";
+import type { Lead, User } from "../drizzle/schema";
 import { matchOffers, type MatchCriteria } from "./matching";
 import { notifyOwner } from "./_core/notification";
 import { enforceRateLimit, clientIp } from "./rateLimit";
-import { createCheckoutSession, getStripe, getOrigin } from "./stripe";
+import {
+  createCheckoutSession,
+  getCheckoutSessionReferences,
+  getCheckoutSessionRedirectUrl,
+  getStripe,
+  getOrigin,
+  retrieveCheckoutSession,
+} from "./stripe";
 import { z } from "zod";
 import {
   createLead,
@@ -23,15 +30,31 @@ import {
   deleteLead,
   getAllOffers,
   getOffer,
+  getAllProviders,
+  getProvider,
+  createProvider as createProviderRecord,
+  updateProvider as updateProviderRecord,
+  getInventoryOffers,
+  updateOfferInventory,
   createOrder,
   getOrder,
   getOrdersByUser,
   getAllOrders,
   updateOrder,
+  transitionOrderStatus,
   getProvisioningEventsByOrder,
   createProvisioningEvent,
+  createProvisioningEventAndAdvanceOrder,
   getLatestMetricsForOrder,
+  CheckoutConflictError,
+  InventoryConflictError,
+  compensateFailedCheckout,
+  createCheckoutOrderAtomic,
+  getOrderByCheckoutIdempotencyKey,
+  linkOrderStripeReferences,
+  releaseExpiredCheckout,
 } from "./db";
+import { OrderLifecycleError } from "./orderLifecycle";
 
 /**
  * Loads an order and authorizes access: only its owner or an admin may read it.
@@ -65,18 +88,38 @@ const INITIAL_PROVISIONING_EVENTS = [
   { eventType: "ready", status: "pending", description: "Your infrastructure is ready to use." },
 ] as const;
 
+const MAX_INVENTORY_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
+const inventoryExpirySchema = z.union([
+  z.coerce
+    .date()
+    .refine(date => date.getTime() > Date.now(), "Inventory expiry must be in the future.")
+    .refine(
+      date => date.getTime() <= Date.now() + MAX_INVENTORY_TTL_MS,
+      "Inventory expiry cannot exceed 30 days.",
+    ),
+  z.null(),
+]);
+
 /**
  * Creates a pending order from a lead + offer: validates both, derives pricing server-side,
- * seeds the provisioning timeline, and marks the lead converted. Returns the order summary
+ * seeds the provisioning timeline, and marks the lead offered. Returns the order summary
  * (plus the resolved offer). Throws NOT_FOUND if the offer or lead is missing.
  */
 async function createPendingOrder(
   input: { leadId: number; offerId: number; claimToken?: string },
   userId: number,
+  checkout?: {
+    idempotencyKey: string;
+    termsAcceptedAt: Date;
+    termsVersion: string;
+  },
 ) {
-  const offer = await getOffer(input.offerId);
+  const offer = await getOffer(input.offerId, { sellableOnly: true });
   if (!offer) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Offer not found" });
+  }
+  if (offer.providerId == null) {
+    throw new TRPCError({ code: "CONFLICT", message: "Offer supplier is not assigned." });
   }
   const lead = await getLead(input.leadId);
   // A lead may be created anonymously (before login), then claimed at checkout.
@@ -96,29 +139,87 @@ async function createPendingOrder(
   } else if (!verifyLeadClaim(lead.id, input.claimToken)) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Lead not found" });
   }
+  if (lead.status === "converted" || lead.status === "rejected") {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: `A lead in status ${lead.status} cannot start a new order.`,
+    });
+  }
 
   // Pricing is derived server-side — never trust client-supplied amounts.
   const monthlyRecurring = offer.monthlyPrice;
   const setupFee = offer.setupFee ?? "0";
   const totalAmount = sumMoney(monthlyRecurring, setupFee);
 
-  const result = await createOrder({
+  const orderValues = {
     userId,
     leadId: input.leadId,
     offerId: input.offerId,
+    providerId: offer.providerId,
     totalAmount,
     setupFee,
     monthlyRecurring,
     status: "pending",
     paymentStatus: "pending",
-  });
+    ...(checkout
+      ? {
+          checkoutIdempotencyKey: checkout.idempotencyKey,
+          termsAcceptedAt: checkout.termsAcceptedAt,
+          termsVersion: checkout.termsVersion,
+        }
+      : {}),
+  } as const;
 
-  const insertId = Array.isArray(result)
-    ? (result[0] as { insertId?: number } | undefined)?.insertId
-    : undefined;
+  let insertId: number | undefined;
+  let persistedOrder: Awaited<ReturnType<typeof getOrder>> = null;
+  let created = true;
+  let checkoutSnapshot: {
+    previousLeadStatus: Lead["status"];
+    previousSelectedOfferId: number | null;
+  } | null = null;
+  if (checkout) {
+    try {
+      const result = await createCheckoutOrderAtomic({
+        order: {
+          ...orderValues,
+          checkoutIdempotencyKey: checkout.idempotencyKey,
+          termsAcceptedAt: checkout.termsAcceptedAt,
+          termsVersion: checkout.termsVersion,
+        },
+        events: INITIAL_PROVISIONING_EVENTS.map(event => ({ ...event })),
+        expectedLeadUserId: lead.userId,
+      });
+      persistedOrder = result.order;
+      insertId = result.order.id;
+      created = result.created;
+      if (result.created) {
+        checkoutSnapshot = {
+          previousLeadStatus: result.previousLeadStatus,
+          previousSelectedOfferId: result.previousSelectedOfferId,
+        };
+      }
+      if (result.order.leadId !== input.leadId || result.order.offerId !== input.offerId) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "This checkout idempotency key is already bound to another order.",
+        });
+      }
+    } catch (error) {
+      if (error instanceof CheckoutConflictError) {
+        throw new TRPCError({ code: "CONFLICT", message: error.message });
+      }
+      throw error;
+    }
+  } else {
+    const result = await createOrder(orderValues);
+    insertId = Array.isArray(result)
+      ? (result[0] as { insertId?: number } | undefined)?.insertId
+      : undefined;
+  }
 
-  // Seed the initial provisioning timeline so the confirmation page shows real events.
-  if (insertId != null) {
+  // Legacy/internal orders.create keeps its established write path. Checkout uses
+  // createCheckoutOrderAtomic, which seeds events and claims the lead transactionally.
+  if (!checkout && insertId != null) {
     for (const event of INITIAL_PROVISIONING_EVENTS) {
       await createProvisioningEvent({
         orderId: insertId,
@@ -132,23 +233,35 @@ async function createPendingOrder(
   // An offer was selected and checkout started — mark the lead "offered", record the choice,
   // and claim the lead for the ordering user if it was created anonymously.
   // It becomes "converted" only once payment succeeds (see applyStripeEvent in stripe.ts).
-  await updateLead(input.leadId, {
-    status: "offered",
-    selectedOfferId: input.offerId,
-    userId: lead.userId ?? userId,
-  });
+  if (!checkout) {
+    await updateLead(input.leadId, {
+      status: "offered",
+      selectedOfferId: input.offerId,
+      userId: lead.userId ?? userId,
+    });
+  }
 
   return {
     id: insertId,
     leadId: lead.id,
     offerId: offer.id,
-    totalAmount,
-    setupFee,
-    monthlyRecurring,
-    status: "pending" as const,
-    paymentStatus: "pending" as const,
+    totalAmount: persistedOrder?.totalAmount ?? totalAmount,
+    setupFee: persistedOrder?.setupFee ?? setupFee,
+    monthlyRecurring: persistedOrder?.monthlyRecurring ?? monthlyRecurring,
+    status: persistedOrder?.status ?? ("pending" as const),
+    paymentStatus: persistedOrder?.paymentStatus ?? ("pending" as const),
     offer,
+    created,
+    checkoutSnapshot,
+    stripeCheckoutSessionId: persistedOrder?.stripeCheckoutSessionId ?? null,
   };
+}
+
+function rethrowOrderLifecycleError(error: unknown): never {
+  if (error instanceof OrderLifecycleError) {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  throw error;
 }
 
 export const appRouter = router({
@@ -266,7 +379,8 @@ export const appRouter = router({
       .input(
         z.object({
           id: z.number().int().positive(),
-          status: z.enum(["new", "qualified", "offered", "converted", "rejected"]).optional(),
+          // "converted" is reserved to journaled Stripe payment transitions.
+          status: z.enum(["new", "qualified", "offered", "rejected"]).optional(),
           selectedOfferId: z.number().int().positive().optional(),
         })
       )
@@ -328,45 +442,146 @@ export const appRouter = router({
         }
         const result = matchOffers(catalogue, criteria);
         if (!result) return [];
-        return [
+        const ranked = [
           { ...result.bestValue, category: "best_value" as const },
           { ...result.fastest, category: "fastest" as const },
           { ...result.cheapest, category: "cheapest" as const },
         ];
+        const unique = new Map<
+          number,
+          (typeof ranked)[number] & { categories: Array<(typeof ranked)[number]["category"]> }
+        >();
+        for (const candidate of ranked) {
+          const existing = unique.get(candidate.id);
+          if (existing) {
+            existing.categories.push(candidate.category);
+          } else {
+            unique.set(candidate.id, { ...candidate, categories: [candidate.category] });
+          }
+        }
+        return Array.from(unique.values());
       }),
 
     get: publicProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .query(async ({ input }) => {
-        return getOffer(input.id);
+        return getOffer(input.id, { sellableOnly: true });
+      }),
+  }),
+
+  // Supplier and operational catalogue management. Pricing/specification edits
+  // stay outside this surface; this router only controls whether existing,
+  // server-priced offers are currently safe to sell.
+  inventory: router({
+    listProviders: adminProcedure.query(async () => {
+      return getAllProviders();
+    }),
+
+    createProvider: adminProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(2).max(255),
+          slug: z
+            .string()
+            .trim()
+            .min(2)
+            .max(100)
+            .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+          isActive: z.boolean().optional(),
+          contactEmail: z.string().trim().email().max(320).nullable().optional(),
+          website: z.string().trim().url().max(500).nullable().optional(),
+          notes: z.string().trim().max(5_000).nullable().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const provider = await createProviderRecord(input);
+        if (!provider) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Provider was created but could not be reloaded.",
+          });
+        }
+        return provider;
+      }),
+
+    updateProvider: adminProcedure
+      .input(
+        z
+          .object({
+            id: z.number().int().positive(),
+            name: z.string().trim().min(2).max(255).optional(),
+            slug: z
+              .string()
+              .trim()
+              .min(2)
+              .max(100)
+              .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+              .optional(),
+            isActive: z.boolean().optional(),
+            contactEmail: z.string().trim().email().max(320).nullable().optional(),
+            website: z.string().trim().url().max(500).nullable().optional(),
+            notes: z.string().trim().max(5_000).nullable().optional(),
+          })
+          .refine(({ id: _id, ...patch }) => Object.values(patch).some(value => value !== undefined), {
+            message: "At least one provider field must be supplied.",
+          }),
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...patch } = input;
+        const provider = await updateProviderRecord(id, patch);
+        if (!provider) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Provider not found" });
+        }
+        return provider;
+      }),
+
+    listOffers: adminProcedure.query(async () => {
+      return getInventoryOffers();
+    }),
+
+    updateOffer: adminProcedure
+      .input(
+        z
+          .object({
+            id: z.number().int().positive(),
+            expectedVersion: z.number().int().positive(),
+            providerId: z.number().int().positive().nullable().optional(),
+            isActive: z.boolean().optional(),
+            availabilityStatus: z
+              .enum(["available", "limited", "unavailable", "maintenance"])
+              .optional(),
+            availableCapacity: z.number().int().min(0).max(1_000_000).optional(),
+            availabilityExpiresAt: inventoryExpirySchema.optional(),
+          })
+          .refine(
+            ({ id: _id, expectedVersion: _expectedVersion, ...patch }) =>
+              Object.values(patch).some(value => value !== undefined),
+            { message: "At least one inventory field must be supplied." },
+          ),
+      )
+      .mutation(async ({ input }) => {
+        const { id, expectedVersion, ...patch } = input;
+        if (patch.providerId != null && !(await getProvider(patch.providerId))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Provider not found" });
+        }
+        let offer;
+        try {
+          offer = await updateOfferInventory(id, expectedVersion, patch);
+        } catch (error) {
+          if (error instanceof InventoryConflictError) {
+            throw new TRPCError({ code: "CONFLICT", message: error.message });
+          }
+          throw error;
+        }
+        if (!offer) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Offer not found" });
+        }
+        return offer;
       }),
   }),
 
   // Orders router
   orders: router({
-    create: protectedProcedure
-      .input(
-        z.object({
-          leadId: z.number().int().positive(),
-          offerId: z.number().int().positive(),
-          // Proof the caller may claim an anonymous lead (see createPendingOrder).
-          claimToken: z.string().optional(),
-        })
-      )
-      .mutation(async ({ input, ctx }) => {
-        // Anti-abuse: throttle per user (10 / minute). Each call fans out to ~8 DB
-        // writes (order + 5 provisioning events + lead update), so keep it bounded
-        // even though the client funnel goes through orders.checkout.
-        const limit = await enforceRateLimit(`order-create:${ctx.user.id}`, 10, 60_000);
-        if (!limit.allowed) {
-          throw new TRPCError({
-            code: "TOO_MANY_REQUESTS",
-            message: "Too many requests. Please wait a moment and try again.",
-          });
-        }
-        return createPendingOrder(input, ctx.user.id);
-      }),
-
     // Creates the pending order and a Stripe-hosted Checkout session; returns the payment URL.
     // The webhook (POST /api/stripe/webhook) is the source of truth for payment status.
     checkout: protectedProcedure
@@ -376,6 +591,8 @@ export const appRouter = router({
           offerId: z.number().int().positive(),
           // Proof the caller may claim an anonymous lead (see createPendingOrder).
           claimToken: z.string().optional(),
+          termsAccepted: z.literal(true),
+          idempotencyKey: z.string().trim().min(16).max(128),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -403,17 +620,105 @@ export const appRouter = router({
             message: "Could not determine the request origin for checkout URLs.",
           });
         }
-        const order = await createPendingOrder(input, ctx.user.id);
-        const url = await createCheckoutSession({
-          orderId: order.id ?? 0,
-          leadId: order.leadId,
-          offerId: order.offerId,
-          offerName: order.offer.name,
-          monthlyPrice: order.monthlyRecurring,
-          setupFee: order.setupFee,
-          origin,
-        });
-        return { orderId: order.id, url };
+        const existing = await getOrderByCheckoutIdempotencyKey(ctx.user.id, input.idempotencyKey);
+        if (existing && (existing.leadId !== input.leadId || existing.offerId !== input.offerId)) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "This checkout idempotency key is already bound to another order.",
+          });
+        }
+
+        const pendingOrder = existing
+          ? null
+          : await createPendingOrder(input, ctx.user.id, {
+              idempotencyKey: input.idempotencyKey,
+              termsAcceptedAt: new Date(),
+              termsVersion: PURCHASE_TERMS_VERSION,
+            });
+        const order = existing ?? pendingOrder;
+        const compensation =
+          pendingOrder?.created && pendingOrder.id && pendingOrder.checkoutSnapshot
+            ? {
+                orderId: pendingOrder.id,
+                userId: ctx.user.id,
+                idempotencyKey: input.idempotencyKey,
+                previousLeadStatus: pendingOrder.checkoutSnapshot.previousLeadStatus,
+                previousSelectedOfferId: pendingOrder.checkoutSnapshot.previousSelectedOfferId,
+              }
+            : null;
+
+        try {
+          if (!order?.id) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Checkout order is incomplete." });
+          }
+          let session;
+          if (order.stripeCheckoutSessionId) {
+            // Inventory may legitimately expire after a Checkout Session was
+            // created. Idempotent retries must resume that immutable Stripe
+            // session rather than re-evaluate today's catalogue availability.
+            session = await retrieveCheckoutSession(order.stripeCheckoutSessionId);
+            if (session.status === "expired") {
+              // This is an explicit remote terminal state, not a transport
+              // failure. Release only the local live-order gate so the client
+              // can rotate its idempotency key and start a fresh checkout.
+              await releaseExpiredCheckout({
+                orderId: order.id,
+                userId: ctx.user.id,
+                idempotencyKey: input.idempotencyKey,
+                checkoutSessionId: order.stripeCheckoutSessionId,
+              });
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: "This Checkout Session is no longer payable. Start a new checkout attempt.",
+              });
+            }
+          } else {
+            // Re-read immediately before creating remote state. The atomic path
+            // already validated inventory; this second gate covers an admin
+            // change between local persistence and Stripe Session creation.
+            const sellableOffer = await getOffer(order.offerId, { sellableOnly: true });
+            if (!sellableOffer) {
+              throw new TRPCError({ code: "CONFLICT", message: "This offer is no longer available." });
+            }
+            session = await createCheckoutSession(
+              {
+                orderId: order.id,
+                leadId: order.leadId,
+                offerId: order.offerId,
+                offerName: sellableOffer.name,
+                monthlyPrice: order.monthlyRecurring,
+                setupFee: order.setupFee ?? "0",
+                origin,
+              },
+              `checkout:${ctx.user.id}:${input.idempotencyKey}`,
+            );
+          }
+          const refs = getCheckoutSessionReferences(session);
+          await linkOrderStripeReferences(order.id, {
+            checkoutSessionId: refs.sessionId,
+            customerId: refs.customerId,
+            subscriptionId: refs.subscriptionId,
+            subscriptionStatus: refs.subscriptionStatus,
+          });
+          return {
+            orderId: order.id,
+            url: getCheckoutSessionRedirectUrl(session, order.id, origin),
+          };
+        } catch (error) {
+          if (compensation) {
+            try {
+              await compensateFailedCheckout(compensation);
+            } catch (compensationError) {
+              // Preserve the checkout error seen by the caller. The stale-order
+              // job remains a final safety net if this best-effort cleanup fails.
+              console.error(
+                `[Checkout] Could not compensate order ${compensation.orderId}:`,
+                String(compensationError),
+              );
+            }
+          }
+          throw error;
+        }
       }),
 
     get: protectedProcedure
@@ -461,8 +766,15 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input }) => {
-        await updateOrder(input.id, { status: input.status });
-        return getOrder(input.id);
+        try {
+          const order = await transitionOrderStatus(input.id, input.status);
+          if (!order) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+          }
+          return order;
+        } catch (error) {
+          rethrowOrderLifecycleError(error);
+        }
       }),
   }),
 
@@ -481,45 +793,42 @@ export const appRouter = router({
           orderId: z.number().int().positive(),
           eventType: z.enum(["order_received", "provider_matching", "contract_generation", "provisioning", "ready"]),
           status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(),
-          description: z.string().optional(),
+          description: z.string().trim().max(2_000).optional(),
         })
       )
       .mutation(async ({ input }) => {
         const status = input.status || "pending";
         const completedAt = status === "completed" ? new Date() : null;
-        const result = await createProvisioningEvent({
-          orderId: input.orderId,
-          eventType: input.eventType,
-          status,
-          description: input.description,
-          completedAt,
-        });
-        // Broadcast to any open SSE stream for this order so the client timeline
-        // updates live. createProvisioningEvent returns the insert result, not the
-        // row, so reconstruct the payload from the input + insertId.
-        const insertId = Array.isArray(result)
-          ? (result[0] as { insertId?: number } | undefined)?.insertId
-          : undefined;
-        publishProvisioningEvent(input.orderId, {
-          id: insertId,
-          orderId: input.orderId,
-          eventType: input.eventType,
-          status,
-          description: input.description ?? null,
-          completedAt,
-        });
+        let aggregate;
+        try {
+          aggregate = await createProvisioningEventAndAdvanceOrder({
+            orderId: input.orderId,
+            eventType: input.eventType,
+            status,
+            description: input.description,
+            completedAt,
+          });
+        } catch (error) {
+          rethrowOrderLifecycleError(error);
+        }
+        if (!aggregate) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+        }
+
+        // Publish only after the transaction commits, so readers can immediately
+        // reload a timeline and order summary which agree with the SSE payload.
+        publishProvisioningEvent(input.orderId, aggregate.event);
         // Best-effort: when provisioning completes, email the customer. Never let
         // an email failure break the admin mutation.
         if (input.eventType === "ready" && status === "completed") {
           try {
-            const order = await getOrder(input.orderId);
-            const lead = order ? await getLead(order.leadId) : null;
+            const lead = await getLead(aggregate.order.leadId);
             if (lead?.email) await sendInfrastructureReady(lead.email, input.orderId);
           } catch (error) {
             console.warn("[Provisioning] infra-ready email failed:", String(error));
           }
         }
-        return result;
+        return aggregate;
       }),
   }),
 
@@ -541,7 +850,11 @@ export const appRouter = router({
       const convertedLeads = allLeads.filter(l => l.status === "converted").length;
       const conversionRate =
         totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0;
-      const billableOrders = allOrders.filter(o => o.status !== "cancelled");
+      const billableOrders = allOrders.filter(
+        o =>
+          o.paymentStatus === "succeeded" &&
+          (o.status === "processing" || o.status === "provisioning" || o.status === "active"),
+      );
       const monthlyRevenue = billableOrders.reduce(
         (sum, o) => sum + Number(o.monthlyRecurring),
         0,

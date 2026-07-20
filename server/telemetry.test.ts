@@ -15,20 +15,68 @@ afterEach(() => vi.unstubAllEnvs());
 describe("MetricSchema", () => {
   it("accepts a partial sample and coerces numeric strings", async () => {
     const { MetricSchema } = await loadWithKey("k");
-    const parsed = MetricSchema.safeParse({ gpuUsagePercent: "87.5", gpuMemoryTotalGb: "640" });
+    const parsed = MetricSchema.safeParse({
+      gpuUsagePercent: "87.5",
+      gpuMemoryTotalGb: "640",
+    });
     expect(parsed.success).toBe(true);
-    expect(parsed.data).toEqual({ gpuUsagePercent: 87.5, gpuMemoryTotalGb: 640 });
+    expect(parsed.data).toEqual({
+      gpuUsagePercent: 87.5,
+      gpuMemoryTotalGb: 640,
+    });
   });
 
   it("rejects out-of-range percentages", async () => {
     const { MetricSchema } = await loadWithKey("k");
-    expect(MetricSchema.safeParse({ gpuUsagePercent: 150 }).success).toBe(false);
+    expect(MetricSchema.safeParse({ gpuUsagePercent: 150 }).success).toBe(
+      false
+    );
     expect(MetricSchema.safeParse({ cpuUsagePercent: -1 }).success).toBe(false);
   });
 
   it("rejects a non-integer total memory", async () => {
     const { MetricSchema } = await loadWithKey("k");
-    expect(MetricSchema.safeParse({ gpuMemoryTotalGb: 12.5 }).success).toBe(false);
+    expect(MetricSchema.safeParse({ gpuMemoryTotalGb: 12.5 }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects an empty metric sample", async () => {
+    const { MetricSchema } = await loadWithKey("k");
+    expect(MetricSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("isTelemetryEligibleOrder", () => {
+  it("accepts only paid orders in an active infrastructure lifecycle", async () => {
+    const { isTelemetryEligibleOrder } = await loadWithKey("k");
+    expect(
+      isTelemetryEligibleOrder({
+        paymentStatus: "succeeded",
+        status: "processing",
+      })
+    ).toBe(true);
+    expect(
+      isTelemetryEligibleOrder({
+        paymentStatus: "succeeded",
+        status: "provisioning",
+      })
+    ).toBe(true);
+    expect(
+      isTelemetryEligibleOrder({ paymentStatus: "succeeded", status: "active" })
+    ).toBe(true);
+    expect(
+      isTelemetryEligibleOrder({
+        paymentStatus: "pending",
+        status: "processing",
+      })
+    ).toBe(false);
+    expect(
+      isTelemetryEligibleOrder({
+        paymentStatus: "succeeded",
+        status: "cancelled",
+      })
+    ).toBe(false);
   });
 });
 

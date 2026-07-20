@@ -49,7 +49,7 @@ const HOW_IT_WORKS = [
     title: "Comparez",
     text: "Jusqu'à 3 offres chiffrées côte à côte : meilleur rapport qualité/prix, plus rapide, moins chère.",
   },
-  { num: "03", title: "Provisionnez", text: "Contrat, paiement sécurisé et mise en service en 72 h." },
+  { num: "03", title: "Provisionnez", text: "Paiement sécurisé et mise en service selon le délai affiché sur l'option." },
 ];
 
 // Extraits réels du catalogue (prix et délais de déploiement du seed).
@@ -258,14 +258,13 @@ export default function Home() {
               GPU as a Service :
             </span>
             <span className="block text-[42px] font-extrabold uppercase leading-[1.08] tracking-[-0.04em] text-accent md:text-[68px]">
-              tout le marché, un seul appel.
+              comparez le catalogue disponible.
             </span>
           </h1>
           <p className="m-0 pb-1.5 text-[14.5px] leading-[1.65] text-muted-foreground [text-wrap:pretty]">
-            DatacenterMarket centralise les offres GPU as a Service du marché : nous ne possédons
-            pas les GPU, nous mettons en concurrence les fournisseurs européens. Décrivez votre
-            workload, comparez jusqu'à trois offres — capacité mobilisée en 72 h par appel au
-            marché.
+            DatacenterMarket ne possède pas les GPU. Décrivez votre workload et comparez les
+            configurations européennes actuellement référencées, selon leur prix, leur SLA et
+            leur délai indicatif de mise en service.
           </p>
         </div>
       </div>
@@ -280,7 +279,7 @@ export default function Home() {
             Demander de la capacité →
           </span>
           <span className="font-mono text-[11px] font-semibold tracking-[.1em] md:text-[12.5px]">
-            DEVIS EN ~2 MIN · PROVISION EN 72 H
+            DEVIS EN ~2 MIN · DÉLAI AFFICHÉ PAR OPTION
           </span>
         </button>
       </div>
@@ -363,9 +362,8 @@ export default function Home() {
             <div className="flex flex-col gap-2.5 rounded-[10px] border border-border p-6">
               <h3 className="text-[16px] font-semibold uppercase tracking-[.02em]">Gammes GPU</h3>
               <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
-                H100 et A100 80 Go, L40S 48 Go (inférence), RTX 4090 24 Go (R&D) en configurations
-                dédiées de 4 à 16 GPU. H200 et B200 mobilisables via l'appel au marché, selon
-                disponibilité des fournisseurs.{" "}
+                H100 et A100 80 Go, L40S 48 Go (inférence), RTX 4090 24 Go (R&amp;D) en
+                configurations dédiées de 4 à 16 GPU, selon les options actuellement publiées.{" "}
                 <Link href="/gpu-as-a-service/" className="text-accent hover:underline">
                   Lire le guide GPU as a Service
                 </Link>
@@ -384,8 +382,8 @@ export default function Home() {
             <div className="flex flex-col gap-2.5 rounded-[10px] border border-border p-6">
               <h3 className="text-[16px] font-semibold uppercase tracking-[.02em]">Souveraineté &amp; RGPD</h3>
               <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
-                Catalogue 100 % hébergé dans l'UE, dont une configuration à Paris ; hébergement
-                100 % France recherché via l'appel au marché.{" "}
+                Catalogue 100 % hébergé dans l'UE, dont une configuration actuellement publiée à
+                Paris.{" "}
                 <Link href="/gpu-as-a-service/gpu-souverain-france/" className="text-accent hover:underline">
                   Découvrir le GPU souverain en France
                 </Link>

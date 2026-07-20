@@ -1,0 +1,3 @@
+# Drizzle hashes the raw SQL bytes recorded in __drizzle_migrations.
+# Keep migration line endings deterministic across Windows and Linux checkouts.
+drizzle/*.sql text eol=lf

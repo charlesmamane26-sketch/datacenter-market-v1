@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -8,6 +8,7 @@ import { SocialLoginButtons } from "@/components/auth/SocialLoginButtons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2 } from "lucide-react";
 import { JourneyStepper, MarketChrome } from "@/components/market";
+import { PURCHASE_TERMS_VERSION } from "@shared/const";
 import {
   ComplianceCard,
   HelpCard,
@@ -15,14 +16,54 @@ import {
   RecapSidebar,
   ServiceTermsCard,
   TechSummaryCard,
-  useOfferCountdown,
 } from "@/components/market/offerPurchase";
+
+function checkoutKeyStorageName(leadId: number, offerId: number): string {
+  return `dcm-checkout-idempotency:${leadId}:${offerId}`;
+}
+
+function newIdempotencyKey(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function getStableIdempotencyKey(leadId: number | undefined, offerId: number | undefined): string {
+  if (leadId == null || offerId == null) return newIdempotencyKey();
+  const storageKey = checkoutKeyStorageName(leadId, offerId);
+  try {
+    const stored = sessionStorage.getItem(storageKey);
+    if (stored) return stored;
+    const created = newIdempotencyKey();
+    sessionStorage.setItem(storageKey, created);
+    return created;
+  } catch {
+    return newIdempotencyKey();
+  }
+}
+
+function resetStableIdempotencyKey(leadId: number, offerId: number): void {
+  try {
+    sessionStorage.removeItem(checkoutKeyStorageName(leadId, offerId));
+  } catch {
+    // A fresh in-memory key will still be generated when storage is unavailable.
+  }
+}
+
+function trpcErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const data = (error as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return undefined;
+  const code = (data as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
 
 function readQueryNumber(key: string): number | undefined {
   const raw = new URLSearchParams(window.location.search).get(key);
   if (!raw) return undefined;
   const n = Number(raw);
-  return Number.isFinite(n) ? n : undefined;
+  return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
 export default function Checkout() {
@@ -30,18 +71,27 @@ export default function Checkout() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkoutAttempt, setCheckoutAttempt] = useState(0);
 
   const offerId = readQueryNumber("offerId");
   const leadId = readQueryNumber("leadId");
   const missingContext = offerId == null || leadId == null;
+  const idempotencyKey = useMemo(
+    () => getStableIdempotencyKey(leadId, offerId),
+    [leadId, offerId, checkoutAttempt],
+  );
 
   const { isAuthenticated, loading: authLoading } = useAuth();
-  const { data: offer, isLoading: offerLoading } = trpc.offers.get.useQuery(
+  const {
+    data: offer,
+    isLoading: offerLoading,
+    isError: offerError,
+    refetch: refetchOffer,
+  } = trpc.offers.get.useQuery(
     { id: offerId ?? 0 },
     { enabled: offerId != null },
   );
   const checkout = trpc.orders.checkout.useMutation();
-  const countdown = useOfferCountdown(leadId ?? offerId);
 
   const handleConfirm = async () => {
     setError(null);
@@ -49,15 +99,25 @@ export default function Checkout() {
       setError("Contexte de commande introuvable. Retournez aux résultats et choisissez une offre.");
       return;
     }
+    if (!termsAccepted) {
+      setError("Vous devez accepter les conditions générales avant de continuer.");
+      return;
+    }
     setIsProcessing(true);
     try {
       // Present the claim token if this lead was created anonymously in this
       // browser; ignored server-side once the lead is owned by the logged-in user.
-      const { url } = await checkout.mutateAsync({
+      // The server persists the acceptance version/time and uses this stable key
+      // to return the same order/session when the request is retried.
+      const checkoutInput = {
         leadId: leadId!,
         offerId: offerId!,
         claimToken: loadLeadClaim(leadId!),
-      });
+        termsAccepted: true as const,
+        termsVersion: PURCHASE_TERMS_VERSION,
+        idempotencyKey,
+      };
+      const { url } = await checkout.mutateAsync(checkoutInput);
       clearCheckoutIntent();
       if (url) {
         // Redirect to Stripe's hosted checkout page.
@@ -68,7 +128,13 @@ export default function Checkout() {
       }
     } catch (err) {
       console.error("Checkout failed:", err);
-      setError("Le paiement n'a pas pu démarrer. Veuillez réessayer.");
+      if (trpcErrorCode(err) === "CONFLICT" && leadId != null && offerId != null) {
+        resetStableIdempotencyKey(leadId, offerId);
+        setCheckoutAttempt(attempt => attempt + 1);
+        setError("La session de paiement précédente a expiré. Cliquez à nouveau pour en créer une nouvelle.");
+      } else {
+        setError("Le paiement n'a pas pu démarrer. Veuillez réessayer.");
+      }
       setIsProcessing(false);
     }
   };
@@ -83,8 +149,7 @@ export default function Checkout() {
         center={<JourneyStepper current={4} />}
         right={
           <span className="inline-flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[.1em] text-accent">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent animate-live-dot" />
-            OFFRE VALABLE {countdown}
+            PAIEMENT SÉCURISÉ
           </span>
         }
       />
@@ -110,11 +175,39 @@ export default function Checkout() {
               Retour aux résultats
             </button>
           </div>
-        ) : offerLoading || !offer ? (
+        ) : offerLoading ? (
           <div className="space-y-4">
             <Skeleton className="h-12 w-64" />
             <Skeleton className="h-6 w-full" />
             <Skeleton className="h-96 w-full" />
+          </div>
+        ) : offerError ? (
+          <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-[26px]">
+            <h1 className="mb-2 text-xl font-semibold">Option indisponible</h1>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Le détail de la configuration n'a pas pu être chargé.
+            </p>
+            <button
+              type="button"
+              onClick={() => refetchOffer()}
+              className="rounded-[9px] bg-accent px-5 py-3 text-sm font-semibold text-accent-foreground"
+            >
+              Réessayer
+            </button>
+          </div>
+        ) : !offer ? (
+          <div className="rounded-xl border border-border bg-card p-[26px]">
+            <h1 className="mb-2 text-xl font-semibold">Option introuvable</h1>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Cette configuration n'est plus disponible dans le catalogue.
+            </p>
+            <button
+              type="button"
+              onClick={() => setLocation(`/results?leadId=${leadId}`)}
+              className="rounded-[9px] bg-accent px-5 py-3 text-sm font-semibold text-accent-foreground"
+            >
+              Retour aux résultats
+            </button>
           </div>
         ) : (
           <>
@@ -142,11 +235,11 @@ export default function Checkout() {
                     <a href="/privacy" className="text-accent hover:underline">
                       politique de confidentialité
                     </a>
-                    .
+                    {" "}dans leurs versions en vigueur.
                   </span>
                 </label>
 
-                {error && <p className="text-sm text-destructive">{error}</p>}
+                {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
               </div>
 
               <div className="flex flex-col gap-[18px]">

@@ -29,17 +29,19 @@ export default function ClientDashboard() {
   const [, setLocation] = useLocation();
   const { data: orders } = trpc.orders.list.useQuery();
   const { data: offers } = trpc.offers.list.useQuery();
-  const logoutMutation = trpc.auth.logout.useMutation();
-
   const handleLogout = async () => {
-    await logoutMutation.mutateAsync();
-    logout();
-    setLocation("/");
+    try {
+      await logout();
+    } finally {
+      setLocation("/");
+    }
   };
 
   const orderList = orders ?? [];
   const offerById = new Map((offers ?? []).map(o => [o.id, o]));
-  const billable = orderList.filter(o => o.status !== "cancelled");
+  const billable = orderList.filter(
+    o => o.paymentStatus === "succeeded" && ACTIVE_STATUSES.includes(o.status),
+  );
   const monthlySpend = billable.reduce((sum, o) => sum + Number(o.monthlyRecurring), 0);
   const activeServices = orderList.filter(o => ACTIVE_STATUSES.includes(o.status)).length;
 

@@ -36,6 +36,20 @@
       "when": 1783885645339,
       "tag": "0004_true_omega_sentinel",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1784127654748,
+      "tag": "0005_soft_toad_men",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1784559403058,
+      "tag": "0006_mysterious_charles_xavier",
+      "breakpoints": true
     }
   ]
 }

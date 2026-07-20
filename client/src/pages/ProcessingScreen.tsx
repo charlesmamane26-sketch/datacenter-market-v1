@@ -4,12 +4,11 @@ import { leadRef } from "@/lib/format";
 import { JourneyStepper, MarketChrome } from "@/components/market";
 
 const SIMULATION_LOGS = [
-  { text: "Validation des spécifications du workload", duration: 1000 },
-  { text: "Analyse de 47 datacenters européens", duration: 1500 },
-  { text: "Filtrage RGPD & résidence des données UE", duration: 1200 },
-  { text: "Calcul des configurations optimales", duration: 1000 },
-  { text: "Cotation au cours du jour", duration: 1500 },
-  { text: "Préparation de vos 3 offres fermes", duration: 800 },
+  { text: "Validation des critères transmis", duration: 1000 },
+  { text: "Consultation du catalogue disponible", duration: 1200 },
+  { text: "Filtrage des configurations GPU", duration: 1000 },
+  { text: "Classement par prix et délai", duration: 1000 },
+  { text: "Préparation des options disponibles", duration: 800 },
 ];
 
 function timeNow(): string {
@@ -79,8 +78,8 @@ export default function ProcessingScreen() {
           </h1>
           <p className="m-0 max-w-[540px] text-[15px] text-muted-foreground">
             {isComplete
-              ? "3 offres fermes vous attendent — redirection…"
-              : "Notre moteur analyse les fournisseurs européens et génère vos offres personnalisées."}
+              ? "Vos options disponibles vous attendent — redirection…"
+              : "Notre moteur classe les configurations disponibles selon vos critères, leur prix et leur délai."}
           </p>
         </div>
 
@@ -122,7 +121,7 @@ export default function ProcessingScreen() {
         <span className="font-mono text-[11px] tracking-[.1em] text-muted-foreground">
           {isComplete
             ? "REDIRECTION VERS VOS OPTIONS…"
-            : `MATCHING ${Math.min(currentLine, SIMULATION_LOGS.length)}/${SIMULATION_LOGS.length} · OFFRES FERMES 72 H`}
+            : `MATCHING ${Math.min(currentLine, SIMULATION_LOGS.length)}/${SIMULATION_LOGS.length}`}
         </span>
       </div>
     </div>

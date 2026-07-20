@@ -1,4 +1,5 @@
 import type { Offer } from "../drizzle/schema";
+import { isOfferSellable } from "./inventory";
 
 /**
  * Offer-matching engine.
@@ -59,7 +60,8 @@ function inverseScore(value: number, min: number, max: number): number {
 }
 
 /**
- * Returns the best offer for each view, or null if the catalogue is empty.
+ * Returns the best offer for each view, or null when the catalogue is empty or
+ * no offer satisfies the requested hard constraints.
  * - cheapest: lowest monthly price
  * - fastest: soonest deployment
  * - best value: balanced composite of cheapness and speed
@@ -70,15 +72,22 @@ export function matchOffers(
 ): MatchResult | null {
   if (catalogue.length === 0) return null;
 
-  // 1. Prefer offers matching the requested GPU; fall back to the full catalogue if none.
-  let pool = catalogue.filter(o => gpuMatches(o.gpuType, criteria.gpuRequirement));
-  if (pool.length === 0) pool = catalogue;
+  // GPU and budget are hard constraints. Returning an unrelated or over-budget
+  // offer would make the recommendation misleading; callers can instead invite
+  // the prospect to broaden the request or ask for a bespoke quote.
+  // Defence in depth: DB catalogue reads already enforce this, but keeping the
+  // pure engine inventory-aware prevents a future caller from ranking a raw
+  // admin catalogue (or an offer whose freshness expired after it was loaded).
+  let pool = catalogue.filter(
+    offer => !("isActive" in offer) || isOfferSellable(offer),
+  );
+  pool = pool.filter(o => gpuMatches(o.gpuType, criteria.gpuRequirement));
+  if (pool.length === 0) return null;
 
-  // 2. Prefer offers within budget; keep the GPU pool if nothing fits.
   if (criteria.monthlyBudget != null) {
     const budget = criteria.monthlyBudget;
-    const affordable = pool.filter(o => price(o) <= budget);
-    if (affordable.length > 0) pool = affordable;
+    pool = pool.filter(o => price(o) <= budget);
+    if (pool.length === 0) return null;
   }
 
   const cheapest = [...pool].sort((a, b) => price(a) - price(b))[0];

@@ -30,7 +30,7 @@
 
   <!-- Headline -->
   <text x="80" y="290" font-family="'Inter','Segoe UI',system-ui,sans-serif" font-size="76" font-weight="800" letter-spacing="-2" fill="#FFFFFF">GPU as a Service :</text>
-  <text x="80" y="372" font-family="'Inter','Segoe UI',system-ui,sans-serif" font-size="76" font-weight="800" letter-spacing="-2" fill="#4FD8EB">tout le marché, un seul appel.</text>
+  <text x="80" y="372" font-family="'Inter','Segoe UI',system-ui,sans-serif" font-size="76" font-weight="800" letter-spacing="-2" fill="#4FD8EB">comparez le catalogue européen.</text>
 
   <!-- Subline -->
   <text x="82" y="436" font-family="'Inter','Segoe UI',system-ui,sans-serif" font-size="27" font-weight="400" fill="#9BA6A9">La plateforme qui centralise les offres GPUaaS · fournisseurs européens · UE, RGPD.</text>
