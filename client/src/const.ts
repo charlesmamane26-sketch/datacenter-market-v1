@@ -5,6 +5,29 @@ export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 /** Social providers the Manus portal federates (see server/_core/sdk.ts deriveLoginMethod). */
 export type OAuthProvider = "google" | "github";
 
+type OAuthConfig = {
+  appId: string;
+  portalUrl: string;
+};
+
+const readOAuthConfig = (): OAuthConfig | null => {
+  const portalUrl = import.meta.env.VITE_OAUTH_PORTAL_URL?.trim();
+  const appId = import.meta.env.VITE_APP_ID?.trim();
+
+  if (!portalUrl || !appId) return null;
+
+  try {
+    const parsed = new URL(portalUrl);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+  } catch {
+    return null;
+  }
+
+  return { appId, portalUrl };
+};
+
+export const isOAuthConfigured = (): boolean => readOAuthConfig() !== null;
+
 /** Cryptographically-random URL-safe nonce for the OAuth double-submit check. */
 const generateNonce = (): string => {
   const bytes = new Uint8Array(16);
@@ -15,9 +38,10 @@ const generateNonce = (): string => {
 // Generate login URL at runtime so redirect URI reflects the current origin.
 // `provider` is an optional hint to deep-link straight to Google/GitHub on the
 // Manus portal instead of its method picker.
-export const getLoginUrl = (provider?: OAuthProvider) => {
-  const oauthPortalUrl = import.meta.env.VITE_OAUTH_PORTAL_URL;
-  const appId = import.meta.env.VITE_APP_ID;
+export const getLoginUrl = (provider?: OAuthProvider): string | null => {
+  const config = readOAuthConfig();
+  if (!config || typeof window === "undefined") return null;
+
   const redirectUri = `${window.location.origin}/api/oauth/callback`;
 
   // CSRF protection: a random nonce is stored in a cookie *and* embedded in the
@@ -32,10 +56,8 @@ export const getLoginUrl = (provider?: OAuthProvider) => {
 
   const state = btoa(JSON.stringify({ r: redirectUri, n: nonce }));
 
-  if (!oauthPortalUrl) return "/";
-
-  const url = new URL(`${oauthPortalUrl}/app-auth`);
-  url.searchParams.set("appId", appId ?? "");
+  const url = new URL(`${config.portalUrl.replace(/\/+$/, "")}/app-auth`);
+  url.searchParams.set("appId", config.appId);
   url.searchParams.set("redirectUri", redirectUri);
   url.searchParams.set("state", state);
   url.searchParams.set("type", "signIn");
