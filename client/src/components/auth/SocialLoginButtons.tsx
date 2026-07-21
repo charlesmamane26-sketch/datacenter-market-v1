@@ -1,4 +1,4 @@
-import { getLoginUrl, type OAuthProvider } from "@/const";
+import { getLoginUrl, isOAuthConfigured, type OAuthProvider } from "@/const";
 import { markRoleRedirect } from "@/lib/postLoginRedirect";
 import { cn } from "@/lib/utils";
 
@@ -20,10 +20,15 @@ export function SocialLoginButtons({
   className?: string;
   showGenericFallback?: boolean;
 }) {
+  const oauthConfigured = isOAuthConfigured();
+
   const start = (provider?: OAuthProvider) => {
+    const loginUrl = getLoginUrl(provider);
+    if (!loginUrl) return;
+
     onBeforeRedirect?.();
     markRoleRedirect();
-    window.location.href = getLoginUrl(provider);
+    window.location.href = loginUrl;
   };
 
   const btn =
@@ -31,11 +36,21 @@ export function SocialLoginButtons({
 
   return (
     <div className={cn("flex flex-col gap-2.5", className)}>
-      <button type="button" onClick={() => start("google")} className={btn}>
+      <button
+        type="button"
+        onClick={() => start("google")}
+        className={btn}
+        disabled={!oauthConfigured}
+      >
         <GoogleIcon />
         Continuer avec Google
       </button>
-      <button type="button" onClick={() => start("github")} className={btn}>
+      <button
+        type="button"
+        onClick={() => start("github")}
+        className={btn}
+        disabled={!oauthConfigured}
+      >
         <GithubIcon />
         Continuer avec GitHub
       </button>
@@ -43,10 +58,19 @@ export function SocialLoginButtons({
         <button
           type="button"
           onClick={() => start()}
+          disabled={!oauthConfigured}
           className="mt-0.5 text-center text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
         >
           Autre méthode de connexion
         </button>
+      )}
+      {!oauthConfigured && (
+        <p
+          role="alert"
+          className="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-center text-[12.5px] leading-[1.5] text-amber-200"
+        >
+          La connexion est temporairement indisponible. Merci de réessayer plus tard.
+        </p>
       )}
     </div>
   );

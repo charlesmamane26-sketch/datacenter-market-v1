@@ -132,7 +132,7 @@ export default function Home() {
             Guide GPU as a Service
           </Link>
           <button
-            onClick={() => setLocation("/dashboard")}
+            onClick={() => setLocation("/login")}
             className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
           >
             Mon compte
@@ -159,7 +159,7 @@ export default function Home() {
             Guide GPU as a Service
           </Link>
           <button
-            onClick={() => setLocation("/dashboard")}
+            onClick={() => setLocation("/login")}
             className="flex min-h-12 items-center text-[14px] text-muted-foreground"
           >
             Mon compte
