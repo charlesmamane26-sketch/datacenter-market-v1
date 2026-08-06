@@ -34,10 +34,10 @@ Tick these before every production deploy. Details in the linked sections.
       verifies connectivity and every journaled migration's exact timestamp + SQL hash; it
       never creates a table or applies SQL.
 - [ ] ⚠️ **Apply migrations _before_ deploying the new code.** `leads.create` now writes the consent
-      columns from `0004`, while checkout requires the Stripe journal/idempotency columns from
-      `0005` and inventory filtering requires the provider/availability fields from `0006`.
-      Shipping the code first breaks those flows. These migrations are additive and can be applied
-      before the new code.
+      columns from `0004`, checkout requires the Stripe journal/idempotency columns from `0005`,
+      inventory filtering requires the provider/availability fields from `0006`, and atomic
+      inventory reservation plus RGPD erasure evidence require `0007`. Shipping the code first
+      breaks those flows. These migrations are additive and can be applied before the new code.
 
 **Install / build (§3)**
 
@@ -163,8 +163,10 @@ only issues `SELECT` statements; apply migrations explicitly before deploying.
   Stripe event journal plus checkout/subscription/idempotency evidence and indexes used by the
   webhook flow; **`0006`** creates `providers`, adds fail-closed offer activation/capacity/freshness
   and snapshots `providerId` on each order. Migrated and seeded rows stay inactive/unavailable until
-  an operator verifies the supplier, price, SLA and expiry, then explicitly activates them in admin.
-  `availableCapacity` is an operator snapshot used as a sales gate, not yet a reservation ledger.
+  an operator verifies the supplier, price, SLA and expiry, then explicitly activates them in admin;
+  **`0007`** refuses orphaned historical orders before adding foreign keys to users, leads and offers,
+  adds the RGPD erasure timestamp, and records idempotent inventory reservation/release timestamps.
+  The application adjusts `availableCapacity` atomically when an order reserves or releases capacity.
 
 ## 6. RGPD data retention (cron)
 
