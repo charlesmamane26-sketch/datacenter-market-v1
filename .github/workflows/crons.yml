@@ -10,6 +10,9 @@
 #     runner in the same VPC), and drop DATABASE_URL from Actions entirely; or
 #   - keep this workflow but restrict DB ingress to GitHub's published runner IP
 #     ranges and scope the credential to only the tables these jobs touch.
+# The manual migrate-staging operation exists for the free Render staging service,
+# which has no pre-deploy command, shell or one-off jobs. Never confirm it unless
+# the DATABASE_URL repository secret has first been verified to target staging.
 name: RGPD crons
 
 permissions:
@@ -23,7 +26,26 @@ on:
   schedule:
     - cron: "0 3 * * *" # daily: purge stale unconverted leads (LEAD_RETENTION_DAYS)
     - cron: "30 * * * *" # hourly: cancel abandoned pending/unpaid orders
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Operation to run
+        required: true
+        default: maintenance
+        type: choice
+        options:
+          - maintenance
+          - migrate-staging
+      confirm_staging_migration:
+        description: Confirm that DATABASE_URL targets staging before migrating
+        required: true
+        default: false
+        type: boolean
+      expected_database_url_sha256:
+        description: SHA-256 of the approved Render staging DATABASE_URL
+        required: false
+        default: ""
+        type: string
 jobs:
   maintenance:
     runs-on: ubuntu-latest
@@ -39,13 +61,45 @@ jobs:
           package-manager-cache: false
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - name: Verify staging migration target
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'migrate-staging'
+        env:
+          CONFIRM_STAGING_MIGRATION: ${{ inputs.confirm_staging_migration }}
+          EXPECTED_DATABASE_URL_SHA256: ${{ inputs.expected_database_url_sha256 }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ "$CONFIRM_STAGING_MIGRATION" != "true" ]; then
+            echo "Refusing to migrate: confirm_staging_migration must be true."
+            exit 1
+          fi
+          if [ "$GITHUB_REF" != "refs/heads/audit-remediation-2026-08-06" ]; then
+            echo "Refusing to migrate from an unapproved branch."
+            exit 1
+          fi
+          if ! printf '%s' "$EXPECTED_DATABASE_URL_SHA256" | grep -Eq '^[a-f0-9]{64}$'; then
+            echo "Refusing to migrate: the staging database fingerprint is invalid."
+            exit 1
+          fi
+          ACTUAL_DATABASE_URL_SHA256="$(printf '%s' "$DATABASE_URL" | sha256sum | cut -d' ' -f1)"
+          if [ "$ACTUAL_DATABASE_URL_SHA256" != "$EXPECTED_DATABASE_URL_SHA256" ]; then
+            echo "Refusing to migrate: GitHub and Render target different databases."
+            exit 1
+          fi
+      - name: Apply committed migrations and verify staging
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'migrate-staging' && inputs.confirm_staging_migration == true && github.ref == 'refs/heads/audit-remediation-2026-08-06'
+        run: |
+          pnpm db:migrate
+          pnpm db:preflight
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
       - name: Cancel stale orders
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'maintenance')
         run: pnpm db:cancel-stale
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           STALE_ORDER_HOURS: ${{ vars.STALE_ORDER_HOURS || '24' }}
       - name: Purge stale leads (daily schedule or manual run only)
-        if: github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '0 3 * * *' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'maintenance')
         run: pnpm db:purge
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

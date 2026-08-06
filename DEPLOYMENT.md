@@ -141,6 +141,14 @@ only issues `SELECT` statements; apply migrations explicitly before deploying.
 - `pnpm db:migrate` applies only already committed migrations. Run it once from a controlled
   migration job before deploying code that depends on the new schema. `pnpm db:push` remains a
   compatibility alias for this migrate-only operation; it no longer generates SQL during deploy.
+- The free Render staging service has no pre-deploy command, shell or one-off jobs. For a reviewed
+  pre-merge staging branch, dispatch `.github/workflows/crons.yml` on that exact branch with
+  `operation=migrate-staging`, `confirm_staging_migration=true`, and
+  `expected_database_url_sha256` set to the SHA-256 of the approved Render staging connection URL.
+  The job is branch-locked and refuses to run if the repository secret and Render fingerprint
+  differ. It then runs only `pnpm db:migrate` followed by `pnpm db:preflight`; scheduled and manual
+  maintenance steps are skipped. Do not use this path for production; use a protected migration job
+  inside the production network.
 - `pnpm db:preflight` is the non-mutating counterpart for CI/CD and operator checks. It compares
   **every** entry in `drizzle/meta/_journal.json` (timestamp + SHA-256 of the exact SQL bytes) with
   `__drizzle_migrations`, and requires the journal and `drizzle/*.sql` file set to match exactly.
