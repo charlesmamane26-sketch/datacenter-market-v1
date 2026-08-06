@@ -29,6 +29,9 @@ ARG VITE_SENTRY_DSN
 
 COPY . .
 RUN pnpm build
+# Vite and the CSS/test toolchain are loaded dynamically in development only.
+# Prune them after the build so the runtime image contains production packages.
+RUN pnpm prune --prod
 
 # ---- Runtime stage ----
 FROM node:22-slim AS runtime
@@ -36,9 +39,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# The server is bundled with `esbuild --packages=external`, AND it statically imports
-# `vite` (via the dev/prod branch in server/_core/vite.ts). The FULL dependency set
-# must therefore be present at runtime — do NOT prune to production-only deps.
+# The server bundle externalizes npm packages, so retain all production and
+# optional dependencies (including mysql2/ioredis) but no build/test toolchain.
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/drizzle ./drizzle

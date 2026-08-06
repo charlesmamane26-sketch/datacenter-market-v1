@@ -43,8 +43,10 @@ jobs:
         run: pnpm db:cancel-stale
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          STALE_ORDER_HOURS: ${{ vars.STALE_ORDER_HOURS || '24' }}
       - name: Purge stale leads (daily schedule or manual run only)
         if: github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch'
         run: pnpm db:purge
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          LEAD_RETENTION_DAYS: ${{ vars.LEAD_RETENTION_DAYS || '730' }}

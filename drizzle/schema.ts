@@ -54,6 +54,9 @@ export const leads = mysqlTable("leads", {
   // was recorded. consentPolicyVersion pins which policy text was accepted.
   consentedAt: timestamp("consentedAt"),
   consentPolicyVersion: varchar("consentPolicyVersion", { length: 32 }),
+  // Tombstone marker for GDPR erasure. Referenced leads cannot be deleted once
+  // order foreign keys are enforced, so their PII is irreversibly anonymized.
+  personalDataErasedAt: timestamp("personalDataErasedAt"),
 
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -128,8 +131,7 @@ export const offers = mysqlTable("offers", {
     "unavailable",
     "maintenance",
   ]).default("unavailable").notNull(),
-  // Operator-declared free units snapshot. Checkout gates on > 0 but does not
-  // decrement it yet; a reservation ledger is required before auto-decrementing.
+  // Free units remaining after atomic checkout reservations.
   availableCapacity: int("availableCapacity").default(0).notNull(),
   availabilityUpdatedAt: timestamp("availabilityUpdatedAt").defaultNow().notNull(),
   // Optimistic concurrency guard for simultaneous admin edits.
@@ -151,9 +153,18 @@ export type InsertOffer = typeof offers.$inferInsert;
  */
 export const orders = mysqlTable("orders", {
   id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  leadId: int("leadId").notNull(),
-  offerId: int("offerId").notNull(),
+  userId: int("userId").notNull().references(() => users.id, {
+    onDelete: "restrict",
+    onUpdate: "cascade",
+  }),
+  leadId: int("leadId").notNull().references(() => leads.id, {
+    onDelete: "restrict",
+    onUpdate: "cascade",
+  }),
+  offerId: int("offerId").notNull().references(() => offers.id, {
+    onDelete: "restrict",
+    onUpdate: "cascade",
+  }),
   // Immutable supplier snapshot. Offers may be reassigned later, but an order
   // must keep the supplier which was locked and validated at checkout time.
   providerId: int("providerId").notNull().references(() => providers.id, {
@@ -183,6 +194,11 @@ export const orders = mysqlTable("orders", {
   stripeLastSubscriptionEventCreated: bigint("stripeLastSubscriptionEventCreated", { mode: "number", unsigned: true }),
   stripeTerminalAt: timestamp("stripeTerminalAt"),
   paymentStatus: mysqlEnum("paymentStatus", ["pending", "succeeded", "failed", "cancelled"]).default("pending").notNull(),
+
+  // Capacity is reserved once per checkout. Legacy rows remain null so release
+  // paths never credit inventory that was not previously decremented.
+  inventoryReservedAt: timestamp("inventoryReservedAt"),
+  inventoryReleasedAt: timestamp("inventoryReleasedAt"),
 
   // Checkout evidence and application-level idempotency. Existing/legacy rows may
   // be null; orders.checkout always supplies all three values server-side.

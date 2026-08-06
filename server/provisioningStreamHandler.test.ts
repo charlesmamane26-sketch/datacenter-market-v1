@@ -20,7 +20,15 @@ vi.mock("./rateLimit", () => ({
 
 import { sdk } from "./_core/sdk";
 import { getOrder, getProvisioningEventsByOrder } from "./db";
-import { registerProvisioningStream, publishProvisioningEvent } from "./provisioningStream";
+import {
+  __activeStreamCount,
+  __resetActiveStreamsForTests,
+  __subscriberCount,
+  registerProvisioningStream,
+  publishProvisioningEvent,
+} from "./provisioningStream";
+
+const responses: any[] = [];
 
 // Capture the single registered GET handler.
 function getHandler() {
@@ -32,6 +40,7 @@ function getHandler() {
 
 function makeRes() {
   const res: any = new EventEmitter();
+  responses.push(res);
   res.statusCode = 200;
   res.headers = {};
   res.body = "";
@@ -52,7 +61,11 @@ function makeReq(orderId: string) {
   return req;
 }
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  responses.splice(0).forEach(res => res.emit("close"));
+  vi.clearAllMocks();
+  __resetActiveStreamsForTests();
+});
 
 describe("SSE provisioning handler", () => {
   it("returns 401 when the session is invalid", async () => {
@@ -145,5 +158,27 @@ describe("SSE provisioning handler", () => {
     res.writes.length = 0;
     publishProvisioningEvent(42, { orderId: 42, eventType: "ready", status: "completed", description: "after-res-close" });
     expect(res.writes.some((w: string) => w.includes("after-res-close"))).toBe(false);
+  });
+
+  it("releases its slot when the client closes during the initial snapshot", async () => {
+    (sdk.authenticateRequest as any).mockResolvedValueOnce({ id: 7, role: "user" });
+    (getOrder as any).mockResolvedValueOnce({ id: 42, userId: 7 });
+    let resolveSnapshot!: (value: unknown[]) => void;
+    (getProvisioningEventsByOrder as any).mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveSnapshot = resolve;
+      })
+    );
+    const handler = getHandler();
+    const res = makeRes();
+    const handling = handler(makeReq("42"), res);
+
+    await vi.waitFor(() => expect(__activeStreamCount("1.2.3.4")).toBe(1));
+    res.emit("close");
+    resolveSnapshot([]);
+    await handling;
+
+    expect(__activeStreamCount("1.2.3.4")).toBe(0);
+    expect(__subscriberCount(42)).toBe(0);
   });
 });

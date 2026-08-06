@@ -24,3 +24,25 @@ export function loadLeadClaim(leadId: number): string | undefined {
     return undefined;
   }
 }
+
+export function clearLeadClaim(leadId: number): void {
+  try {
+    localStorage.removeItem(PREFIX + leadId);
+  } catch {
+    // Ignore storage errors: the server-side token still expires independently.
+  }
+}
+
+/** Remove every opaque lead capability stored by this browser. */
+export function clearAllLeadClaims(): void {
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(PREFIX)) keys.push(key);
+    }
+    keys.forEach(key => localStorage.removeItem(key));
+  } catch {
+    // Ignore storage errors. Tokens are opaque and expire server-side.
+  }
+}

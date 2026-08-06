@@ -33,6 +33,28 @@ export interface ProvisioningStreamEvent {
 type Listener = (event: ProvisioningStreamEvent) => void;
 
 const subscribers = new Map<number, Set<Listener>>();
+const activeStreamsByIp = new Map<string, number>();
+export const MAX_SSE_CONNECTIONS_PER_IP = 5;
+
+/**
+ * Reserve one long-lived SSE connection for an IP. Opening-rate limits do not
+ * protect against clients that keep every accepted socket open, so enforce a
+ * separate concurrent cap and return an idempotent release function.
+ */
+export function acquireStreamSlot(ip: string): (() => void) | null {
+  const current = activeStreamsByIp.get(ip) ?? 0;
+  if (current >= MAX_SSE_CONNECTIONS_PER_IP) return null;
+  activeStreamsByIp.set(ip, current + 1);
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = (activeStreamsByIp.get(ip) ?? 1) - 1;
+    if (remaining <= 0) activeStreamsByIp.delete(ip);
+    else activeStreamsByIp.set(ip, remaining);
+  };
+}
 
 /** Subscribe to an order's events. Returns an unsubscribe function. */
 export function subscribeProvisioning(
@@ -75,6 +97,14 @@ export function __subscriberCount(orderId: number): number {
   return subscribers.get(orderId)?.size ?? 0;
 }
 
+export function __activeStreamCount(ip: string): number {
+  return activeStreamsByIp.get(ip) ?? 0;
+}
+
+export function __resetActiveStreamsForTests(): void {
+  activeStreamsByIp.clear();
+}
+
 function writeEvent(res: Response, eventName: string, payload: unknown): void {
   res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
@@ -86,7 +116,8 @@ export function registerProvisioningStream(app: Express) {
     "/api/provisioning/:orderId/stream",
     asyncHandler(async (req: Request, res: Response) => {
       // Throttle stream opens per IP (an open EventSource holds a connection).
-      const limit = await enforceRateLimit(`sse:${clientIp(req)}`, 30, 60_000);
+      const streamIp = clientIp(req);
+      const limit = await enforceRateLimit(`sse:${streamIp}`, 30, 60_000);
       if (!limit.allowed) {
         res.status(429).json({ error: "Too many requests." });
         return;
@@ -116,6 +147,31 @@ export function registerProvisioningStream(app: Express) {
         return;
       }
 
+      const releaseStreamSlot = acquireStreamSlot(streamIp);
+      if (!releaseStreamSlot) {
+        res.status(429).json({ error: "Too many concurrent streams." });
+        return;
+      }
+
+      let unsubscribe: () => void = () => {};
+      let unsubscribeAlerts: () => void = () => {};
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      let finalized = false;
+      const finalize = () => {
+        if (finalized) return;
+        finalized = true;
+        if (heartbeat) clearInterval(heartbeat);
+        unsubscribe();
+        unsubscribeAlerts();
+        releaseStreamSlot();
+      };
+
+      // Register cleanup before the first await after slot acquisition. A client
+      // may disconnect while the initial snapshot query is still pending; if the
+      // listener were installed afterwards, the slot and future heartbeat would
+      // leak until process restart.
+      res.once("close", finalize);
+
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
@@ -134,29 +190,24 @@ export function registerProvisioningStream(app: Express) {
         console.error("[Provisioning SSE] Snapshot failed:", String(error));
       }
 
-      const unsubscribe = subscribeProvisioning(orderId, event => {
+      if (finalized || res.destroyed || res.writableEnded) {
+        finalize();
+        return;
+      }
+
+      unsubscribe = subscribeProvisioning(orderId, event => {
         writeEvent(res, "provisioning", event);
       });
       // Same stream also carries telemetry threshold alerts for this order.
-      const unsubscribeAlerts = subscribeAlerts(orderId, alert => {
+      unsubscribeAlerts = subscribeAlerts(orderId, alert => {
         writeEvent(res, "alert", alert);
       });
 
       // Heartbeat (SSE comment) keeps the connection alive through idle proxy/LB
       // timeouts (commonly 30–60s).
-      const heartbeat = setInterval(() => {
+      heartbeat = setInterval(() => {
         res.write(": ping\n\n");
       }, HEARTBEAT_MS);
-
-      // Use res "close" (connection closed), NOT req "close": on a GET the request
-      // body ends immediately, which would fire req "close" right after subscribing
-      // and tear the stream down before any event is delivered.
-      res.on("close", () => {
-        clearInterval(heartbeat);
-        unsubscribe();
-        unsubscribeAlerts();
-        res.end();
-      });
     })
   );
 }

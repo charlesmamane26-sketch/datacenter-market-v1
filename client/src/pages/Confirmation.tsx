@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useProvisioningStream } from "@/hooks/useProvisioningStream";
 import { fmtEUR, orderRef } from "@/lib/format";
@@ -58,7 +60,17 @@ function readQueryNumber(key: string): number | undefined {
 
 export default function Confirmation() {
   const [, setLocation] = useLocation();
+  const {
+    user,
+    loading: authLoading,
+    error: authError,
+    refresh: refreshAuth,
+  } = useAuth();
   const orderId = readQueryNumber("orderId");
+
+  useEffect(() => {
+    if (!authLoading && !authError && !user) setLocation("/login");
+  }, [authError, authLoading, setLocation, user]);
 
   const {
     data: order,
@@ -68,20 +80,22 @@ export default function Confirmation() {
   } = trpc.orders.get.useQuery(
     { id: orderId ?? 0 },
     {
-      enabled: orderId != null,
+      enabled: orderId != null && Boolean(user),
       // Poll while payment is finalizing so the page updates once the Stripe webhook lands.
       refetchInterval: query =>
         query.state.data?.paymentStatus === "pending" ? 4000 : false,
-    },
+    }
   );
   const paymentSucceeded = order?.paymentStatus === "succeeded";
   // Real-time provisioning updates via SSE; falls back to polling when the
   // stream is down (or unsupported) so the timeline still advances.
-  const { connected } = useProvisioningStream(paymentSucceeded ? orderId : undefined);
-  const { data: events } = trpc.provisioning.getEvents.useQuery(
+  const { connected } = useProvisioningStream(
+    user && paymentSucceeded ? orderId : undefined
+  );
+  const eventsQuery = trpc.provisioning.getEvents.useQuery(
     { orderId: orderId ?? 0 },
     {
-      enabled: orderId != null && paymentSucceeded,
+      enabled: orderId != null && Boolean(user) && paymentSucceeded,
       refetchInterval: query => {
         if (connected) return false; // SSE is pushing updates — no need to poll.
         const evts = query.state.data ?? [];
@@ -89,18 +103,59 @@ export default function Confirmation() {
         const done = ready?.status === "completed";
         return done ? false : 4000;
       },
-    },
+    }
   );
-  const { data: offer } = trpc.offers.get.useQuery(
+  const events = eventsQuery.data;
+  const offerQuery = trpc.offers.get.useQuery(
     { id: order?.offerId ?? 0 },
-    { enabled: order?.offerId != null },
+    { enabled: Boolean(user) && order?.offerId != null }
   );
+  const offer = offerQuery.data;
 
   const timeline = [...(events ?? [])].sort(
     (a, b) =>
       EVENT_ORDER.indexOf(a.eventType as EventType) -
-      EVENT_ORDER.indexOf(b.eventType as EventType),
+      EVENT_ORDER.indexOf(b.eventType as EventType)
   );
+
+  if (!authLoading && authError && !user) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <MarketChrome onBrandClick={() => setLocation("/")} />
+        <div
+          role="alert"
+          className="flex flex-col items-center px-5 py-24 text-center"
+        >
+          <h1 className="mb-3 text-[30px] font-extrabold uppercase tracking-[-0.035em]">
+            Session indisponible<span className="text-destructive">.</span>
+          </h1>
+          <p className="mb-6 max-w-[540px] text-muted-foreground">
+            Impossible de vérifier votre session. Aucune donnée de commande
+            n'est affichée.
+          </p>
+          <button
+            type="button"
+            onClick={() => refreshAuth()}
+            className="rounded-[9px] bg-accent px-5 py-3 text-[14px] font-semibold text-accent-foreground"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (authLoading || !user) {
+    return (
+      <div
+        role="status"
+        aria-label="Vérification de la session"
+        className="flex min-h-screen items-center justify-center bg-background"
+      >
+        <Skeleton className="h-10 w-48" />
+      </div>
+    );
+  }
 
   if (orderId == null) {
     return (
@@ -130,7 +185,11 @@ export default function Confirmation() {
         <MarketChrome
           onBrandClick={() => setLocation("/")}
           center={<JourneyStepper current={4} />}
-          right={<span className="font-mono text-[11px] text-muted-foreground">{orderRef(orderId)}</span>}
+          right={
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {orderRef(orderId)}
+            </span>
+          }
         />
         <div className="mx-auto max-w-[760px] space-y-4 px-5 py-20 md:px-10">
           <Skeleton className="mx-auto h-16 w-16 rounded-full" />
@@ -184,13 +243,16 @@ export default function Confirmation() {
   const paymentCancelled = order.paymentStatus === "cancelled";
   const cancelled = paymentCancelled || order.status === "cancelled";
   const pending = !failed && !succeeded && !cancelled;
-  const deploymentEstimate = offer?.deploymentTime ?? "délai fournisseur à confirmer";
+  const deploymentEstimate =
+    offer?.deploymentTime ?? "délai fournisseur à confirmer";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <MarketChrome
         onBrandClick={() => setLocation("/")}
-        center={<JourneyStepper current={4} allDone={succeeded} failed={failed} />}
+        center={
+          <JourneyStepper current={4} allDone={succeeded} failed={failed} />
+        }
         right={
           <span className="font-mono text-[11px] tracking-[.08em] text-muted-foreground">
             {orderRef(orderId)}
@@ -217,11 +279,23 @@ export default function Confirmation() {
           {failed
             ? "Paiement refusé"
             : cancelled
-              ? paymentCancelled ? "Paiement annulé" : "Commande annulée"
+              ? paymentCancelled
+                ? "Paiement annulé"
+                : "Commande annulée"
               : succeeded
                 ? "Commande confirmée"
                 : "Confirmation du paiement"}
-          <span className={failed || cancelled ? "text-destructive" : succeeded ? "text-accent" : "text-chart-5"}>.</span>
+          <span
+            className={
+              failed || cancelled
+                ? "text-destructive"
+                : succeeded
+                  ? "text-accent"
+                  : "text-chart-5"
+            }
+          >
+            .
+          </span>
         </h1>
         <p className="mb-4 max-w-[540px] text-center text-[15.5px] text-muted-foreground">
           {failed
@@ -261,36 +335,62 @@ export default function Confirmation() {
         {/* Order cells */}
         <div className="mb-[22px] grid w-full grid-cols-1 gap-px overflow-hidden rounded-xl border border-border/60 bg-border/60 sm:grid-cols-3">
           <>
-              <div className="flex flex-col gap-1 bg-card px-5 py-[18px]">
-                <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">
-                  COMMANDE
-                </span>
-                <span className="font-mono text-[14px] font-semibold">{orderRef(order.id)}</span>
-              </div>
-              <div className="flex flex-col gap-1 bg-card px-5 py-[18px]">
-                <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">
-                  INFRASTRUCTURE
-                </span>
-                <span className="font-mono text-[14px] font-semibold">
-                  {offer ? `${offer.gpuCount}× ${offer.gpuType}` : "—"}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1 bg-card px-5 py-[18px]">
-                <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">
-                  MENSUEL
-                </span>
-                <span className="font-mono text-[14px] font-semibold text-accent">
-                  {fmtEUR(Number(order.monthlyRecurring))}
-                </span>
-              </div>
+            <div className="flex flex-col gap-1 bg-card px-5 py-[18px]">
+              <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">
+                COMMANDE
+              </span>
+              <span className="font-mono text-[14px] font-semibold">
+                {orderRef(order.id)}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1 bg-card px-5 py-[18px]">
+              <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">
+                INFRASTRUCTURE
+              </span>
+              <span className="font-mono text-[14px] font-semibold">
+                {offer ? `${offer.gpuCount}× ${offer.gpuType}` : "—"}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1 bg-card px-5 py-[18px]">
+              <span className="font-mono text-[10.5px] tracking-[.08em] text-muted-foreground">
+                MENSUEL
+              </span>
+              <span className="font-mono text-[14px] font-semibold text-accent">
+                {fmtEUR(Number(order.monthlyRecurring))}
+              </span>
+            </div>
           </>
         </div>
+
+        {(offerQuery.error || (offerQuery.isFetched && !offer)) && (
+          <div
+            role="alert"
+            className="mb-[22px] flex w-full flex-col items-start gap-3 rounded-lg border border-chart-5/40 bg-chart-5/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span>
+              {offerQuery.error
+                ? "Les détails techniques de l'offre sont temporairement indisponibles. Le statut de paiement ci-dessus reste celui de la commande."
+                : "Cette offre n'est plus publiée dans le catalogue actif. La référence et le statut de la commande restent disponibles ci-dessus."}
+            </span>
+            {offerQuery.error && (
+              <button
+                type="button"
+                onClick={() => void offerQuery.refetch()}
+                className="whitespace-nowrap rounded-[7px] border border-chart-5/50 px-3 py-1.5 font-semibold"
+              >
+                Réessayer
+              </button>
+            )}
+          </div>
+        )}
 
         {failed || cancelled ? (
           <>
             {/* Common failure causes */}
             <div className="mb-[26px] w-full rounded-xl border border-border bg-card p-[26px]">
-              <PanelLabel className="mb-5">{failed ? "Causes fréquentes" : "Paiement annulé"}</PanelLabel>
+              <PanelLabel className="mb-5">
+                {failed ? "Causes fréquentes" : "Paiement annulé"}
+              </PanelLabel>
               {failed ? (
                 <ul className="m-0 flex list-none flex-col gap-3 p-0 text-[13.5px] leading-[1.55] text-muted-foreground">
                   {FAILURE_CAUSES.map(cause => (
@@ -302,7 +402,8 @@ export default function Confirmation() {
                 </ul>
               ) : (
                 <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
-                  Aucun provisionnement ne sera lancé. Vous pouvez reprendre le checkout si vous souhaitez poursuivre.
+                  Aucun provisionnement ne sera lancé. Vous pouvez reprendre le
+                  checkout si vous souhaitez poursuivre.
                 </p>
               )}
             </div>
@@ -310,7 +411,9 @@ export default function Confirmation() {
             <div className="flex w-full flex-col gap-3.5 md:flex-row">
               <button
                 onClick={() =>
-                  setLocation(`/checkout?offerId=${order.offerId}&leadId=${order.leadId}`)
+                  setLocation(
+                    `/checkout?offerId=${order.offerId}&leadId=${order.leadId}`
+                  )
                 }
                 className="glow-accent flex flex-1 items-center justify-center gap-2 rounded-[9px] bg-accent p-[13px] text-[14px] font-semibold text-accent-foreground transition-transform active:scale-[0.98]"
               >
@@ -334,10 +437,17 @@ export default function Confirmation() {
           </>
         ) : pending ? (
           <>
-            <div role="status" aria-live="polite" className="mb-[26px] w-full rounded-xl border border-chart-5/40 bg-chart-5/10 p-[26px]">
-              <PanelLabel className="mb-3">Confirmation Stripe en attente</PanelLabel>
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-[26px] w-full rounded-xl border border-chart-5/40 bg-chart-5/10 p-[26px]"
+            >
+              <PanelLabel className="mb-3">
+                Confirmation Stripe en attente
+              </PanelLabel>
               <p className="m-0 text-[13.5px] leading-[1.6] text-muted-foreground">
-                Cette page se met à jour automatiquement. Aucun provisionnement n'est lancé tant que le paiement n'est pas confirmé.
+                Cette page se met à jour automatiquement. Aucun provisionnement
+                n'est lancé tant que le paiement n'est pas confirmé.
               </p>
             </div>
             <button
@@ -362,12 +472,40 @@ export default function Confirmation() {
 
             {/* Provisioning timeline */}
             <div className="mb-[26px] w-full rounded-xl border border-border bg-card p-[26px]">
-              <PanelLabel className="mb-5">Timeline de provisionnement</PanelLabel>
-              {timeline.length === 0 ? (
+              <PanelLabel className="mb-5">
+                Timeline de provisionnement
+              </PanelLabel>
+              {eventsQuery.isLoading ? (
                 <div className="space-y-4">
                   <Skeleton className="h-12 w-full" />
                   <Skeleton className="h-12 w-full" />
                   <Skeleton className="h-12 w-full" />
+                </div>
+              ) : eventsQuery.error ? (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-destructive/40 bg-destructive/10 p-4"
+                >
+                  <p className="mb-3 text-sm text-destructive">
+                    Le suivi du provisionnement n'a pas pu être chargé. La
+                    commande et son paiement ne sont pas relancés lorsque vous
+                    réessayez.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void eventsQuery.refetch()}
+                    className="rounded-[7px] border border-destructive/40 px-3 py-2 text-sm font-semibold"
+                  >
+                    Recharger le suivi
+                  </button>
+                </div>
+              ) : timeline.length === 0 ? (
+                <div
+                  role="status"
+                  className="rounded-lg border border-border bg-background/40 p-4 text-sm text-muted-foreground"
+                >
+                  Aucun événement de provisionnement n'est encore disponible.
+                  Réessayez dans quelques instants.
                 </div>
               ) : (
                 <div className="flex flex-col">
@@ -401,7 +539,9 @@ export default function Confirmation() {
                             />
                           )}
                         </div>
-                        <div className={`flex flex-col gap-[3px] ${last ? "" : "pb-5"}`}>
+                        <div
+                          className={`flex flex-col gap-[3px] ${last ? "" : "pb-5"}`}
+                        >
                           <span
                             className={`text-[14.5px] font-semibold ${
                               done || running ? "" : "text-muted-foreground"
@@ -421,7 +561,9 @@ export default function Confirmation() {
                           )}
                           {event.completedAt && (
                             <span className="font-mono text-[11px] text-muted-foreground">
-                              {new Date(event.completedAt).toLocaleString("fr-FR")}
+                              {new Date(event.completedAt).toLocaleString(
+                                "fr-FR"
+                              )}
                             </span>
                           )}
                         </div>
@@ -435,7 +577,9 @@ export default function Confirmation() {
             {/* Next steps */}
             <div className="mb-[26px] grid w-full gap-5 md:grid-cols-2">
               <div className="rounded-xl border border-border bg-card p-[26px]">
-                <h3 className="mb-3 text-[15px] font-semibold">Et maintenant ?</h3>
+                <h3 className="mb-3 text-[15px] font-semibold">
+                  Et maintenant ?
+                </h3>
                 <ul className="m-0 flex list-none flex-col gap-2 p-0 text-[13.5px] text-muted-foreground">
                   <li>✓ Suivez le provisionnement sur cette page</li>
                   <li>✓ Un e-mail vous informe à chaque étape</li>
@@ -445,7 +589,8 @@ export default function Confirmation() {
               <div className="rounded-xl border border-border bg-card p-[26px]">
                 <h3 className="mb-3 text-[15px] font-semibold">Support</h3>
                 <p className="m-0 text-[13.5px] text-muted-foreground">
-                  Contactez notre équipe pour toute question sur votre commande et les conditions de support associées.
+                  Contactez notre équipe pour toute question sur votre commande
+                  et les conditions de support associées.
                 </p>
               </div>
             </div>

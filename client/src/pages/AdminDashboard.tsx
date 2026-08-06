@@ -1,17 +1,25 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { downloadCsv } from "@/lib/downloadCsv";
 import { Download, Loader2 } from "lucide-react";
 import { fmtEUR } from "@/lib/format";
-import { MarketChrome, PanelLabel, StatusPill, type StatusTone } from "@/components/market";
+import {
+  MarketChrome,
+  PanelLabel,
+  StatusPill,
+  type StatusTone,
+} from "@/components/market";
 import { AdminOrdersPanel } from "@/components/admin/AdminOrdersPanel";
 import { AdminInventoryPanel } from "@/components/admin/AdminInventoryPanel";
 
 type LeadStatus = "new" | "qualified" | "offered" | "converted" | "rejected";
 
-const LEAD_STATUS_META: Record<LeadStatus, { tone: StatusTone; label: string }> = {
+const LEAD_STATUS_META: Record<
+  LeadStatus,
+  { tone: StatusTone; label: string }
+> = {
   new: { tone: "cyan", label: "NOUVEAU" },
   qualified: { tone: "amber", label: "QUALIFIÉ" },
   offered: { tone: "violet", label: "OFFRE" },
@@ -19,7 +27,13 @@ const LEAD_STATUS_META: Record<LeadStatus, { tone: StatusTone; label: string }> 
   rejected: { tone: "red", label: "REFUSÉ" },
 };
 
-const PIPELINE_ORDER: LeadStatus[] = ["new", "qualified", "offered", "converted", "rejected"];
+const PIPELINE_ORDER: LeadStatus[] = [
+  "new",
+  "qualified",
+  "offered",
+  "converted",
+  "rejected",
+];
 
 const PIPELINE_BG: Record<LeadStatus, string> = {
   new: "bg-chart-2",
@@ -30,17 +44,33 @@ const PIPELINE_BG: Record<LeadStatus, string> = {
 };
 
 export default function AdminDashboard() {
-  const { user, loading, logout } = useAuth();
+  const {
+    user,
+    loading,
+    error: authError,
+    refresh: refreshAuth,
+    logout,
+  } = useAuth();
   const [, setLocation] = useLocation();
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const adminEnabled = !loading && user?.role === "admin";
-  const leadsQuery = trpc.leads.list.useQuery(undefined, { enabled: adminEnabled });
-  const statsQuery = trpc.admin.stats.useQuery(undefined, { enabled: adminEnabled });
+  const leadsQuery = trpc.leads.list.useQuery(undefined, {
+    enabled: adminEnabled,
+  });
+  const statsQuery = trpc.admin.stats.useQuery(undefined, {
+    enabled: adminEnabled,
+  });
   const leads = leadsQuery.data;
   const stats = statsQuery.data;
   const utils = trpc.useUtils();
   const updateLeadStatus = trpc.leads.update.useMutation({
     onSuccess: async () => {
-      await Promise.all([utils.leads.list.invalidate(), utils.admin.stats.invalidate()]);
+      await Promise.all([
+        utils.leads.list.invalidate(),
+        utils.admin.stats.invalidate(),
+      ]);
     },
   });
 
@@ -48,64 +78,113 @@ export default function AdminDashboard() {
   // to the "Accès refusé" screen below. Server authz (adminProcedure) is the
   // real enforcement; this is the UX gate.
   useEffect(() => {
-    if (!loading && !user) setLocation("/login");
-  }, [loading, user, setLocation]);
+    if (!loading && !authError && !user) setLocation("/login");
+  }, [authError, loading, user, setLocation]);
 
   const handleLogout = async () => {
+    setLogoutError(null);
     try {
       await logout();
-    } finally {
       setLocation("/");
+    } catch {
+      setLogoutError(
+        "La déconnexion n'a pas abouti. Vous êtes toujours connecté ; vérifiez votre réseau puis réessayez."
+      );
     }
   };
 
   const today = () => new Date().toISOString().slice(0, 10);
 
-  const exportLeads = () => {
-    downloadCsv(`leads-${today()}.csv`, leads ?? [], [
-      { header: "ID", value: l => l.id },
-      { header: "Company", value: l => l.company },
-      { header: "Contact", value: l => l.contactName },
-      { header: "Role", value: l => l.contactRole },
-      { header: "Email", value: l => l.email },
-      { header: "Workload", value: l => l.workloadType },
-      { header: "GPU", value: l => l.gpuRequirement },
-      { header: "Monthly budget", value: l => l.monthlyBudget },
-      { header: "Duration", value: l => l.deploymentDuration },
-      { header: "Constraints", value: l => l.infrastructureConstraints },
-      { header: "Status", value: l => l.status },
-      { header: "Created", value: l => l.createdAt },
-    ]);
+  const exportLeads = async () => {
+    setExportError(null);
+    setIsExporting(true);
+    try {
+      downloadCsv(`leads-${today()}.csv`, leads ?? [], [
+        { header: "ID", value: l => l.id },
+        { header: "Company", value: l => l.company },
+        { header: "Contact", value: l => l.contactName },
+        { header: "Role", value: l => l.contactRole },
+        { header: "Email", value: l => l.email },
+        { header: "Workload", value: l => l.workloadType },
+        { header: "GPU", value: l => l.gpuRequirement },
+        { header: "Monthly budget", value: l => l.monthlyBudget },
+        { header: "Duration", value: l => l.deploymentDuration },
+        { header: "Constraints", value: l => l.infrastructureConstraints },
+        { header: "Status", value: l => l.status },
+        { header: "Created", value: l => l.createdAt },
+      ]);
+    } catch {
+      setExportError("L'export des leads a échoué. Réessayez.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const exportOrders = async () => {
-    const orders = await utils.admin.exportOrders.fetch();
-    downloadCsv(`orders-${today()}.csv`, orders ?? [], [
-      { header: "ID", value: o => o.id },
-      { header: "User ID", value: o => o.userId },
-      { header: "Offer ID", value: o => o.offerId },
-      { header: "Provider ID", value: o => o.providerId },
-      { header: "Status", value: o => o.status },
-      { header: "Payment status", value: o => o.paymentStatus },
-      { header: "Total amount", value: o => o.totalAmount },
-      { header: "Monthly recurring", value: o => o.monthlyRecurring },
-      { header: "Created", value: o => o.createdAt },
-    ]);
+    setExportError(null);
+    setIsExporting(true);
+    try {
+      const orders = await utils.admin.exportOrders.fetch();
+      downloadCsv(`orders-${today()}.csv`, orders ?? [], [
+        { header: "ID", value: o => o.id },
+        { header: "User ID", value: o => o.userId },
+        { header: "Offer ID", value: o => o.offerId },
+        { header: "Provider ID", value: o => o.providerId },
+        { header: "Status", value: o => o.status },
+        { header: "Payment status", value: o => o.paymentStatus },
+        { header: "Total amount", value: o => o.totalAmount },
+        { header: "Monthly recurring", value: o => o.monthlyRecurring },
+        { header: "Created", value: o => o.createdAt },
+      ]);
+    } catch {
+      setExportError("L'export des commandes a échoué. Réessayez.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const metrics = {
-    totalLeads: stats?.totalLeads ?? leads?.length ?? 0,
-    conversionRate: stats?.conversionRate ?? 0,
-    monthlyRevenue: stats?.monthlyRevenue ?? 0,
-    avgDealSize: stats?.avgDealSize ?? 0,
+    totalLeads: stats?.totalLeads ?? leads?.length ?? null,
+    conversionRate: stats?.conversionRate ?? null,
+    monthlyRevenue: stats?.monthlyRevenue ?? null,
+    avgDealSize: stats?.avgDealSize ?? null,
   };
 
   const leadList = leads ?? [];
-  const pipelineCounts = PIPELINE_ORDER.map(status => ({
-    status,
-    count: leadList.filter(l => (l.status ?? "new") === status).length,
-  }));
+  const pipelineCounts = leads
+    ? PIPELINE_ORDER.map(status => ({
+        status,
+        count: leadList.filter(l => (l.status ?? "new") === status).length,
+      }))
+    : [];
   const pipelineTotal = Math.max(1, leadList.length);
+
+  if (!loading && authError && !user) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <MarketChrome onBrandClick={() => setLocation("/")} />
+        <div
+          role="alert"
+          className="flex flex-col items-center px-5 py-24 text-center"
+        >
+          <h1 className="mb-3 text-[30px] font-extrabold uppercase tracking-[-0.035em]">
+            Session indisponible<span className="text-destructive">.</span>
+          </h1>
+          <p className="mb-6 max-w-[540px] text-muted-foreground">
+            Impossible de vérifier votre session. Aucune donnée d'administration
+            n'est affichée.
+          </p>
+          <button
+            type="button"
+            onClick={() => refreshAuth()}
+            className="rounded-[9px] bg-accent px-5 py-3 text-[14px] font-semibold text-accent-foreground"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Auth still resolving, or redirecting an unauthenticated visitor to /login.
   if (loading || !user) {
@@ -152,16 +231,35 @@ export default function AdminDashboard() {
               {user?.email}
             </span>
             <button
+              type="button"
               onClick={handleLogout}
+              disabled={loading}
               className="rounded-[7px] border border-border px-3.5 py-[7px] text-[12.5px] font-medium text-foreground transition-colors hover:bg-card"
             >
-              Déconnexion
+              {loading ? "Déconnexion…" : "Déconnexion"}
             </button>
           </div>
         }
       />
 
       <main className="mx-auto max-w-[1240px] px-5 pb-16 pt-9 md:px-10">
+        {logoutError && (
+          <div
+            role="alert"
+            className="mb-6 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          >
+            {logoutError}
+          </div>
+        )}
+        {exportError && (
+          <div
+            role="alert"
+            className="mb-6 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          >
+            {exportError}
+          </div>
+        )}
+
         <div className="mb-6 flex flex-col justify-between gap-5 md:flex-row md:items-end">
           <div className="flex flex-col gap-2">
             <h1 className="m-0 text-[28px] font-extrabold uppercase leading-none tracking-[-0.03em] md:text-[36px]">
@@ -173,15 +271,16 @@ export default function AdminDashboard() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={exportLeads}
-              disabled={!leads || leads.length === 0}
+              onClick={() => void exportLeads()}
+              disabled={isExporting || !leads || leads.length === 0}
               className="inline-flex items-center gap-2 rounded-[8px] border border-border px-4 py-[9px] text-[13px] font-medium text-foreground transition-colors hover:bg-card disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Download className="h-3.5 w-3.5" />
               Leads CSV
             </button>
             <button
-              onClick={exportOrders}
+              onClick={() => void exportOrders()}
+              disabled={isExporting}
               className="inline-flex items-center gap-2 rounded-[8px] border border-border px-4 py-[9px] text-[13px] font-medium text-foreground transition-colors hover:bg-card"
             >
               <Download className="h-3.5 w-3.5" />
@@ -203,24 +302,34 @@ export default function AdminDashboard() {
             <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
               LEADS TOTAL
             </span>
-            <span className="font-mono text-[26px] font-bold">{metrics.totalLeads}</span>
-            <span className="text-[12px] text-muted-foreground">Prospects enregistrés</span>
+            <span className="font-mono text-[26px] font-bold">
+              {metrics.totalLeads ?? "—"}
+            </span>
+            <span className="text-[12px] text-muted-foreground">
+              Prospects enregistrés
+            </span>
           </div>
           <div className="flex flex-col gap-1.5 bg-card p-[22px]">
             <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
               TAUX DE CONVERSION
             </span>
             <span className="font-mono text-[26px] font-bold text-accent">
-              {metrics.conversionRate} %
+              {metrics.conversionRate == null
+                ? "—"
+                : `${metrics.conversionRate} %`}
             </span>
-            <span className="text-[12px] text-muted-foreground">Historique complet</span>
+            <span className="text-[12px] text-muted-foreground">
+              Historique complet
+            </span>
           </div>
           <div className="flex flex-col gap-1.5 bg-card p-[22px]">
             <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
               REVENU MENSUEL
             </span>
             <span className="font-mono text-[26px] font-bold">
-              {fmtEUR(metrics.monthlyRevenue)}
+              {metrics.monthlyRevenue == null
+                ? "—"
+                : fmtEUR(metrics.monthlyRevenue)}
             </span>
             <span className="text-[12px] text-muted-foreground">Récurrent</span>
           </div>
@@ -228,34 +337,57 @@ export default function AdminDashboard() {
             <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
               PANIER MOYEN
             </span>
-            <span className="font-mono text-[26px] font-bold">{fmtEUR(metrics.avgDealSize)}</span>
-            <span className="text-[12px] text-muted-foreground">Par commande</span>
+            <span className="font-mono text-[26px] font-bold">
+              {metrics.avgDealSize == null
+                ? "—"
+                : fmtEUR(metrics.avgDealSize)}
+            </span>
+            <span className="text-[12px] text-muted-foreground">
+              Par commande
+            </span>
           </div>
         </div>
 
         {/* Pipeline */}
         <div className="mb-6 rounded-xl border border-border bg-card p-[22px]">
           <PanelLabel className="mb-4">Pipeline</PanelLabel>
-          <div className="mb-4 flex h-2 overflow-hidden rounded-full bg-input">
-            {pipelineCounts.map(
-              ({ status, count }) =>
-                count > 0 && (
-                  <div
-                    key={status}
-                    className={PIPELINE_BG[status]}
-                    style={{ width: `${(count / pipelineTotal) * 100}%` }}
-                  />
-                ),
-            )}
-          </div>
-          <div className="flex flex-wrap gap-x-6 gap-y-2">
-            {pipelineCounts.map(({ status, count }) => (
-              <span key={status} className="inline-flex items-center gap-2">
-                <StatusPill tone={LEAD_STATUS_META[status].tone} label={LEAD_STATUS_META[status].label} />
-                <span className="font-mono text-[11.5px] text-muted-foreground">{count}</span>
-              </span>
-            ))}
-          </div>
+          {leadsQuery.isLoading ? (
+            <p role="status" className="text-sm text-muted-foreground">
+              Chargement du pipeline…
+            </p>
+          ) : leadsQuery.error || !leads ? (
+            <p role="alert" className="text-sm text-destructive">
+              Pipeline indisponible. Réessayez lorsque la connexion est rétablie.
+            </p>
+          ) : (
+            <>
+              <div className="mb-4 flex h-2 overflow-hidden rounded-full bg-input">
+                {pipelineCounts.map(
+                  ({ status, count }) =>
+                    count > 0 && (
+                      <div
+                        key={status}
+                        className={PIPELINE_BG[status]}
+                        style={{ width: `${(count / pipelineTotal) * 100}%` }}
+                      />
+                    )
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-2">
+                {pipelineCounts.map(({ status, count }) => (
+                  <span key={status} className="inline-flex items-center gap-2">
+                    <StatusPill
+                      tone={LEAD_STATUS_META[status].tone}
+                      label={LEAD_STATUS_META[status].label}
+                    />
+                    <span className="font-mono text-[11.5px] text-muted-foreground">
+                      {count}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Leads table */}
@@ -271,7 +403,13 @@ export default function AdminDashboard() {
             </div>
             {leadsQuery.isLoading ? (
               <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Chargement des leads…
+                <Loader2 className="h-4 w-4 animate-spin" /> Chargement des
+                leads…
+              </div>
+            ) : leadsQuery.error ? (
+              <div role="alert" className="py-12 text-center text-destructive">
+                Les leads n'ont pas pu être chargés. Réessayez lorsque la
+                connexion est rétablie.
               </div>
             ) : leadList.length > 0 ? (
               leadList.map((lead, i) => {
@@ -284,7 +422,9 @@ export default function AdminDashboard() {
                       i < leadList.length - 1 ? "border-b border-border/70" : ""
                     }`}
                   >
-                    <span className="truncate text-[13.5px] font-semibold">{lead.contactName}</span>
+                    <span className="truncate text-[13.5px] font-semibold">
+                      {lead.contactName}
+                    </span>
                     <span className="truncate text-[13px] text-muted-foreground">
                       {lead.company || "—"}
                     </span>
@@ -292,7 +432,9 @@ export default function AdminDashboard() {
                       {lead.workloadType?.replace(/-/g, " ") ?? "—"}
                     </span>
                     <span className="text-right font-mono text-[13px] font-semibold">
-                      {lead.monthlyBudget ? fmtEUR(Number(lead.monthlyBudget)) : "—"}
+                      {lead.monthlyBudget
+                        ? fmtEUR(Number(lead.monthlyBudget))
+                        : "—"}
                     </span>
                     <StatusPill tone={meta.tone} label={meta.label} />
                     {status === "converted" ? (
@@ -306,7 +448,10 @@ export default function AdminDashboard() {
                         onChange={e =>
                           updateLeadStatus.mutate({
                             id: lead.id,
-                            status: e.target.value as Exclude<LeadStatus, "converted">,
+                            status: e.target.value as Exclude<
+                              LeadStatus,
+                              "converted"
+                            >,
                           })
                         }
                         className="rounded-[7px] border border-border bg-input px-2 py-1.5 font-mono text-[11px] text-foreground outline-none transition-colors focus:border-accent/50"
@@ -321,7 +466,9 @@ export default function AdminDashboard() {
                 );
               })
             ) : (
-              <div className="py-12 text-center text-muted-foreground">Aucun lead pour l'instant</div>
+              <div className="py-12 text-center text-muted-foreground">
+                Aucun lead pour l'instant
+              </div>
             )}
           </div>
         </div>

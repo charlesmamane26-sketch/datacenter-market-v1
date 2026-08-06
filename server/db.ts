@@ -1,4 +1,4 @@
-import { eq, desc, lt, gt, and, notInArray, inArray, isNull, or, sql } from "drizzle-orm";
+import { eq, desc, lt, gt, and, notInArray, inArray, isNull, isNotNull, or, sql, exists, notExists } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -20,6 +20,7 @@ import { isAvailabilityStale, isOfferSellable } from "./inventory";
 import {
   assertManualOrderTransition,
   deriveProvisioningOrderPatch,
+  OrderLifecycleError,
 } from "./orderLifecycle";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -37,8 +38,19 @@ function isDuplicateEntryError(error: unknown): boolean {
   return candidate.cause !== error && isDuplicateEntryError(candidate.cause);
 }
 
+export type CheckoutConflictReason =
+  | "capacity_unavailable"
+  | "offer_expired"
+  | "offer_unavailable"
+  | "idempotency_conflict"
+  | "session_conflict"
+  | "lead_conflict";
+
 export class CheckoutConflictError extends Error {
-  constructor(message: string) {
+  constructor(
+    public readonly reason: CheckoutConflictReason,
+    message: string,
+  ) {
     super(message);
     this.name = "CheckoutConflictError";
   }
@@ -173,24 +185,63 @@ export async function getAllLeads() {
   return db.select().from(leads);
 }
 
-export async function deleteLead(id: number) {
+export function buildLeadErasurePatch(id: number, erasedAt = new Date()) {
+  return {
+    userId: null,
+    email: `erased-${id}@redacted.invalid`,
+    company: null,
+    contactName: null,
+    contactRole: null,
+    workloadType: null,
+    gpuRequirement: null,
+    monthlyBudget: null,
+    deploymentDuration: null,
+    infrastructureConstraints: null,
+    consentedAt: null,
+    consentPolicyVersion: null,
+    personalDataErasedAt: erasedAt,
+  } satisfies Partial<typeof leads.$inferInsert>;
+}
+
+export async function deleteLead(id: number): Promise<"deleted" | "anonymized" | "missing"> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await db.delete(leads).where(eq(leads.id, id));
+  return db.transaction(async tx => {
+    const rows = await tx
+      .select()
+      .from(leads)
+      .where(eq(leads.id, id))
+      .limit(1)
+      .for("update");
+    const lead = rows[0];
+    if (!lead) return "missing";
+
+    const referenced = await tx
+      .select({ id: orders.id })
+      .from(orders)
+      .where(eq(orders.leadId, id))
+      .limit(1);
+    if (referenced.length > 0) {
+      await tx.update(leads).set(buildLeadErasurePatch(id)).where(eq(leads.id, id));
+      return "anonymized";
+    }
+
+    await tx.delete(leads).where(eq(leads.id, id));
+    return "deleted";
+  });
 }
 
 /**
- * RGPD retention: deletes every non-converted lead older than `days`. Run via
+ * RGPD retention: erases every non-converted lead older than `days`. Run via
  * `pnpm db:purge`.
  *
  * "Non-converted" = any status except `converted` (a real customer with a paid
  * order — kept as a business record). Crucially this includes `offered`/
  * `qualified` prospects whose checkout was abandoned: previously those were never
  * purged (status filter too narrow) and, because they carried a — later
- * cancelled — order row, the order guard excluded them too, so their PII lingered
- * indefinitely past the retention window. A lead is now protected from erasure
- * only while it is referenced by a *live* (non-cancelled) order.
+ * cancelled — order row, a future foreign key prevents physical deletion. Such
+ * rows are anonymized in-place so accounting history remains referentially valid.
  */
 export async function purgeLeadsOlderThan(days: number) {
   const db = await getDb();
@@ -198,26 +249,48 @@ export async function purgeLeadsOlderThan(days: number) {
 
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  // Protect only leads tied to a live order. Cancelled orders (abandoned
-  // checkouts) do not keep their lead's PII out of the purge.
-  const orderRows = await db
-    .select({ leadId: orders.leadId })
-    .from(orders)
-    .where(notInArray(orders.status, ["cancelled"]));
-  const referencedLeadIds = orderRows.map(row => row.leadId);
-
-  const conditions = [
+  const stale = and(
     // updatedAt is the best available proxy for the prospect's last activity;
     // do not erase a lead that was recently re-qualified merely because it was
     // originally captured before the retention cutoff.
     lt(leads.updatedAt, cutoff),
     notInArray(leads.status, ["converted"]),
-  ];
-  if (referencedLeadIds.length > 0) {
-    conditions.push(notInArray(leads.id, referencedLeadIds));
-  }
+    isNull(leads.personalDataErasedAt),
+  );
+  const referencedByOrder = exists(
+    db.select({ one: sql`1` }).from(orders).where(eq(orders.leadId, leads.id)),
+  );
+  const notReferencedByOrder = notExists(
+    db.select({ one: sql`1` }).from(orders).where(eq(orders.leadId, leads.id)),
+  );
 
-  await db.delete(leads).where(and(...conditions));
+  return db.transaction(async tx => {
+    // The email tombstone is derived per row in SQL; no PII or identifier list
+    // is materialized in application memory, even for a very large purge.
+    const anonymized = await tx
+      .update(leads)
+      .set({
+        userId: null,
+        email: sql`concat('erased-', ${leads.id}, '@redacted.invalid')`,
+        company: null,
+        contactName: null,
+        contactRole: null,
+        workloadType: null,
+        gpuRequirement: null,
+        monthlyBudget: null,
+        deploymentDuration: null,
+        infrastructureConstraints: null,
+        consentedAt: null,
+        consentPolicyVersion: null,
+        personalDataErasedAt: new Date(),
+      })
+      .where(and(stale, referencedByOrder));
+    const deleted = await tx.delete(leads).where(and(stale, notReferencedByOrder));
+    return {
+      anonymized: resultHeader(anonymized)?.affectedRows ?? 0,
+      deleted: resultHeader(deleted)?.affectedRows ?? 0,
+    };
+  });
 }
 
 // Offers queries
@@ -475,6 +548,54 @@ export async function getOrderByStripeSubscriptionId(subscriptionId: string) {
 
 type InitialProvisioningEvent = Omit<typeof provisioningEvents.$inferInsert, "orderId">;
 
+type InventoryReservationState = Pick<
+  Order,
+  "inventoryReservedAt" | "inventoryReleasedAt"
+>;
+
+export function hasActiveInventoryReservation(order: InventoryReservationState): boolean {
+  return order.inventoryReservedAt != null && order.inventoryReleasedAt == null;
+}
+
+/** Decrements capacity exactly once while the offer row is held by the caller. */
+async function reserveOfferCapacity(
+  tx: any,
+  offerId: number,
+  reservedAt: Date,
+): Promise<Pick<Order, "inventoryReservedAt" | "inventoryReleasedAt">> {
+  const result = await tx
+    .update(offers)
+    .set({
+      availableCapacity: sql`${offers.availableCapacity} - 1`,
+      inventoryVersion: sql`${offers.inventoryVersion} + 1`,
+    })
+    .where(and(eq(offers.id, offerId), gt(offers.availableCapacity, 0)));
+  if ((resultHeader(result)?.affectedRows ?? 0) !== 1) {
+    throw new CheckoutConflictError(
+      "capacity_unavailable",
+      "This offer has no capacity available for checkout.",
+    );
+  }
+  return { inventoryReservedAt: reservedAt, inventoryReleasedAt: null };
+}
+
+/** Credits a proven reservation once; legacy/unreserved rows are a no-op. */
+async function releaseOfferCapacity(
+  tx: any,
+  order: Pick<Order, "offerId" | "inventoryReservedAt" | "inventoryReleasedAt">,
+  releasedAt: Date,
+): Promise<Partial<Pick<Order, "inventoryReleasedAt">>> {
+  if (!hasActiveInventoryReservation(order)) return {};
+  await tx
+    .update(offers)
+    .set({
+      availableCapacity: sql`${offers.availableCapacity} + 1`,
+      inventoryVersion: sql`${offers.inventoryVersion} + 1`,
+    })
+    .where(eq(offers.id, order.offerId));
+  return { inventoryReleasedAt: releasedAt };
+}
+
 export type CheckoutOrderAtomicResult =
   | {
       order: Order;
@@ -499,6 +620,21 @@ export async function createCheckoutOrderAtomic(input: {
 
   try {
     return await db.transaction(async tx => {
+      // Fast idempotent retries must bypass today's inventory gate: their first
+      // request already owns a reservation and may itself have consumed the last
+      // unit. The relationship is validated by the caller before redirecting.
+      const retryRows = await tx
+        .select()
+        .from(orders)
+        .where(
+          and(
+            eq(orders.userId, input.order.userId),
+            eq(orders.checkoutIdempotencyKey, input.order.checkoutIdempotencyKey),
+          ),
+        )
+        .limit(1);
+      if (retryRows[0]) return { order: retryRows[0], created: false };
+
       // Lock and re-check operational inventory inside the same transaction as
       // order creation. This closes the race where an admin disables capacity
       // after the funnel displayed it but before Checkout persists the order.
@@ -519,15 +655,30 @@ export async function createCheckoutOrderAtomic(input: {
           .for("update");
         checkoutProvider = providerRows[0] ?? null;
       }
-      if (
-        !checkoutOffer ||
-        (checkoutOffer.providerId != null && !checkoutProvider) ||
-        !isOfferSellable({ ...checkoutOffer, provider: checkoutProvider })
-      ) {
-        throw new CheckoutConflictError("This offer is no longer available.");
+      const now = new Date();
+      if (!checkoutOffer || (checkoutOffer.providerId != null && !checkoutProvider)) {
+        throw new CheckoutConflictError("offer_unavailable", "This offer is no longer available.");
+      }
+      if (isAvailabilityStale(checkoutOffer, now)) {
+        throw new CheckoutConflictError(
+          "offer_expired",
+          "This offer's availability confirmation has expired.",
+        );
+      }
+      if (checkoutOffer.availableCapacity <= 0) {
+        throw new CheckoutConflictError(
+          "capacity_unavailable",
+          "This offer has no capacity available for checkout.",
+        );
+      }
+      if (!isOfferSellable({ ...checkoutOffer, provider: checkoutProvider }, now)) {
+        throw new CheckoutConflictError("offer_unavailable", "This offer is no longer available.");
       }
       if (input.order.providerId !== checkoutOffer.providerId) {
-        throw new CheckoutConflictError("This offer supplier changed during checkout.");
+        throw new CheckoutConflictError(
+          "offer_unavailable",
+          "This offer supplier changed during checkout.",
+        );
       }
 
       const leadRows = await tx
@@ -554,10 +705,13 @@ export async function createCheckoutOrderAtomic(input: {
       if (existingRows[0]) return { order: existingRows[0], created: false };
 
       if (!lead || lead.userId !== input.expectedLeadUserId) {
-        throw new CheckoutConflictError("Lead ownership changed during checkout.");
+        throw new CheckoutConflictError("lead_conflict", "Lead ownership changed during checkout.");
       }
       if (lead.status === "converted" || lead.status === "rejected") {
-        throw new CheckoutConflictError(`Lead status ${lead.status} cannot start checkout.`);
+        throw new CheckoutConflictError(
+          "lead_conflict",
+          `Lead status ${lead.status} cannot start checkout.`,
+        );
       }
       // This is the compensation snapshot. It must be captured from the row
       // protected by the lead lock, never from the authorization read which
@@ -577,10 +731,17 @@ export async function createCheckoutOrderAtomic(input: {
         .limit(1)
         .for("update");
       if (liveOrders.length > 0) {
-        throw new CheckoutConflictError("This lead already has an active checkout or order.");
+        throw new CheckoutConflictError(
+          "lead_conflict",
+          "This lead already has an active checkout or order.",
+        );
       }
 
-      const insertResult = await tx.insert(orders).values(input.order);
+      const reservation = await reserveOfferCapacity(tx, checkoutOffer.id, now);
+      const insertResult = await tx.insert(orders).values({
+        ...input.order,
+        ...reservation,
+      });
       const insertId = resultHeader(insertResult)?.insertId;
       if (!insertId) throw new Error("Database did not return the created order id.");
 
@@ -637,6 +798,11 @@ export type ExpiredCheckoutReleaseInput = {
 };
 
 export type ExpiredCheckoutReleaseResult = "released" | "preserved" | "missing";
+
+export type EnsureCheckoutReservationInput = Pick<
+  ExpiredCheckoutReleaseInput,
+  "orderId" | "userId" | "idempotencyKey"
+>;
 
 /**
  * A local checkout may only be compensated before Stripe is bound to it. The
@@ -695,11 +861,10 @@ export async function compensateFailedCheckout(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Resolve the lead before entering the transaction so its row can be locked
-  // first. createCheckoutOrderAtomic uses lead -> order too; matching that order
-  // avoids the compensation/new-checkout deadlock cycle.
+  // Resolve immutable foreign keys before entering the transaction. Every
+  // inventory-changing path locks offer -> lead -> order, matching checkout.
   const candidateRows = await db
-    .select({ leadId: orders.leadId })
+    .select({ leadId: orders.leadId, offerId: orders.offerId })
     .from(orders)
     .where(eq(orders.id, input.orderId))
     .limit(1);
@@ -707,6 +872,12 @@ export async function compensateFailedCheckout(
   if (!candidate) return "missing";
 
   return db.transaction(async tx => {
+    await tx
+      .select({ id: offers.id })
+      .from(offers)
+      .where(eq(offers.id, candidate.offerId))
+      .limit(1)
+      .for("update");
     const leadRows = await tx
       .select()
       .from(leads)
@@ -725,7 +896,11 @@ export async function compensateFailedCheckout(
     if (!order) return "missing";
     // Revalidate both the pre-read relationship and every identity/lifecycle
     // predicate after both locks were acquired.
-    if (order.leadId !== candidate.leadId || !isFailedCheckoutCompensatable(order, input)) {
+    if (
+      order.leadId !== candidate.leadId ||
+      order.offerId !== candidate.offerId ||
+      !isFailedCheckoutCompensatable(order, input)
+    ) {
       return "preserved";
     }
 
@@ -753,6 +928,11 @@ export async function compensateFailedCheckout(
         ),
       );
     if ((resultHeader(updateResult)?.affectedRows ?? 0) !== 1) return "preserved";
+
+    const releasePatch = await releaseOfferCapacity(tx, order, new Date());
+    if (Object.keys(releasePatch).length > 0) {
+      await tx.update(orders).set(releasePatch).where(eq(orders.id, order.id));
+    }
 
     if (
       lead &&
@@ -805,7 +985,7 @@ export async function releaseExpiredCheckout(
   if (!db) throw new Error("Database not available");
 
   const candidateRows = await db
-    .select({ leadId: orders.leadId })
+    .select({ leadId: orders.leadId, offerId: orders.offerId })
     .from(orders)
     .where(eq(orders.id, input.orderId))
     .limit(1);
@@ -813,7 +993,13 @@ export async function releaseExpiredCheckout(
   if (!candidate) return "missing";
 
   return db.transaction(async tx => {
-    // Match checkout creation/compensation lock order: lead, then order.
+    // Match every inventory-changing path: offer, lead, then order.
+    await tx
+      .select({ id: offers.id })
+      .from(offers)
+      .where(eq(offers.id, candidate.offerId))
+      .limit(1)
+      .for("update");
     await tx
       .select({ id: leads.id })
       .from(leads)
@@ -829,7 +1015,11 @@ export async function releaseExpiredCheckout(
       .for("update");
     const order = orderRows[0];
     if (!order) return "missing";
-    if (order.leadId !== candidate.leadId || !isExpiredCheckoutReleasable(order, input)) {
+    if (
+      order.leadId !== candidate.leadId ||
+      order.offerId !== candidate.offerId ||
+      !isExpiredCheckoutReleasable(order, input)
+    ) {
       return "preserved";
     }
 
@@ -846,7 +1036,80 @@ export async function releaseExpiredCheckout(
           eq(orders.paymentStatus, "pending"),
         ),
       );
-    return (resultHeader(updateResult)?.affectedRows ?? 0) === 1 ? "released" : "preserved";
+    if ((resultHeader(updateResult)?.affectedRows ?? 0) !== 1) return "preserved";
+    const releasePatch = await releaseOfferCapacity(tx, order, new Date());
+    if (Object.keys(releasePatch).length > 0) {
+      await tx.update(orders).set(releasePatch).where(eq(orders.id, order.id));
+    }
+    return "released";
+  });
+}
+
+/**
+ * Repairs a retry of a locally compensated checkout before an open Stripe
+ * Session is created or returned. Only the same pending-payment idempotency
+ * aggregate may reacquire capacity; failed or terminal Stripe state cannot.
+ */
+export async function ensureCheckoutOrderReservation(
+  input: EnsureCheckoutReservationInput,
+): Promise<Order | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const candidates = await db
+    .select({ offerId: orders.offerId })
+    .from(orders)
+    .where(eq(orders.id, input.orderId))
+    .limit(1);
+  const candidate = candidates[0];
+  if (!candidate) return null;
+
+  return db.transaction(async tx => {
+    await tx
+      .select({ id: offers.id })
+      .from(offers)
+      .where(eq(offers.id, candidate.offerId))
+      .limit(1)
+      .for("update");
+    const rows = await tx
+      .select()
+      .from(orders)
+      .where(eq(orders.id, input.orderId))
+      .limit(1)
+      .for("update");
+    const order = rows[0];
+    if (!order) return null;
+    if (
+      order.offerId !== candidate.offerId ||
+      order.userId !== input.userId ||
+      order.checkoutIdempotencyKey !== input.idempotencyKey
+    ) {
+      throw new CheckoutConflictError(
+        "idempotency_conflict",
+        "This checkout idempotency key is already bound to another order.",
+      );
+    }
+    if (order.stripeTerminalAt || order.paymentStatus !== "pending") {
+      throw new CheckoutConflictError(
+        "session_conflict",
+        "This checkout can no longer reserve capacity.",
+      );
+    }
+    if (hasActiveInventoryReservation(order)) return order;
+    if (order.status !== "pending" && order.status !== "cancelled") {
+      throw new CheckoutConflictError(
+        "session_conflict",
+        "This checkout can no longer reserve capacity.",
+      );
+    }
+
+    const reservation = await reserveOfferCapacity(tx, order.offerId, new Date());
+    await tx
+      .update(orders)
+      .set({ status: "pending", ...reservation })
+      .where(eq(orders.id, order.id));
+    const updatedRows = await tx.select().from(orders).where(eq(orders.id, order.id)).limit(1);
+    return updatedRows[0] ?? null;
   });
 }
 
@@ -872,14 +1135,20 @@ export async function linkOrderStripeReferences(
       order.stripeCheckoutSessionId &&
       order.stripeCheckoutSessionId !== refs.checkoutSessionId
     ) {
-      throw new CheckoutConflictError("Order is already linked to another Stripe Checkout Session.");
+      throw new CheckoutConflictError(
+        "session_conflict",
+        "Order is already linked to another Stripe Checkout Session.",
+      );
     }
     if (
       refs.subscriptionId &&
       order.stripeSubscriptionId &&
       order.stripeSubscriptionId !== refs.subscriptionId
     ) {
-      throw new CheckoutConflictError("Order is already linked to another Stripe subscription.");
+      throw new CheckoutConflictError(
+        "session_conflict",
+        "Order is already linked to another Stripe subscription.",
+      );
     }
 
     await tx
@@ -945,6 +1214,7 @@ export async function failStripeEvent(eventId: string, error: unknown): Promise<
 export type StripeTransitionPlan = {
   order?: Partial<typeof orders.$inferInsert>;
   lead?: Partial<typeof leads.$inferInsert>;
+  inventoryReservation?: "reserve" | "release";
 };
 
 export type StripeEventDomain = "checkout" | "invoice" | "subscription";
@@ -964,6 +1234,18 @@ export async function completeStripeEvent(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // offerId is immutable application data. Pre-reading it lets all capacity
+  // paths acquire the offer lock before the order lock, avoiding a checkout /
+  // webhook deadlock cycle. The relationship is revalidated under the row lock.
+  const candidateRows = orderId == null
+    ? []
+    : await db
+        .select({ offerId: orders.offerId })
+        .from(orders)
+        .where(eq(orders.id, orderId))
+        .limit(1);
+  const candidate = candidateRows[0];
+
   return db.transaction(async tx => {
     const eventRows = await tx
       .select()
@@ -980,6 +1262,14 @@ export async function completeStripeEvent(
     let order: Order | null = null;
     let plan: StripeTransitionPlan | null = null;
     if (orderId != null) {
+      if (candidate) {
+        await tx
+          .select({ id: offers.id })
+          .from(offers)
+          .where(eq(offers.id, candidate.offerId))
+          .limit(1)
+          .for("update");
+      }
       const orderRows = await tx
         .select()
         .from(orders)
@@ -987,6 +1277,9 @@ export async function completeStripeEvent(
         .limit(1)
         .for("update");
       order = orderRows[0] ?? null;
+      if (order && (!candidate || order.offerId !== candidate.offerId)) {
+        throw new Error("Order offer changed while processing a Stripe event.");
+      }
       const lastEventCreated = order
         ? eventDomain === "checkout"
           ? order.stripeLastCheckoutEventCreated
@@ -1013,6 +1306,23 @@ export async function completeStripeEvent(
             ...cursorPatch,
           },
         };
+      }
+
+      if (order && plan?.inventoryReservation === "reserve" && !hasActiveInventoryReservation(order)) {
+        const reservationPatch = await reserveOfferCapacity(tx, order.offerId, new Date());
+        plan = {
+          ...plan,
+          order: { ...(plan.order ?? {}), ...reservationPatch },
+        };
+      }
+      if (order && plan?.inventoryReservation === "release") {
+        const releasePatch = await releaseOfferCapacity(tx, order, new Date());
+        if (Object.keys(releasePatch).length > 0) {
+          plan = {
+            ...plan,
+            order: { ...(plan.order ?? {}), ...releasePatch },
+          };
+        }
       }
 
       if (plan?.order && Object.keys(plan.order).length > 0) {
@@ -1059,9 +1369,9 @@ export async function cancelStalePendingOrders(hours: number) {
   if (!db) throw new Error("Database not available");
 
   const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
-  await db
-    .update(orders)
-    .set({ status: "cancelled" })
+  const candidates = await db
+    .select({ id: orders.id, offerId: orders.offerId })
+    .from(orders)
     .where(
       and(
         eq(orders.status, "pending"),
@@ -1069,6 +1379,41 @@ export async function cancelStalePendingOrders(hours: number) {
         lt(orders.createdAt, cutoff),
       ),
     );
+  let cancelled = 0;
+  for (const candidate of candidates) {
+    cancelled += await db.transaction(async tx => {
+      await tx
+        .select({ id: offers.id })
+        .from(offers)
+        .where(eq(offers.id, candidate.offerId))
+        .limit(1)
+        .for("update");
+      const rows = await tx
+        .select()
+        .from(orders)
+        .where(eq(orders.id, candidate.id))
+        .limit(1)
+        .for("update");
+      const order = rows[0];
+      if (
+        !order ||
+        order.offerId !== candidate.offerId ||
+        order.status !== "pending" ||
+        order.paymentStatus !== "pending" ||
+        order.createdAt >= cutoff
+      ) {
+        return 0;
+      }
+
+      const releasePatch = await releaseOfferCapacity(tx, order, new Date());
+      await tx
+        .update(orders)
+        .set({ status: "cancelled", ...releasePatch })
+        .where(eq(orders.id, order.id));
+      return 1;
+    });
+  }
+  return cancelled;
 }
 
 export async function updateOrder(id: number, data: Partial<typeof orders.$inferInsert>) {
@@ -1079,6 +1424,81 @@ export async function updateOrder(id: number, data: Partial<typeof orders.$infer
 }
 
 /**
+ * Applies the legacy/admin payment override under the same locks as webhooks.
+ * A terminal Stripe cancellation cannot be resurrected, and a newly successful
+ * payment must own capacity before service may advance.
+ */
+export async function updateOrderPaymentStatusAtomic(
+  id: number,
+  paymentStatus: Order["paymentStatus"],
+  stripePaymentIntentId?: string,
+): Promise<Order | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const candidates = await db
+    .select({ offerId: orders.offerId })
+    .from(orders)
+    .where(eq(orders.id, id))
+    .limit(1);
+  const candidate = candidates[0];
+  if (!candidate) return null;
+
+  return db.transaction(async tx => {
+    await tx
+      .select({ id: offers.id })
+      .from(offers)
+      .where(eq(offers.id, candidate.offerId))
+      .limit(1)
+      .for("update");
+    const rows = await tx.select().from(orders).where(eq(orders.id, id)).limit(1).for("update");
+    const order = rows[0];
+    if (!order) return null;
+    if (order.offerId !== candidate.offerId) {
+      throw new Error("Order offer changed during the payment transition.");
+    }
+    if (paymentStatus === "succeeded" && order.stripeTerminalAt) {
+      throw new OrderLifecycleError("A Stripe-terminal order cannot be marked paid.");
+    }
+
+    let inventoryPatch: Partial<typeof orders.$inferInsert> = {};
+    if (paymentStatus === "succeeded" && order.paymentStatus !== "succeeded") {
+      if (!hasActiveInventoryReservation(order)) {
+        inventoryPatch = await reserveOfferCapacity(tx, order.offerId, new Date());
+      }
+    } else if (
+      paymentStatus !== "succeeded" &&
+      order.paymentStatus !== "succeeded" &&
+      (order.status === "pending" || order.status === "processing")
+    ) {
+      inventoryPatch = await releaseOfferCapacity(tx, order, new Date());
+    }
+
+    const cancelBeforeProvisioning =
+      paymentStatus !== "pending" &&
+      paymentStatus !== "succeeded" &&
+      order.paymentStatus !== "succeeded" &&
+      (order.status === "pending" || order.status === "processing");
+    await tx
+      .update(orders)
+      .set({
+        paymentStatus,
+        ...(stripePaymentIntentId !== undefined ? { stripePaymentIntentId } : {}),
+        ...(paymentStatus === "succeeded" &&
+        (order.status === "pending" || order.status === "cancelled")
+          ? { status: "processing" as const }
+          : {}),
+        ...(cancelBeforeProvisioning ? { status: "cancelled" as const } : {}),
+        ...inventoryPatch,
+      })
+      .where(eq(orders.id, id));
+
+    const updatedRows = await tx.select().from(orders).where(eq(orders.id, id)).limit(1);
+    return updatedRows[0] ?? null;
+  });
+}
+
+/**
  * Applies an operator-requested service status under a row lock. The lifecycle
  * guard keeps Stripe as the only authority able to unlock paid service states,
  * while the lock prevents a concurrent webhook/admin write from being lost.
@@ -1086,11 +1506,29 @@ export async function updateOrder(id: number, data: Partial<typeof orders.$infer
 export async function transitionOrderStatus(
   id: number,
   status: Order["status"],
+  terminal?: {
+    stripeSubscriptionId?: string | null;
+    stripeTerminalAt?: Date;
+  },
 ): Promise<Order | null> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const candidates = await db
+    .select({ offerId: orders.offerId })
+    .from(orders)
+    .where(eq(orders.id, id))
+    .limit(1);
+  const candidate = candidates[0];
+  if (!candidate) return null;
+
   return db.transaction(async tx => {
+    await tx
+      .select({ id: offers.id })
+      .from(offers)
+      .where(eq(offers.id, candidate.offerId))
+      .limit(1)
+      .for("update");
     const rows = await tx
       .select()
       .from(orders)
@@ -1099,11 +1537,42 @@ export async function transitionOrderStatus(
       .for("update");
     const order = rows[0];
     if (!order) return null;
+    if (order.offerId !== candidate.offerId) {
+      throw new Error("Order offer changed during the status transition.");
+    }
 
     assertManualOrderTransition(order, status);
-    if (order.status !== status) {
-      await tx.update(orders).set({ status }).where(eq(orders.id, id));
+    if (
+      terminal?.stripeSubscriptionId &&
+      order.stripeSubscriptionId &&
+      order.stripeSubscriptionId !== terminal.stripeSubscriptionId
+    ) {
+      throw new CheckoutConflictError(
+        "session_conflict",
+        "Order is already linked to another Stripe subscription.",
+      );
     }
+    const terminalTransition = status === "cancelled";
+    const releasesInventory = terminalTransition || status === "completed";
+    const inventoryPatch = releasesInventory
+      ? await releaseOfferCapacity(tx, order, terminal?.stripeTerminalAt ?? new Date())
+      : {};
+    await tx
+      .update(orders)
+      .set({
+        status,
+        ...(terminalTransition
+          ? {
+              paymentStatus: "cancelled" as const,
+              stripeTerminalAt: terminal?.stripeTerminalAt ?? new Date(),
+              ...(terminal?.stripeSubscriptionId
+                ? { stripeSubscriptionId: terminal.stripeSubscriptionId }
+                : {}),
+            }
+          : {}),
+        ...inventoryPatch,
+      })
+      .where(eq(orders.id, id));
 
     const updatedRows = await tx.select().from(orders).where(eq(orders.id, id)).limit(1);
     return updatedRows[0] ?? null;

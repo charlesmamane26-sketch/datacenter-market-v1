@@ -7,23 +7,29 @@ Production runbook for the tRPC + React + Express stack.
 Tick these before every production deploy. Details in the linked sections.
 
 **Environment (§2)**
+
 - [ ] `PUBLIC_BASE_URL` set to the public origin, e.g. `https://app.example.com` — **required in
       production**: the server throws on startup of any Stripe/OAuth flow if it is missing (it is
       the trusted source for Stripe success/cancel URLs and OAuth state validation, replacing the
       spoofable `Host` header).
+- [ ] `JWT_SECRET` is a newly generated random secret (for example `openssl rand -hex 32`), not
+      the placeholder from an example file. Production startup rejects missing, known-placeholder,
+      repeated and low-entropy values.
 - [ ] `CSP_EXTRA_ORIGINS` set (space-separated) with the analytics (Umami), OAuth portal, and
       Sentry-ingest origins your build uses — anything beyond Google Fonts + the Forge maps proxy,
       which are already allowed. Omit if none apply.
 - [ ] `REDIS_URL` set **if running more than one instance** — enables the shared rate-limit store
-      **and** server-side session revocation. Without it both fall back to per-process / disabled
-      (fine for a single instance). One Redis connection is shared by both features.
+      **and** shared server-side session revocation. Without it both fall back to process-local
+      state (fine for a single instance). One Redis connection is shared by both features.
 - [ ] All prior runtime + `VITE_*` build-time vars filled (§2). Remember `VITE_*` are baked in at
       **build** time.
 - [ ] If `STRIPE_SECRET_KEY` is a live key, `STRIPE_LIVE_PAYMENTS_ENABLED=true` only after the
       provider, contract, webhook and end-to-end payment checks in §10. Keep it `false` otherwise.
 
 **Database (§5)**
-- [ ] Review every pending SQL file, then run `pnpm db:push` from a controlled migration job.
+
+- [ ] Run `pnpm db:generate` during development after schema changes, review the generated SQL,
+      and commit it. From a controlled production migration job, run **only** `pnpm db:migrate`.
 - [ ] `pnpm db:preflight` passes against the target database. This command is **read-only**: it
       verifies connectivity and every journaled migration's exact timestamp + SQL hash; it
       never creates a table or applies SQL.
@@ -34,11 +40,14 @@ Tick these before every production deploy. Details in the linked sections.
       before the new code.
 
 **Install / build (§3)**
-- [ ] `pnpm install` (full set — not `--prod`; regenerates `pnpm-lock.yaml` and pulls the optional
-      `ioredis` if `REDIS_URL` is used).
+
+- [ ] `pnpm install --frozen-lockfile` installs the full build/test toolchain without changing the
+      reviewed lockfile; the Docker build prunes development-only packages after compilation.
 - [ ] `pnpm build` with the `VITE_*` vars present.
+- [ ] `pnpm audit:prod` passes before publishing the image.
 
 **Smoke test (staging)**
+
 - [ ] OAuth login + logout (with Redis: confirm the session is actually revoked after logout).
 - [ ] A page with the map renders (CSP not blocking the Forge maps proxy / Google Fonts).
 - [ ] One end-to-end Stripe payment reaches `paymentStatus: succeeded` via the webhook.
@@ -63,7 +72,10 @@ Copy `.env.example` to `.env` and fill it in. Two categories:
   **`DB_READINESS_TIMEOUT_MS`** (optional, default 5000) and **`DB_PREFLIGHT_TIMEOUT_MS`**
   (optional, default 10000),
   **`STRIPE_SMOKE_TEST_ENABLED`** (command-local opt-in only; keep false otherwise),
-  **`TELEMETRY_INGEST_KEY`** (optional — enables the telemetry ingestion route, §11),
+  **`TELEMETRY_PROVIDER_KEYS`** (optional JSON object mapping provider IDs to independent random
+  keys of at least 32 characters; enables telemetry ingestion, §11), **`TELEMETRY_INGEST_KEY`**
+  (legacy local-development fallback only; production rejects it), **`STORAGE_PUBLIC_PREFIXES`**
+  (optional comma-separated allow-list for `/manus-storage/*`; configure it in production),
   **`EMAIL_API_URL`** + **`EMAIL_API_KEY`** (optional — client email notifications; unset = log only),
   **`ALERT_GPU_USAGE_PCT`** / **`ALERT_CPU_USAGE_PCT`** / **`ALERT_GPU_MEMORY_PCT`** (optional —
   telemetry alert thresholds, defaults 95/95/90).
@@ -78,8 +90,9 @@ Copy `.env.example` to `.env` and fill it in. Two categories:
 
 ```bash
 corepack enable
-pnpm install --frozen-lockfile     # full install (see notes below)
-pnpm db:push                       # create/apply schema migrations (drizzle-kit)
+pnpm install --frozen-lockfile     # reproducible build/test dependency install
+pnpm db:generate                   # development only: generate SQL after a schema change
+pnpm db:migrate                    # controlled deployment job: apply committed migrations
 pnpm db:preflight                  # SELECT-only: connectivity + every migration timestamp/hash
 pnpm db:seed                       # seed inactive DEMO rows; verify/activate inventory in admin
 pnpm build                         # vite build -> dist/public, esbuild -> dist/index.js
@@ -91,14 +104,14 @@ removes them with every other test row even when the check fails. The temporary 
 after 15 minutes as a hard-kill fallback. Do not activate the DEMO seed rows just to run this check.
 
 Build output:
+
 - `dist/public/` — static client assets (served by Express in production).
 - `dist/index.js` — bundled server (~46 KB).
 - `dist/db-preflight.js` — read-only database/migration gate used by the container entrypoint.
 
-> ⚠️ **Do not prune to production-only dependencies.** The server is bundled with
-> `esbuild --packages=external` and statically imports `vite` (via the dev/prod branch in
-> `server/_core/vite.ts`). Running with only `--prod` deps crashes at startup on the missing
-> `vite` import. Install the **full** dependency set in the runtime environment.
+The build stage needs development dependencies. The production server loads Vite and its config
+only in development, so the included Dockerfile safely runs `pnpm prune --prod` after compilation
+and copies the pruned dependency tree into the runtime image.
 
 ## 4. Docker
 
@@ -122,8 +135,12 @@ only issues `SELECT` statements; apply migrations explicitly before deploying.
 
 ## 5. Database migrations
 
-- `pnpm db:push` runs `drizzle-kit generate && drizzle-kit migrate`. Run it on every deploy
-  that changes `drizzle/schema.ts`.
+- `pnpm db:generate` creates a migration after a deliberate `drizzle/schema.ts` change. Review and
+  commit the generated SQL and journal metadata in the same pull request. CI regenerates migrations
+  and fails when `drizzle/` has uncommitted drift.
+- `pnpm db:migrate` applies only already committed migrations. Run it once from a controlled
+  migration job before deploying code that depends on the new schema. `pnpm db:push` remains a
+  compatibility alias for this migrate-only operation; it no longer generates SQL during deploy.
 - `pnpm db:preflight` is the non-mutating counterpart for CI/CD and operator checks. It compares
   **every** entry in `drizzle/meta/_journal.json` (timestamp + SHA-256 of the exact SQL bytes) with
   `__drizzle_migrations`, and requires the journal and `drizzle/*.sql` file set to match exactly.
@@ -164,6 +181,9 @@ Example daily cron: `0 3 * * *  cd /app && pnpm db:purge >> /var/log/purge.log 2
 
 Also schedule **`pnpm db:cancel-stale`** (e.g. hourly) to cancel abandoned checkouts — orders left
 pending/unpaid past `STALE_ORDER_HOURS` (default 24h). Paid orders are never affected.
+The bundled GitHub Actions workflow reads repository variables `LEAD_RETENTION_DAYS` (default 730)
+and `STALE_ORDER_HOURS` (default 24); set those variables to change the retention windows without
+editing the workflow.
 
 ## 7. Backups
 
@@ -173,14 +193,17 @@ pending/unpaid past `STALE_ORDER_HOURS` (default 24h). Paid orders are never aff
 
 ## 8. Continuous integration
 
-`.github/workflows/ci.yml` runs `install → check → test → build` on push/PR. Add the
-`VITE_*` repo secrets for a deploy-ready build artifact.
+`.github/workflows/ci.yml` runs a frozen install, production dependency audit, migration-drift
+check, typecheck, tests and build on push/PR. Add the `VITE_*` repo secrets for a deploy-ready build
+artifact. Keep the reviewed `pnpm-lock.yaml` committed.
 
 ## 9. Health & observability
 
 - **Health endpoint**: `GET /health` returns `{ "status": "ok" }` for liveness probes.
 - **Readiness endpoint**: `GET /ready` returns `200` only when MySQL/TiDB answers, configured Redis
-  answers, and any configured Stripe key/webhook/origin set is coherent; otherwise it returns `503`.
+  answers, and Stripe, OAuth, public HTTPS origin, owner and telemetry configuration are coherent;
+  otherwise it returns `503`. Its response exposes only states such as `ready`, `disabled`,
+  `unavailable` and `misconfigured`, never credential values.
   Render probes `/health`
   so a transient external dependency outage does not restart a healthy process; monitor `/ready`
   separately for dependency availability. Tune the database query timeout with
@@ -189,7 +212,9 @@ pending/unpaid past `STALE_ORDER_HOURS` (default 24h). Paid orders are never aff
   only. Free instances can sleep and are not the production target.
 - **Sentry error monitoring** is wired but remains disabled until its DSN is configured.
 - **Rate limiting** covers `leads.create` (5/min/IP), `/api/oauth/callback` (20/min/IP), the Stripe
-  webhook (100/min/IP), and `orders.checkout` (10/min/user). The store is in-memory by default
+  webhook (100/min/IP), `orders.checkout` (10/min/user), and `/manus-storage/*` (120/min/IP). tRPC
+  HTTP batches are capped at 10 operations before authentication/context work. The store is
+  in-memory by default
   (**process-local**) and switches to a shared Redis sliding-window when `REDIS_URL` is set — set it
   for multi-instance deployments. Set `app.set("trust proxy", ...)` so `req.ip` is accurate behind a
   load balancer (already done in production via `TRUST_PROXY_HOPS`).
@@ -197,9 +222,12 @@ pending/unpaid past `STALE_ORDER_HOURS` (default 24h). Paid orders are never aff
   `'unsafe-inline'`); dev is loosened for Vite HMR. Add deployment-specific origins via
   `CSP_EXTRA_ORIGINS` (§2). If a CSP-blocked resource breaks a page, check the browser console and
   widen that env var.
-- **Session revocation**: logout denylists the token's `jti` in Redis for its remaining lifetime,
-  so a token copied before logout cannot be replayed. Requires `REDIS_URL`; without it, logout only
-  clears the cookie (the JWT stays valid until it expires — accepted for single-instance).
+- **Session revocation**: logout denylists the token's `jti` for its remaining lifetime, so a token
+  copied before logout cannot be replayed. A single instance uses process-local state. With
+  `REDIS_URL`, instances share revocations and production authentication fails closed while the
+  configured Redis service is unavailable.
+- **Shutdown**: `SIGTERM` and `SIGINT` stop accepting new requests, drain active connections, close
+  Redis, flush monitoring and force-close after the bounded grace period.
 
 ## 10. Payments (Stripe)
 
@@ -219,8 +247,8 @@ source of truth for payment status.
      — **required if you enable a deferred payment method** (SEPA debit, bank transfer…). The
      handler only fulfils on `payment_status === "paid"` and reconciles async outcomes via these
      events. Card-only checkout needs just `checkout.session.completed`.
-   Checkout remains disabled until the API key and a valid `whsec_…` signing secret are both set;
-   production additionally requires a path-free HTTPS `PUBLIC_BASE_URL` origin.
+     Checkout remains disabled until the API key and a valid `whsec_…` signing secret are both set;
+     production additionally requires a path-free HTTPS `PUBLIC_BASE_URL` origin.
 3. Behind a load balancer, set `app.set("trust proxy", ...)` so request origins / IPs resolve.
 
 Before live activation, run the opt-in `pnpm stripe:smoke` once with a test key. It makes real
@@ -248,15 +276,19 @@ writes status; `updatePaymentStatus` never drags an already-advanced order back 
 The client dashboard reads `infrastructureMetrics`. Two ways to populate it:
 
 - **Production** — a provider-side agent POSTs samples to `POST /api/telemetry/:orderId`,
-  authenticated with `Authorization: Bearer $TELEMETRY_INGEST_KEY`. Set `TELEMETRY_INGEST_KEY`
-  (runtime) to enable the route; unset, it returns `503`. Body is a JSON metric sample (all fields
-  optional, validated by Zod): `gpuUsagePercent`, `gpuMemoryUsedGb`, `gpuMemoryTotalGb`,
+  authenticated with its own bearer key. Set `TELEMETRY_PROVIDER_KEYS` to a JSON object such as
+  `{"42":"a-provider-secret-of-at-least-32-characters"}`. The numeric key is the provider ID;
+  ingestion verifies that it matches the order's provider, preventing one provider from writing
+  another's metrics. An absent map disables the route (`503`); an invalid map makes readiness fail.
+  The legacy global `TELEMETRY_INGEST_KEY` is accepted only outside production and causes production
+  readiness to fail if configured. Body is a JSON metric sample (all fields optional, validated by
+  Zod): `gpuUsagePercent`, `gpuMemoryUsedGb`, `gpuMemoryTotalGb`,
   `cpuUsagePercent`, `ramUsedGb`, `ramTotalGb`, `costThisMonth`, `costProjected`. Unknown orders
   are rejected (`404`). Example:
 
   ```bash
   curl -X POST https://app.example.com/api/telemetry/42 \
-    -H "Authorization: Bearer $TELEMETRY_INGEST_KEY" \
+    -H "Authorization: Bearer $PROVIDER_42_TELEMETRY_KEY" \
     -H "Content-Type: application/json" \
     -d '{"gpuUsagePercent":87.5,"cpuUsagePercent":33,"gpuMemoryTotalGb":640}'
   ```
@@ -294,7 +326,7 @@ Sentry is **wired** (server + client); it activates when the DSN is set — no c
 - Nothing outstanding from the original audit. Telemetry, Sentry, email notifications, and alerting
   are wired and only need their respective keys/DSN to activate.
 
-## 14. SEO / performance
+## 16. SEO / performance
 
 - **`VITE_SITE_URL` must be set at build time** (canonical domain): it drives the client
   canonicals/Open Graph AND `sitemap.xml` / `robots.txt` / the prerendered pages (scripts
@@ -303,9 +335,10 @@ Sentry is **wired** (server + client); it activates when the DSN is set — no c
 - **Enable gzip/brotli at the reverse proxy** (nginx/Caddy/CDN). The Express server serves
   static files uncompressed (`server/_core` is off-limits), so HTTP compression — and most of
   the mobile Lighthouse performance budget — must come from the proxy in front.
-- Public indexable routes are prerendered at build into `dist/public/<route>/index.html`;
-  the SPA fallback for unknown URLs serves the home snapshot (canonical → `/`), which is
-  expected — funnel routes are noindex + disallowed in robots.txt.
+- Public indexable routes are prerendered at build into `dist/public/<route>/index.html`. Known
+  client routes use the SPA fallback; funnel routes receive `X-Robots-Tag: noindex, nofollow`.
+  Unknown paths return a real `404` instead of serving the home snapshot. `robots.txt` blocks API
+  routes while leaving noindex pages crawlable so crawlers can observe the noindex directive.
 - The Manus preview runtime (~625 KB of inline scripts) is excluded from production builds
   (see `vite.config.ts`); it stays active in `pnpm dev`.
 - Fonts (Inter + JetBrains Mono) are self-hosted via `@fontsource` — no external font origin.
