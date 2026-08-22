@@ -11,13 +11,15 @@ pnpm install            # full install (NOT --prod — the server bundle imports
 pnpm dev                # dev server (cross-env handles NODE_ENV on Windows)
 pnpm check              # tsc --noEmit  (run after every change)
 pnpm test               # vitest run   (server unit tests; db is mocked)
-pnpm build              # vite -> dist/public, esbuild -> dist/index.js
+pnpm build              # vite -> dist/public, SEO files + prerender, esbuild -> dist/index.js + db-preflight.js
 pnpm start              # production (NODE_ENV=production node dist/index.js)
 pnpm db:push            # drizzle-kit generate && migrate
-pnpm db:seed            # seed the offers catalogue (idempotent)
+pnpm db:seed            # seed the offers catalogue (idempotent; demo suppliers, fail-closed)
+pnpm db:preflight       # read-only migration/schema check (runs before start in Docker)
 pnpm db:purge           # RGPD: delete stale unconverted leads (LEAD_RETENTION_DAYS, default 730)
 pnpm db:cancel-stale    # cancel abandoned pending/unpaid orders (STALE_ORDER_HOURS, default 24)
 pnpm integration-check  # end-to-end funnel against a REAL db (needs DATABASE_URL + db:push + db:seed)
+pnpm stripe:smoke       # live-ish Stripe checkout smoke test (needs STRIPE_SECRET_KEY)
 ```
 
 ## Architecture
@@ -32,6 +34,15 @@ server/routers.ts        tRPC procedures (auth, leads, offers, orders, provision
 server/matching.ts       pure offer-ranking engine (best_value / fastest / cheapest)
 server/stripe.ts         Stripe client, Checkout session builder, signed webhook handler
 server/rateLimit.ts      sliding-window limiter (in-memory default, Redis store via REDIS_URL)
+server/inventory.ts      pure sellability rules (fail-closed: active + supplier active + fresh capacity)
+server/orderLifecycle.ts allowed order/provisioning status transitions
+server/leadClaim.ts      HMAC claim token proving ownership of an anonymous lead
+server/provisioningStream.ts  SSE stream of provisioning events
+server/telemetry.ts      GPU/CPU telemetry ingestion + telemetryAlerts.ts thresholds
+server/clientNotifications.ts transactional client e-mails (order confirmed, ready, payment failed)
+server/dbPreflight.ts    migration/schema drift check run at container start
+scripts/generate-seo-files.ts  sitemap.xml + robots.txt   ·  scripts/prerender.ts  static HTML snapshots
+shared/seo.ts            per-route SEO source of truth (canonical, hreflang, JSON-LD)
 client/src/pages/*        route components (lazy-loaded in App.tsx)
 client/src/lib/trpc.ts    typed tRPC client (types flow from AppRouter — no codegen)
 shared/                   constants/types shared client+server
