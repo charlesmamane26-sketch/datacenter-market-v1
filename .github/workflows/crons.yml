@@ -64,6 +64,11 @@ jobs:
       - name: Verify staging migration target
         if: github.event_name == 'workflow_dispatch' && inputs.operation == 'migrate-staging'
         env:
+          # Branch lock. Defaults to the repository's default branch so the
+          # operation keeps working after this PR merges; set the
+          # STAGING_MIGRATION_REF repository variable to a branch name to approve
+          # a pre-merge staging migration, then clear it again afterwards.
+          APPROVED_MIGRATION_REF: refs/heads/${{ vars.STAGING_MIGRATION_REF || github.event.repository.default_branch }}
           CONFIRM_STAGING_MIGRATION: ${{ inputs.confirm_staging_migration }}
           EXPECTED_DATABASE_URL_SHA256: ${{ inputs.expected_database_url_sha256 }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -72,8 +77,8 @@ jobs:
             echo "Refusing to migrate: confirm_staging_migration must be true."
             exit 1
           fi
-          if [ "$GITHUB_REF" != "refs/heads/audit-remediation-2026-08-06" ]; then
-            echo "Refusing to migrate from an unapproved branch."
+          if [ "$GITHUB_REF" != "$APPROVED_MIGRATION_REF" ]; then
+            echo "Refusing to migrate from an unapproved branch: only $APPROVED_MIGRATION_REF may migrate staging."
             exit 1
           fi
           if ! printf '%s' "$EXPECTED_DATABASE_URL_SHA256" | grep -Eq '^[a-f0-9]{64}$'; then
@@ -86,7 +91,7 @@ jobs:
             exit 1
           fi
       - name: Apply committed migrations and verify staging
-        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'migrate-staging' && inputs.confirm_staging_migration == true && github.ref == 'refs/heads/audit-remediation-2026-08-06'
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'migrate-staging' && inputs.confirm_staging_migration == true && github.ref_name == (vars.STAGING_MIGRATION_REF || github.event.repository.default_branch)
         run: |
           pnpm db:migrate
           pnpm db:preflight

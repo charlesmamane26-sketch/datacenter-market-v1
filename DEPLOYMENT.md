@@ -141,14 +141,19 @@ only issues `SELECT` statements; apply migrations explicitly before deploying.
 - `pnpm db:migrate` applies only already committed migrations. Run it once from a controlled
   migration job before deploying code that depends on the new schema. `pnpm db:push` remains a
   compatibility alias for this migrate-only operation; it no longer generates SQL during deploy.
-- The free Render staging service has no pre-deploy command, shell or one-off jobs. For a reviewed
-  pre-merge staging branch, dispatch `.github/workflows/crons.yml` on that exact branch with
-  `operation=migrate-staging`, `confirm_staging_migration=true`, and
-  `expected_database_url_sha256` set to the SHA-256 of the approved Render staging connection URL.
-  The job is branch-locked and refuses to run if the repository secret and Render fingerprint
+- The free Render staging service has no pre-deploy command, shell or one-off jobs. Dispatch
+  `.github/workflows/crons.yml` with `operation=migrate-staging`, `confirm_staging_migration=true`,
+  and `expected_database_url_sha256` set to the SHA-256 of the approved Render staging connection
+  URL. The job is branch-locked and refuses to run if the repository secret and Render fingerprint
   differ. It then runs only `pnpm db:migrate` followed by `pnpm db:preflight`; scheduled and manual
   maintenance steps are skipped. Do not use this path for production; use a protected migration job
   inside the production network.
+- The branch lock defaults to the repository's **default branch**, so the operation keeps working
+  after any feature branch is merged and deleted. To migrate staging from a reviewed **pre-merge**
+  branch, set the `STAGING_MIGRATION_REF` repository variable (Settings → Secrets and variables →
+  Actions → Variables) to that branch name, dispatch the workflow on it, then clear the variable.
+  Approving a branch is therefore a deliberate, auditable settings change rather than a workflow
+  edit — and never a value hard-coded to a branch that will disappear.
 - `pnpm db:preflight` is the non-mutating counterpart for CI/CD and operator checks. It compares
   **every** entry in `drizzle/meta/_journal.json` (timestamp + SHA-256 of the exact SQL bytes) with
   `__drizzle_migrations`, and requires the journal and `drizzle/*.sql` file set to match exactly.
@@ -174,6 +179,10 @@ only issues `SELECT` statements; apply migrations explicitly before deploying.
   an operator verifies the supplier, price, SLA and expiry, then explicitly activates them in admin;
   **`0007`** refuses orphaned historical orders before adding foreign keys to users, leads and offers,
   adds the RGPD erasure timestamp, and records idempotent inventory reservation/release timestamps.
+  Its orphan guard deliberately fails on a **duplicate primary key**, not a `CHECK` constraint: TiDB
+  only enforces `CHECK` from v7.2 with `tidb_enable_check_constraint` enabled (off by default), so a
+  `CHECK`-based guard would pass silently and leave an opaque foreign-key error instead. The failing
+  temporary table is named after the offending column (`_m0007_orphan_orders_<column>`).
   The application adjusts `availableCapacity` atomically when an order reserves or releases capacity.
 
 ## 6. RGPD data retention (cron)
