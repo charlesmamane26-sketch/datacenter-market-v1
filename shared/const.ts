@@ -9,12 +9,32 @@ export const ONE_YEAR_MS = 1000 * 60 * 60 * 24 * 365;
 // a stolen JWT stays valid until it expires (logout only clears the cookie).
 export const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 export const AXIOS_TIMEOUT_MS = 30_000;
+
+function formatIsoDateFr(isoDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return isoDate;
+
+  const [, year, month, day] = match;
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))));
+}
+
 // Version of the privacy policy a lead consents to at capture. Stored with the
 // lead (consentPolicyVersion) as proof of consent (RGPD Art. 7-1); bump it when
 // the policy materially changes so older consents are distinguishable.
 export const CONSENT_POLICY_VERSION = "2026-07-12";
+export const CONSENT_POLICY_UPDATED_AT_FR = formatIsoDateFr(
+  CONSENT_POLICY_VERSION
+);
 // Version of the purchase terms accepted immediately before Stripe Checkout.
 // Persist this value on the order so the accepted text remains auditable.
 export const PURCHASE_TERMS_VERSION = "2026-05-27";
-export const UNAUTHED_ERR_MSG = 'Please login (10001)';
-export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';
+export const PURCHASE_TERMS_UPDATED_AT_FR = formatIsoDateFr(
+  PURCHASE_TERMS_VERSION
+);
+export const UNAUTHED_ERR_MSG = "Please login (10001)";
+export const NOT_ADMIN_ERR_MSG = "You do not have required permission (10002)";

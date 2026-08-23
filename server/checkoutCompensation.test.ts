@@ -23,6 +23,8 @@ function pendingUnboundOrder(overrides: Partial<Order> = {}): Order {
     stripeLastSubscriptionEventCreated: null,
     stripeTerminalAt: null,
     paymentStatus: "pending",
+    inventoryReservedAt: new Date("2026-07-20T10:00:00Z"),
+    inventoryReleasedAt: null,
     checkoutIdempotencyKey: "checkout-compensation-0001",
     termsAcceptedAt: new Date("2026-07-20T10:00:00Z"),
     termsVersion: "2026-07-20",

@@ -20,7 +20,10 @@ import {
   provisioningEvents as provisioningEventsTable,
   stripeEvents as stripeEventsTable,
 } from "../drizzle/schema";
-import { PURCHASE_TERMS_VERSION } from "../shared/const";
+import {
+  CONSENT_POLICY_VERSION,
+  PURCHASE_TERMS_VERSION,
+} from "../shared/const";
 import type { TrpcContext } from "./_core/context";
 import { getSafeDatabaseDriverErrorCode } from "./dbPreflight";
 
@@ -302,6 +305,7 @@ async function main() {
     gpuRequirement: fixture.gpuRequirement,
     monthlyBudget: 25000,
     consent: true,
+    consentPolicyVersion: CONSENT_POLICY_VERSION,
   });
   assert(typeof lead.id === "number", `lead created (id=${lead.id})`);
   assert(

@@ -7,17 +7,19 @@ React 19 + Vite + Tailwind 4 + Express 4 + tRPC 11 + Drizzle ORM (MySQL) + Manus
 ## Commands
 
 ```bash
-pnpm install            # full install (NOT --prod — the server bundle imports vite at runtime)
+pnpm install --frozen-lockfile
 pnpm dev                # dev server (cross-env handles NODE_ENV on Windows)
 pnpm check              # tsc --noEmit  (run after every change)
 pnpm test               # vitest run   (server unit tests; db is mocked)
+pnpm audit:prod         # audit runtime dependencies
 pnpm build              # vite -> dist/public, esbuild -> dist/index.js
 pnpm start              # production (NODE_ENV=production node dist/index.js)
-pnpm db:push            # drizzle-kit generate && migrate
+pnpm db:generate        # generate migration SQL after a deliberate schema change
+pnpm db:migrate         # apply committed migrations (db:push is a migrate-only alias)
 pnpm db:seed            # seed the offers catalogue (idempotent)
 pnpm db:purge           # RGPD: delete stale unconverted leads (LEAD_RETENTION_DAYS, default 730)
 pnpm db:cancel-stale    # cancel abandoned pending/unpaid orders (STALE_ORDER_HOURS, default 24)
-pnpm integration-check  # end-to-end funnel against a REAL db (needs DATABASE_URL + db:push + db:seed)
+pnpm integration-check  # end-to-end funnel against a REAL db (needs DATABASE_URL + db:migrate + db:seed)
 ```
 
 ## Architecture
@@ -44,7 +46,7 @@ inferred end-to-end; never hand-write client contracts.
 
 - **Pricing is server-side.** Order amounts are derived from the offer in the DB
   (`createPendingOrder`), never from client input.
-- **Stripe webhook is the source of truth** for payment. `orders.checkout` only creates a *pending*
+- **Stripe webhook is the source of truth** for payment. `orders.checkout` only creates a _pending_
   order + Checkout session; `applyStripeEvent` (webhook) flips it to paid. `orders.updatePaymentStatus`
   / `updateStatus` are **admin-only**.
 - **Lead lifecycle:** `new` → `offered` (checkout started, in `createPendingOrder`) → `converted`
@@ -68,7 +70,8 @@ via `appRouter.createCaller(ctx)`. Real-DB behavior (queries, insertId, decimals
 - **Stripe live**: implemented; needs `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` to activate. One
   unverified assumption: a one-time line item inside a `subscription`-mode session (see DEPLOYMENT.md §10).
 - **GPU/CPU telemetry**: ingestion route `POST /api/telemetry/:orderId` exists (needs
-  `TELEMETRY_INGEST_KEY` + a provider agent to push data); `pnpm db:telemetry` simulates it in dev.
+  a per-provider key in `TELEMETRY_PROVIDER_KEYS` + a provider agent to push data);
+  `TELEMETRY_INGEST_KEY` is a development-only legacy fallback and `pnpm db:telemetry` simulates it.
 - **Error monitoring (Sentry)**: wired server + client; needs `SENTRY_DSN` / `VITE_SENTRY_DSN` to activate.
 - **Local Docker is unusable on this machine** (insufficient memory / paging file + broken containerd
   storage) — for a live DB, use a cloud MySQL/TiDB rather than Docker.

@@ -6,6 +6,7 @@ import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
+import { shouldRefreshLastSignedIn } from "./authActivity";
 import { ENV } from "./env";
 import { isJtiRevoked } from "./sessionRevocation";
 import type {
@@ -197,21 +198,29 @@ class SDKServer {
     const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
     const secretKey = this.getSessionSecret();
 
-    return new SignJWT({
-      openId: payload.openId,
-      appId: payload.appId,
-      name: payload.name,
-    })
-      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-      // Unique token id so logout can revoke this specific session server-side.
-      .setJti(crypto.randomUUID())
-      .setExpirationTime(expirationSeconds)
-      .sign(secretKey);
+    return (
+      new SignJWT({
+        openId: payload.openId,
+        appId: payload.appId,
+        name: payload.name,
+      })
+        .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+        // Unique token id so logout can revoke this specific session server-side.
+        .setJti(crypto.randomUUID())
+        .setExpirationTime(expirationSeconds)
+        .sign(secretKey)
+    );
   }
 
   async verifySession(
     cookieValue: string | undefined | null
-  ): Promise<{ openId: string; appId: string; name: string; jti?: string; exp?: number } | null> {
+  ): Promise<{
+    openId: string;
+    appId: string;
+    name: string;
+    jti?: string;
+    exp?: number;
+  } | null> {
     if (!cookieValue) {
       console.warn("[Auth] Missing session cookie");
       return null;
@@ -222,7 +231,10 @@ class SDKServer {
       const { payload } = await jwtVerify(cookieValue, secretKey, {
         algorithms: ["HS256"],
       });
-      const { openId, appId, name, jti, exp } = payload as Record<string, unknown>;
+      const { openId, appId, name, jti, exp } = payload as Record<
+        string,
+        unknown
+      >;
 
       if (
         !isNonEmptyString(openId) ||
@@ -328,10 +340,14 @@ class SDKServer {
       throw ForbiddenError("User not found");
     }
 
-    await db.upsertUser({
-      openId: user.openId,
-      lastSignedIn: signedInAt,
-    });
+    // Authentication can run for every tRPC operation. Persist activity at
+    // most once per interval instead of turning reads into unconditional writes.
+    if (shouldRefreshLastSignedIn(user.lastSignedIn, signedInAt)) {
+      await db.upsertUser({
+        openId: user.openId,
+        lastSignedIn: signedInAt,
+      });
+    }
 
     return user;
   }

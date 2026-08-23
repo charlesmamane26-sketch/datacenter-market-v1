@@ -45,7 +45,7 @@ async function pingWithTimeout(redis: SharedRedis): Promise<string> {
       new Promise<never>((_resolve, reject) => {
         timeoutId = setTimeout(
           () => reject(new Error("Redis PING timed out")),
-          REDIS_PING_TIMEOUT_MS,
+          REDIS_PING_TIMEOUT_MS
         );
       }),
     ]);
@@ -96,7 +96,8 @@ export async function getRedis(): Promise<SharedRedis | null> {
   if (!url) return null;
   if (client) return client;
   if (initialization) return initialization;
-  if (Date.now() - lastInitializationFailureAt < REDIS_RETRY_COOLDOWN_MS) return null;
+  if (Date.now() - lastInitializationFailureAt < REDIS_RETRY_COOLDOWN_MS)
+    return null;
 
   initialization = initializeRedis(url);
   try {
@@ -121,6 +122,14 @@ export async function isRedisReady(): Promise<boolean> {
     lastInitializationFailureAt = Date.now();
     return false;
   }
+}
+
+/** Close the shared connection during graceful process shutdown. */
+export async function closeRedis(): Promise<void> {
+  client?.disconnect?.();
+  client = null;
+  initialization = null;
+  lastInitializationFailureAt = 0;
 }
 
 /** Test-only: reset the memoized client so a fresh getRedis() re-evaluates env. */

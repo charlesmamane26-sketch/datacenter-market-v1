@@ -17,8 +17,14 @@ import { getDb } from "../db";
 import { asyncHandler } from "./asyncHandler";
 import { createContext } from "./context";
 import { buildCspDirectives } from "./csp";
+import {
+  assertSecureProductionJwtSecret,
+  getPublicRuntimeConfigurationStatus,
+} from "./env";
+import { installGracefulShutdown } from "./gracefulShutdown";
 import { initRateLimitStore } from "./redisRateLimit";
-import { isRedisReady } from "./redisClient";
+import { closeRedis, isRedisReady } from "./redisClient";
+import { trpcBatchLimit } from "./trpcBatchLimit";
 import { serveStatic, setupVite } from "./vite";
 
 const DEFAULT_READINESS_TIMEOUT_MS = 5_000;
@@ -103,14 +109,9 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
-  // Sessions are HMAC-signed (HS256): a short JWT_SECRET would be brute-forceable,
-  // so refuse to boot in production with a weak or missing one.
-  if (
-    process.env.NODE_ENV === "production" &&
-    (process.env.JWT_SECRET ?? "").length < 32
-  ) {
-    throw new Error("JWT_SECRET must be at least 32 characters in production.");
-  }
+  // Sessions are HMAC-signed (HS256). Reject public examples, repeated values,
+  // and low-entropy secrets before accepting any production traffic.
+  assertSecureProductionJwtSecret();
 
   const databaseReadinessTimeoutMs = parseIntegerSetting(
     "DB_READINESS_TIMEOUT_MS",
@@ -142,6 +143,10 @@ async function startServer() {
 
   const app = express();
   const server = createServer(app);
+  // Bound slow request headers/bodies without limiting long-lived SSE responses.
+  server.headersTimeout = 15_000;
+  server.requestTimeout = 30_000;
+  server.keepAliveTimeout = 5_000;
 
   // Behind a reverse proxy (Docker/PaaS), trust the first hop so req.ip reflects the
   // real client (rate limiting keys on it) instead of a spoofable X-Forwarded-For.
@@ -192,9 +197,11 @@ async function startServer() {
         isRedisReady(),
       ]);
       const stripe = getStripeConfigurationStatus();
-      const stripeDisabled = !stripe.secretKeyConfigured && !stripe.webhookSecretConfigured;
+      const runtime = getPublicRuntimeConfigurationStatus();
+      const stripeDisabled =
+        !stripe.secretKeyConfigured && !stripe.webhookSecretConfigured;
       const stripeReady = stripe.ready || stripeDisabled;
-      const ready = databaseReady && redisReady && stripeReady;
+      const ready = databaseReady && redisReady && stripeReady && runtime.ready;
       res.status(ready ? 200 : 503).json({
         status: ready ? "ready" : "not_ready",
         checks: {
@@ -204,14 +211,22 @@ async function startServer() {
               ? "ready"
               : "unavailable"
             : "disabled",
-          stripe: stripeReady ? (stripeDisabled ? "disabled" : "ready") : "misconfigured",
+          stripe: stripeReady
+            ? stripeDisabled
+              ? "disabled"
+              : "ready"
+            : "misconfigured",
+          oauth: runtime.oauth,
+          publicOrigin: runtime.publicOrigin,
+          owner: runtime.owner,
+          telemetry: runtime.telemetry,
         },
       });
     })
   );
   registerStorageProxy(app);
   // Provider-side telemetry ingestion (POST /api/telemetry/:orderId). Has its
-  // own small JSON parser; disabled (503) unless TELEMETRY_INGEST_KEY is set.
+  // own small JSON parser; production credentials are configured per provider.
   registerTelemetryIngest(app);
   // Real-time provisioning timeline (SSE). Must be registered before Vite's
   // catch-all so the stream route isn't swallowed by the SPA fallback.
@@ -223,6 +238,7 @@ async function startServer() {
   // tRPC API
   app.use(
     "/api/trpc",
+    trpcBatchLimit(),
     createExpressMiddleware({
       router: appRouter,
       createContext,
@@ -265,6 +281,13 @@ async function startServer() {
     });
   });
   console.log(`Server running on http://localhost:${port}/`);
+
+  installGracefulShutdown({
+    server,
+    cleanup: closeRedis,
+    flushMonitoring: () =>
+      process.env.SENTRY_DSN ? Sentry.flush(2_000) : Promise.resolve(true),
+  });
 }
 
 void startServer().catch(async error => {

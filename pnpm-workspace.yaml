@@ -11,10 +11,12 @@ onlyBuiltDependencies:
 # silently crossing an unsupported major version.
 overrides:
   "tailwindcss>nanoid": "3.3.7"
+  "@babel/core@<=7.29.0": ">=7.29.6 <8"
   "@opentelemetry/core@<2.8.0": ">=2.8.0 <3"
   "@smithy/config-resolver@<4.4.0": ">=4.4.0 <5"
   "@trpc/server@<11.18.0": "11.18.0"
-  "axios@<1.17.0": ">=1.17.0 <2"
+  "axios@<1.18.0": ">=1.18.0 <2"
+  "body-parser@<1.20.6": ">=1.20.6 <2"
   "dompurify@<3.4.11": ">=3.4.11 <4"
   "drizzle-orm@<0.45.2": ">=0.45.2 <0.46"
   "esbuild@<=0.24.2": ">=0.25.0 <0.26"
@@ -25,10 +27,10 @@ overrides:
   "mermaid@<=11.14.0": ">=11.15.0 <12"
   "path-to-regexp@<0.1.13": ">=0.1.13 <0.2.0"
   "picomatch@>=4.0.0 <4.0.4": ">=4.0.4 <5"
-  "postcss@<8.5.10": ">=8.5.10 <9"
+  "postcss@<8.5.23": ">=8.5.23 <9"
   "qs@<=6.15.1": ">=6.15.2 <7"
   "rollup@>=4.0.0 <4.59.0": ">=4.59.0 <5"
-  "tar@<=7.5.10": ">=7.5.11 <8"
+  "tar@<7.5.21": ">=7.5.21 <8"
   "uuid@<11.1.1": ">=11.1.1 <12"
 
 patchedDependencies:

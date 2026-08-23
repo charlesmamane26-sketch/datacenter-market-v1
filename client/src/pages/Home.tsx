@@ -145,25 +145,51 @@ export default function Home() {
         <button
           className="flex h-12 w-12 items-center justify-center md:hidden"
           aria-label="Menu"
+          aria-expanded={menuOpen}
+          aria-controls="mobile-navigation"
           onClick={() => setMenuOpen(v => !v)}
         >
           {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
       </div>
       {menuOpen && (
-        <div className="flex flex-col border-b border-border/60 px-5 pb-4 md:hidden">
+        <div
+          id="mobile-navigation"
+          className="flex flex-col border-b border-border/60 px-5 pb-4 md:hidden"
+        >
+          <a
+            href="#comment"
+            onClick={() => setMenuOpen(false)}
+            className="flex min-h-12 items-center text-[14px] text-muted-foreground"
+          >
+            Comment ça marche
+          </a>
+          <a
+            href="#activite"
+            onClick={() => setMenuOpen(false)}
+            className="flex min-h-12 items-center text-[14px] text-muted-foreground"
+          >
+            Catalogue
+          </a>
           <Link
             href="/gpu-as-a-service/"
+            onClick={() => setMenuOpen(false)}
             className="flex min-h-12 items-center text-[14px] text-muted-foreground"
           >
             Guide GPU as a Service
           </Link>
           <button
-            onClick={() => setLocation("/login")}
+            onClick={() => {
+              setMenuOpen(false);
+              setLocation("/login");
+            }}
             className="flex min-h-12 items-center text-[14px] text-muted-foreground"
           >
             Mon compte
           </button>
+          <div className="flex min-h-12 items-center">
+            <LanguageSwitcher />
+          </div>
           <div className="py-2">
             <MarketOpenChip />
           </div>

@@ -10,6 +10,14 @@ async function loadWithKey(key: string | undefined) {
   return import("./telemetry");
 }
 
+async function loadWithProviderKeys(keys: Record<number, string>) {
+  vi.resetModules();
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("TELEMETRY_INGEST_KEY", "");
+  vi.stubEnv("TELEMETRY_PROVIDER_KEYS", JSON.stringify(keys));
+  return import("./telemetry");
+}
+
 afterEach(() => vi.unstubAllEnvs());
 
 describe("MetricSchema", () => {
@@ -96,6 +104,40 @@ describe("isAuthorized", () => {
   it("rejects everything when no key is configured", async () => {
     const { isAuthorized } = await loadWithKey("");
     expect(isAuthorized("Bearer anything")).toBe(false);
+  });
+
+  it("binds production credentials to exactly one provider", async () => {
+    const provider12Key = "provider-12-telemetry-key-0000001";
+    const provider13Key = "provider-13-telemetry-key-0000001";
+    const { isAuthorized, resolveAuthorizedProvider } =
+      await loadWithProviderKeys({ 12: provider12Key, 13: provider13Key });
+
+    expect(resolveAuthorizedProvider(`Bearer ${provider12Key}`)).toBe(12);
+    expect(isAuthorized(`Bearer ${provider12Key}`, 12)).toBe(true);
+    expect(isAuthorized(`Bearer ${provider12Key}`, 13)).toBe(false);
+    expect(isAuthorized(`Bearer ${provider13Key}`, 13)).toBe(true);
+  });
+
+  it("does not accept the legacy global key in production", async () => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("TELEMETRY_PROVIDER_KEYS", "");
+    vi.stubEnv("TELEMETRY_INGEST_KEY", "legacy-global-key-that-is-long-enough");
+    const { isAuthorized, hasTelemetryConfiguration } = await import(
+      "./telemetry"
+    );
+
+    expect(hasTelemetryConfiguration()).toBe(false);
+    expect(
+      isAuthorized("Bearer legacy-global-key-that-is-long-enough", 12)
+    ).toBe(false);
+  });
+
+  it("fails closed on malformed provider-key configuration", async () => {
+    const { parseProviderTelemetryKeys } = await loadWithProviderKeys({
+      12: "too-short",
+    });
+    expect(parseProviderTelemetryKeys()).toEqual(new Map());
   });
 });
 

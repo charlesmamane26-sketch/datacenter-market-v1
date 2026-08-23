@@ -3,16 +3,25 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { saveCheckoutIntent, clearCheckoutIntent } from "@/lib/checkoutIntent";
-import { loadLeadClaim } from "@/lib/leadClaim";
+import { clearLeadClaim, loadLeadClaim } from "@/lib/leadClaim";
+import { loadWorkloadRecap } from "@/lib/workloadRecap";
+import {
+  describeCheckoutError,
+  type CheckoutErrorPresentation,
+} from "@/lib/checkoutError";
 import { SocialLoginButtons } from "@/components/auth/SocialLoginButtons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2 } from "lucide-react";
 import { JourneyStepper, MarketChrome } from "@/components/market";
-import { PURCHASE_TERMS_VERSION } from "@shared/const";
+import {
+  PURCHASE_TERMS_UPDATED_AT_FR,
+  PURCHASE_TERMS_VERSION,
+} from "@shared/const";
 import {
   ComplianceCard,
   HelpCard,
   OfferHeader,
+  PurchaseTransparencyCard,
   RecapSidebar,
   ServiceTermsCard,
   TechSummaryCard,
@@ -29,7 +38,10 @@ function newIdempotencyKey(): string {
   return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function getStableIdempotencyKey(leadId: number | undefined, offerId: number | undefined): string {
+function getStableIdempotencyKey(
+  leadId: number | undefined,
+  offerId: number | undefined
+): string {
   if (leadId == null || offerId == null) return newIdempotencyKey();
   const storageKey = checkoutKeyStorageName(leadId, offerId);
   try {
@@ -51,14 +63,6 @@ function resetStableIdempotencyKey(leadId: number, offerId: number): void {
   }
 }
 
-function trpcErrorCode(error: unknown): string | undefined {
-  if (!error || typeof error !== "object") return undefined;
-  const data = (error as { data?: unknown }).data;
-  if (!data || typeof data !== "object") return undefined;
-  const code = (data as { code?: unknown }).code;
-  return typeof code === "string" ? code : undefined;
-}
-
 function readQueryNumber(key: string): number | undefined {
   const raw = new URLSearchParams(window.location.search).get(key);
   if (!raw) return undefined;
@@ -70,18 +74,27 @@ export default function Checkout() {
   const [, setLocation] = useLocation();
   const [isProcessing, setIsProcessing] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<CheckoutErrorPresentation | null>(null);
   const [checkoutAttempt, setCheckoutAttempt] = useState(0);
 
   const offerId = readQueryNumber("offerId");
   const leadId = readQueryNumber("leadId");
   const missingContext = offerId == null || leadId == null;
+  const requestedDuration = useMemo(
+    () => loadWorkloadRecap(leadId)?.requestedDuration,
+    [leadId]
+  );
   const idempotencyKey = useMemo(
     () => getStableIdempotencyKey(leadId, offerId),
-    [leadId, offerId, checkoutAttempt],
+    [leadId, offerId, checkoutAttempt]
   );
 
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const {
+    isAuthenticated,
+    loading: authLoading,
+    error: authError,
+    refresh: refreshAuth,
+  } = useAuth();
   const {
     data: offer,
     isLoading: offerLoading,
@@ -89,18 +102,26 @@ export default function Checkout() {
     refetch: refetchOffer,
   } = trpc.offers.get.useQuery(
     { id: offerId ?? 0 },
-    { enabled: offerId != null },
+    { enabled: offerId != null }
   );
   const checkout = trpc.orders.checkout.useMutation();
 
   const handleConfirm = async () => {
     setError(null);
     if (missingContext) {
-      setError("Contexte de commande introuvable. Retournez aux résultats et choisissez une offre.");
+      setError({
+        message:
+          "Contexte de commande introuvable. Retournez aux résultats et choisissez une offre.",
+        action: "results",
+        actionLabel: "Retour aux résultats",
+      });
       return;
     }
     if (!termsAccepted) {
-      setError("Vous devez accepter les conditions générales avant de continuer.");
+      setError({
+        message:
+          "Vous devez accepter les conditions générales avant de continuer.",
+      });
       return;
     }
     setIsProcessing(true);
@@ -114,29 +135,62 @@ export default function Checkout() {
         offerId: offerId!,
         claimToken: loadLeadClaim(leadId!),
         termsAccepted: true as const,
-        termsVersion: PURCHASE_TERMS_VERSION,
+        termsVersion: PURCHASE_TERMS_VERSION as typeof PURCHASE_TERMS_VERSION,
         idempotencyKey,
       };
       const { url } = await checkout.mutateAsync(checkoutInput);
       clearCheckoutIntent();
+      clearLeadClaim(leadId!);
       if (url) {
         // Redirect to Stripe's hosted checkout page.
         window.location.href = url;
       } else {
-        setError("Le paiement n'a pas pu démarrer. Veuillez réessayer.");
+        setError({
+          message:
+            "Le paiement n'a pas pu démarrer. Aucun débit n'a été confirmé.",
+          action: "retry",
+          actionLabel: "Réessayer",
+        });
         setIsProcessing(false);
       }
     } catch (err) {
       console.error("Checkout failed:", err);
-      if (trpcErrorCode(err) === "CONFLICT" && leadId != null && offerId != null) {
+      const presentation = describeCheckoutError(err);
+      if (
+        presentation.resetIdempotencyKey &&
+        leadId != null &&
+        offerId != null
+      ) {
         resetStableIdempotencyKey(leadId, offerId);
         setCheckoutAttempt(attempt => attempt + 1);
-        setError("La session de paiement précédente a expiré. Cliquez à nouveau pour en créer une nouvelle.");
-      } else {
-        setError("Le paiement n'a pas pu démarrer. Veuillez réessayer.");
       }
+      setError(presentation);
       setIsProcessing(false);
     }
+  };
+
+  const handleErrorAction = () => {
+    if (!error?.action) return;
+    if (error.action === "retry") {
+      void handleConfirm();
+      return;
+    }
+    if (error.action === "results") {
+      setLocation(`/results?leadId=${leadId ?? ""}`);
+      return;
+    }
+    if (error.action === "new-request") {
+      setLocation("/workload");
+      return;
+    }
+    if (error.action === "reload") {
+      window.location.reload();
+      return;
+    }
+    if (offerId != null && leadId != null) {
+      saveCheckoutIntent({ offerId, leadId });
+    }
+    setLocation("/login");
   };
 
   const ctaClass =
@@ -156,7 +210,11 @@ export default function Checkout() {
 
       <div className="mx-auto max-w-[1240px] px-5 pb-16 pt-9 md:px-10">
         <button
-          onClick={() => setLocation("/results" + (leadId != null ? `?leadId=${leadId}` : ""))}
+          onClick={() =>
+            setLocation(
+              "/results" + (leadId != null ? `?leadId=${leadId}` : "")
+            )
+          }
           className="mb-5 inline-flex items-center gap-[7px] text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
         >
           ‹ Retour aux résultats
@@ -165,8 +223,8 @@ export default function Checkout() {
         {missingContext ? (
           <div className="rounded-xl border border-border bg-card p-[26px]">
             <p className="mb-4 text-muted-foreground">
-              Impossible de retrouver l'offre sélectionnée. Retournez aux résultats et choisissez
-              une option d'infrastructure.
+              Impossible de retrouver l'offre sélectionnée. Retournez aux
+              résultats et choisissez une option d'infrastructure.
             </p>
             <button
               onClick={() => setLocation("/results")}
@@ -182,7 +240,10 @@ export default function Checkout() {
             <Skeleton className="h-96 w-full" />
           </div>
         ) : offerError ? (
-          <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-[26px]">
+          <div
+            role="alert"
+            className="rounded-xl border border-destructive/40 bg-destructive/10 p-[26px]"
+          >
             <h1 className="mb-2 text-xl font-semibold">Option indisponible</h1>
             <p className="mb-4 text-sm text-muted-foreground">
               Le détail de la configuration n'a pas pu être chargé.
@@ -217,29 +278,59 @@ export default function Checkout() {
               <div className="flex flex-col gap-5">
                 <TechSummaryCard offer={offer} />
                 <ServiceTermsCard offer={offer} />
+                <PurchaseTransparencyCard
+                  offer={offer}
+                  requestedDuration={requestedDuration}
+                />
                 <ComplianceCard />
 
-                <label className="flex cursor-pointer items-start gap-[11px]">
+                <label
+                  htmlFor="purchase-terms-consent"
+                  className="flex cursor-pointer items-start gap-[11px]"
+                >
                   <input
+                    id="purchase-terms-consent"
                     type="checkbox"
                     checked={termsAccepted}
                     onChange={e => setTermsAccepted(e.target.checked)}
+                    aria-describedby="purchase-terms-warning"
                     className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
                   />
                   <span className="text-[13px] leading-[1.55] text-muted-foreground">
                     J'accepte les{" "}
-                    <a href="/terms" className="text-accent hover:underline">
-                      conditions générales
+                    <a
+                      href="/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent hover:underline"
+                    >
+                      conditions générales du {PURCHASE_TERMS_UPDATED_AT_FR}
                     </a>{" "}
-                    et la{" "}
-                    <a href="/privacy" className="text-accent hover:underline">
-                      politique de confidentialité
-                    </a>
-                    {" "}dans leurs versions en vigueur.
+                    (version {PURCHASE_TERMS_VERSION}) et reconnais que le
+                    montant mensuel sera facturé de façon récurrente via Stripe.
+                    J'ai pris connaissance des modalités contractuelles restant
+                    à confirmer avec le fournisseur.
                   </span>
                 </label>
 
-                {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+                {error && (
+                  <div
+                    role="alert"
+                    className="flex flex-col items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
+                  >
+                    <span>{error.message}</span>
+                    {error.action && error.actionLabel && (
+                      <button
+                        type="button"
+                        onClick={handleErrorAction}
+                        disabled={isProcessing}
+                        className="rounded-[7px] border border-destructive/40 px-3 py-2 font-semibold disabled:opacity-50"
+                      >
+                        {error.actionLabel}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col gap-[18px]">
@@ -248,10 +339,31 @@ export default function Checkout() {
                   cta={
                     authLoading ? (
                       <Skeleton className="h-12 w-full" />
+                    ) : authError ? (
+                      <div
+                        role="alert"
+                        className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+                      >
+                        <p className="mb-3">
+                          Votre session ne peut pas être vérifiée. Aucun paiement
+                          n'a été lancé.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void refreshAuth()}
+                          className="rounded-[7px] border border-destructive/40 px-3 py-2 font-semibold"
+                        >
+                          Réessayer
+                        </button>
+                      </div>
                     ) : isAuthenticated ? (
                       <button
                         onClick={handleConfirm}
-                        disabled={isProcessing || !termsAccepted}
+                        disabled={
+                          isProcessing ||
+                          !termsAccepted ||
+                          !offer.provider?.name
+                        }
                         className={ctaClass}
                       >
                         {isProcessing ? (
@@ -268,15 +380,18 @@ export default function Checkout() {
                         onBeforeRedirect={() =>
                           // Persist intent across the OAuth redirect (returns to "/"),
                           // so the funnel resumes at this checkout after login.
-                          saveCheckoutIntent({ offerId: offerId!, leadId: leadId! })
+                          saveCheckoutIntent({
+                            offerId: offerId!,
+                            leadId: leadId!,
+                          })
                         }
                       />
                     )
                   }
                   hint={
                     <span className="text-center text-[11.5px] leading-[1.55] text-muted-foreground">
-                      Redirection sécurisée vers Stripe pour finaliser le paiement. Annulable avant
-                      confirmation.
+                      Redirection sécurisée vers Stripe pour finaliser le
+                      paiement. Annulable avant confirmation.
                     </span>
                   }
                 />
