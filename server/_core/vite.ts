@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
+import { matchRouteSeo } from "../../shared/seo";
 
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
@@ -47,6 +48,20 @@ export async function setupVite(app: Express, server: Server) {
   });
 }
 
+export function getSpaFallbackPolicy(pathname: string): {
+  known: boolean;
+  status: 200 | 404;
+  noindex: boolean;
+} {
+  const route = matchRouteSeo(pathname);
+  if (!route) return { known: false, status: 404, noindex: true };
+  return {
+    known: true,
+    status: route.pattern === "/404" ? 404 : 200,
+    noindex: Boolean(route.noindex),
+  };
+}
+
 export function serveStatic(app: Express) {
   const distPath =
     process.env.NODE_ENV === "development"
@@ -60,8 +75,27 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+  // Fall through to the SPA only for declared application routes. Unknown
+  // assets/paths get a real 404 instead of an indexable home-page soft-404.
+  app.use("*", (req, res) => {
+    let pathname = "/__invalid_path__";
+    try {
+      pathname = new URL(req.originalUrl, "http://localhost").pathname;
+    } catch {
+      // Keep the fail-closed unknown-path policy.
+    }
+    const policy = getSpaFallbackPolicy(pathname);
+    if (!policy.known) {
+      res
+        .status(404)
+        .set("X-Robots-Tag", "noindex, nofollow")
+        .type("text/plain")
+        .send("Not found");
+      return;
+    }
+    if (policy.noindex) {
+      res.set("X-Robots-Tag", "noindex, nofollow");
+    }
+    res.status(policy.status).sendFile(path.resolve(distPath, "index.html"));
   });
 }

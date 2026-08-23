@@ -217,7 +217,10 @@ export async function purgeLeadsOlderThan(days: number) {
     conditions.push(notInArray(leads.id, referencedLeadIds));
   }
 
-  await db.delete(leads).where(and(...conditions));
+  const result = await db.delete(leads).where(and(...conditions));
+  // RGPD accountability (Art. 5-2): the operator must be able to evidence what a
+  // retention run actually erased, not just that it ran.
+  return resultHeader(result)?.affectedRows ?? 0;
 }
 
 // Offers queries
@@ -1059,7 +1062,7 @@ export async function cancelStalePendingOrders(hours: number) {
   if (!db) throw new Error("Database not available");
 
   const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
-  await db
+  const result = await db
     .update(orders)
     .set({ status: "cancelled" })
     .where(
@@ -1069,6 +1072,7 @@ export async function cancelStalePendingOrders(hours: number) {
         lt(orders.createdAt, cutoff),
       ),
     );
+  return resultHeader(result)?.affectedRows ?? 0;
 }
 
 export async function updateOrder(id: number, data: Partial<typeof orders.$inferInsert>) {

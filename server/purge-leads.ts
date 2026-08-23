@@ -27,9 +27,9 @@ export function parseRetentionDays(raw: string | undefined): number {
 
 async function main(): Promise<void> {
   const retentionDays = parseRetentionDays(process.env.LEAD_RETENTION_DAYS);
-  await purgeLeadsOlderThan(retentionDays);
+  const deleted = await purgeLeadsOlderThan(retentionDays);
   console.log(
-    `[Purge] Removed unconverted leads older than ${retentionDays} days.`
+    `[Purge] Removed ${deleted} unconverted lead(s) older than ${retentionDays} days.`
   );
 }
 
