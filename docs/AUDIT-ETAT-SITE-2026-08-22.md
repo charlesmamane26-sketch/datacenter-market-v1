@@ -241,3 +241,129 @@ pages légales.
 **Non refait** : l'audit de sécurité applicatif du 12/07/2026 (`docs/AUDIT-SECURITE-2026-07-12.md`).
 Ses 11 constats ont été vérifiés comme *toujours corrigés* dans le code actuel, par sondage sur les deux
 constats HIGH ; le présent document ne constitue pas un nouvel audit de sécurité exhaustif.
+
+---
+
+# Addendum — 23 août 2026 : corrections et suites données
+
+*Le rapport ci-dessus est daté et reste tel qu'il a été rendu. Cet addendum corrige deux constats
+inexacts et consigne les actions menées le lendemain.*
+
+## A. Corrections au rapport du 22 août
+
+### A.1 — §3.1 était faux sur un point important : la CI de #30 est bel et bien rouge
+
+Le rapport concluait « sa dernière CI est `cancelled`, pas rouge — un run à relancer, pas un test à
+corriger ». Le run a été relancé le 23/08 : il **échoue** (run `31123737241`, tentative 2).
+
+La cause est instructive et ne remet pas en cause la qualité de la PR. #30 ajoute à la CI une étape
+`pnpm audit:prod` qui fait échouer le build sur **toute** vulnérabilité. Le 6 août elle passait
+(0 vulnérabilité). Le 23 août elle en compte 7, sur des avis **publiés depuis** et **étrangers à son
+diff** :
+
+- 6 viennent de `streamdown → mermaid → dompurify` — la chaîne du showcase mort (§4.7), dont
+  `GHSA-rhh3-jpg6-66xh` (mermaid radar) et `GHSA-55q2-fjhq-7xh7` (DOMPurify) ;
+- 1 haute vient de `nanoid` : #30 l'épingle en 5.1.6, or `GHSA-28wg-ghj8-5hjv` exige ≥ 5.1.16.
+
+**#30 n'a donc aucun test cassé.** Elle est rouge parce que le calendrier des avis de sécurité a
+bougé sous elle. Les deux correctifs poussés aujourd'hui (suppression de streamdown, montée de
+nanoid) suppriment exactement ces 7 constats.
+
+### A.2 — §3.3 : « base de production » est une qualification que le dépôt ne permet pas
+
+Le fait établi reste entier : `DATABASE_URL` est renseigné et la base accepte les connexions depuis
+les runners GitHub (log du job : `DATABASE_URL: ***`, `UPDATE` exécuté en ~2 s). Mais **rien dans le
+dépôt ne dit qu'il s'agit de la base de production** — et la PR #30 laisse au contraire entendre que
+ce secret vise la recette (« *the free Render staging service* », « *Never confirm it unless the
+DATABASE_URL repository secret has first been verified to target staging* », `crons.yml:13`).
+
+Lire « base live, joignable depuis des runners publics, dont la nature — recette ou production — n'est
+pas déterminable depuis le dépôt ». Le risque baisse d'un cran si c'est bien la recette ; il ne
+disparaît pas (credential long terme, destructif, base exposée au réseau public).
+
+## B. Correctifs poussés le 23 août
+
+| Constat | Action | Vérification |
+|---|---|---|
+| §4.1 soft 404 | Corrigé — politique de fallback SPA reprise **verbatim de la PR #30**, qui la traitait déjà et mieux (voir C.1) | 4 URL inconnues en 404 + `noindex, nofollow`, corps « Not found » ; 6 pages indexables en 200 sans en-tête robots ; 5 routes de tunnel en 200 + noindex |
+| §4.7 showcase mort | `ComponentShowcase` (1 437 l.) et `AIChatBox` supprimés, dépendance `streamdown` retirée | `pnpm audit --prod` : 18 → 12 |
+| §3.1 dépendances | `axios ^1.17.0 → ^1.19.0`, `nanoid ^5.1.5 → ^5.1.16` | `pnpm audit --prod` : 12 → **1** (la dernière, `body-parser` via express 4, n'a pas de correctif dans la ligne 4.x) |
+| §3.3 crons aveugles | `purgeLeadsOlderThan` / `cancelStalePendingOrders` renvoient `affectedRows`, les scripts le journalisent — l'accountability RGPD (art. 5-2) suppose de pouvoir prouver ce qu'une purge a effacé | tests verts ; sera **superseded par #30**, qui fait mieux (voir C.3) |
+
+Nouveau garde-fou : `server/spaFallback.test.ts` vérifie que toute route déclarée dans `App.tsx`
+existe dans `SEO_ROUTES`. Cette table est devenue porteuse — une page qu'on y oublierait serait servie
+en **404** tout en s'affichant côté client, donc invisible en test manuel et fatale pour l'indexation.
+
+État après ces correctifs : `tsc` clean, **255 tests verts** (29 fichiers), build + prérendu OK,
+smoke de `dist/index.js` conforme, **1 vulnérabilité** en dépendances de production.
+
+## C. Revue de la PR #30
+
+**Avis général : à merger, après deux corrections.** Le travail est sérieux, testé, et traite de
+vrais problèmes. Rien dans le diff ne justifie qu'il soit resté 16 jours en attente.
+
+### C.1 — Ce qui est bien vu
+
+- **Réservation d'inventaire atomique.** `reserveOfferCapacity` fait un `UPDATE … SET availableCapacity
+  = availableCapacity - 1 WHERE id = ? AND availableCapacity > 0` dans une transaction et vérifie
+  `affectedRows === 1` : la course entre deux checkouts simultanés est fermée au niveau du SGBD, pas
+  applicatif. Le registre `inventoryReservedAt` / `inventoryReleasedAt` rend la libération idempotente
+  et laisse les lignes historiques à `null`, donc jamais recréditées à tort.
+- **Purge RGPD réconciliée avec les clés étrangères.** Les nouvelles FK sont en `ON DELETE restrict` :
+  supprimer un lead référencé par une commande deviendrait impossible. #30 bascule donc sur
+  « anonymiser si référencé, supprimer sinon », avec un tombstone `personalDataErasedAt` et un e-mail
+  neutralisé calculé **en SQL** (aucune PII matérialisée en mémoire, même sur une grosse purge).
+- **Fallback SPA** : meilleur que ce que j'avais écrit — `new URL()` plutôt qu'un découpage de chaîne,
+  corps texte au lieu de la coquille applicative, `noindex, nofollow` étendu aux routes déclarées
+  noindex, `/404` qui renvoie enfin 404, et politique extraite en fonction pure testée.
+- **Contrôle de dérive des migrations en CI** (`db:generate` puis `git diff --exit-code -- drizzle`) :
+  empêche un schéma modifié sans migration committée. Excellent réflexe.
+
+### C.2 — Les deux corrections à faire avant merge
+
+1. **🔴 L'opération `migrate-staging` est câblée sur la branche de la PR.** `crons.yml` refuse de migrer
+   si `github.ref != 'refs/heads/audit-remediation-2026-08-06'` — dans le garde *et* dans la condition
+   du step. Cette branche disparaîtra au merge : l'opération sera définitivement inutilisable, en
+   échouant sur « Refusing to migrate from an unapproved branch ». À remplacer par `refs/heads/main`
+   (ou une variable de dépôt) **avant** de merger, sinon on livre un outil mort-né.
+
+2. **🟠 Le préflight anti-orphelins de la migration 0007 est probablement inerte sur TiDB.** Il repose
+   sur des contraintes `CHECK` d'une table temporaire. TiDB ne les applique que depuis la v7.2 et
+   **derrière `tidb_enable_check_constraint`, désactivé par défaut** ; MySQL 8.0.16+ les applique, lui.
+   Si la base cible est bien TiDB Serverless (c'est ce que décrit le tutoriel de mise en production),
+   le garde passerait silencieusement même avec des orphelins, et l'ajout des FK échouerait ensuite avec
+   une erreur bien moins parlante. **À vérifier sur l'instance réelle** ; si c'est confirmé, déplacer
+   le comptage d'orphelins dans `server/dbPreflight.ts`, qui tourne déjà au démarrage du conteneur et
+   sait échouer proprement.
+
+### C.3 — Points de jugement, non bloquants
+
+- **`pnpm audit:prod` en garde-fou dur** transforme chaque nouvel avis de sécurité en build cassé sur
+  des PR qui n'y sont pour rien — c'est précisément ce qui vient d'arriver. La discipline est bonne ;
+  reste à décider si l'on assume ce coût tel quel, si l'on ne bloque qu'à partir de « high », ou si on
+  l'accompagne d'un job de mise à jour de dépendances pour que la casse soit toujours actionnable.
+- **Import paresseux de `vite`** dans `setupVite`, couplé à l'élagage des devDependencies du Dockerfile :
+  cohérent, mais cela invalide l'avertissement de `CLAUDE.md` (« full install — le bundle serveur importe
+  vite au runtime »). #30 met bien à jour `CLAUDE.md` ; à ne pas perdre au merge.
+
+### C.4 — Conflits attendus avec la branche d'audit
+
+| Fichier | Résolution |
+|---|---|
+| `server/_core/vite.ts`, `server/_core/vite.test.ts` | Contenu identique des deux côtés sur la partie fallback → fusion propre attendue |
+| `server/db.ts` (purge, cancel-stale) | **Prendre la version de #30** : elle renvoie `{anonymized, deleted}` et gère les FK, la mienne se contente d'`affectedRows` |
+| `server/purge-leads.ts` | Adapter le message de log à l'objet renvoyé par #30 |
+| `package.json`, `pnpm-lock.yaml` | Union : `axios ^1.19.0` (identique des deux côtés), `nanoid ^5.1.16` (à porter dans #30), sans `streamdown` |
+| `CLAUDE.md`, `AGENTS.md` | Fusion manuelle, les deux branches les ont amendés |
+
+## D. Ce qui reste entre tes mains
+
+Aucune de ces actions n'est faisable depuis le dépôt :
+
+1. **Corriger puis merger #30** (§C.2), ou me demander de le faire.
+2. **Décider du sort de `DATABASE_URL` dans Actions** (§A.2) — retirer le secret et suspendre le
+   workflow tant qu'aucune application n'est en ligne reste le geste le plus simple si la base ne
+   contient encore aucune donnée client.
+3. **Arbitrer domaine canonique et hébergement de production**, puis déployer.
+4. **Contractualiser un premier fournisseur réel** et l'activer au back-office — sans quoi le site,
+   même en ligne, reste commercialement inerte (§3.2).
