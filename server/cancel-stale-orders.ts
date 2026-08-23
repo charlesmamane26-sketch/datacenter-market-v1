@@ -27,9 +27,9 @@ export function parseStaleOrderHours(raw: string | undefined): number {
 
 async function main(): Promise<void> {
   const staleOrderHours = parseStaleOrderHours(process.env.STALE_ORDER_HOURS);
-  await cancelStalePendingOrders(staleOrderHours);
+  const cancelled = await cancelStalePendingOrders(staleOrderHours);
   console.log(
-    `[Orders] Cancelled pending/unpaid orders older than ${staleOrderHours}h.`
+    `[Orders] Cancelled ${cancelled} pending/unpaid order(s) older than ${staleOrderHours}h.`
   );
 }
 
