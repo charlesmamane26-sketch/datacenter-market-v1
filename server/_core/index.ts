@@ -20,7 +20,6 @@ import { buildCspDirectives } from "./csp";
 import { initRateLimitStore } from "./redisRateLimit";
 import { isRedisReady } from "./redisClient";
 import { serveStatic, setupVite } from "./vite";
-import { matchRouteSeo } from "../../shared/seo";
 
 const DEFAULT_READINESS_TIMEOUT_MS = 5_000;
 
@@ -233,9 +232,7 @@ async function startServer() {
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {
-    // SEO_ROUTES is the app's route table (shared/seo.ts): anything outside it
-    // is an unknown URL and must answer 404, not the prerendered home page.
-    serveStatic(app, { isAppRoute: pathname => matchRouteSeo(pathname) != null });
+    serveStatic(app);
   }
 
   // The error handler must be before any other error middleware and after all controllers

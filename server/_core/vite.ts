@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
+import { matchRouteSeo } from "../../shared/seo";
 
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
@@ -47,18 +48,21 @@ export async function setupVite(app: Express, server: Server) {
   });
 }
 
-export type ServeStaticOptions = {
-  /**
-   * Tells apart a route the SPA router owns (served as index.html + HTTP 200)
-   * from an unknown URL (same shell, but HTTP 404). Without it every bogus URL
-   * answers 200 with the prerendered home page — a soft 404 that crawlers index
-   * as a duplicate of "/". Defaults to "every path is an app route", which
-   * preserves the template's original behaviour.
-   */
-  isAppRoute?: (pathname: string) => boolean;
-};
+export function getSpaFallbackPolicy(pathname: string): {
+  known: boolean;
+  status: 200 | 404;
+  noindex: boolean;
+} {
+  const route = matchRouteSeo(pathname);
+  if (!route) return { known: false, status: 404, noindex: true };
+  return {
+    known: true,
+    status: route.pattern === "/404" ? 404 : 200,
+    noindex: Boolean(route.noindex),
+  };
+}
 
-export function serveStatic(app: Express, options: ServeStaticOptions = {}) {
+export function serveStatic(app: Express) {
   const distPath =
     process.env.NODE_ENV === "development"
       ? path.resolve(import.meta.dirname, "../..", "dist", "public")
@@ -71,16 +75,27 @@ export function serveStatic(app: Express, options: ServeStaticOptions = {}) {
 
   app.use(express.static(distPath));
 
-  // Fall through to index.html if the file doesn't exist: the SPA router renders
-  // the page client-side. Unknown URLs get the same shell but a 404 status, so a
-  // crawler is told the page does not exist instead of indexing the home page
-  // under an arbitrary URL.
+  // Fall through to the SPA only for declared application routes. Unknown
+  // assets/paths get a real 404 instead of an indexable home-page soft-404.
   app.use("*", (req, res) => {
-    const pathname = req.originalUrl.split(/[?#]/, 1)[0];
-    const isAppRoute = options.isAppRoute?.(pathname) ?? true;
-    if (!isAppRoute) {
-      res.status(404).set("X-Robots-Tag", "noindex");
+    let pathname = "/__invalid_path__";
+    try {
+      pathname = new URL(req.originalUrl, "http://localhost").pathname;
+    } catch {
+      // Keep the fail-closed unknown-path policy.
     }
-    res.sendFile(path.resolve(distPath, "index.html"));
+    const policy = getSpaFallbackPolicy(pathname);
+    if (!policy.known) {
+      res
+        .status(404)
+        .set("X-Robots-Tag", "noindex, nofollow")
+        .type("text/plain")
+        .send("Not found");
+      return;
+    }
+    if (policy.noindex) {
+      res.set("X-Robots-Tag", "noindex, nofollow");
+    }
+    res.status(policy.status).sendFile(path.resolve(distPath, "index.html"));
   });
 }
