@@ -15,6 +15,7 @@ import {
 import { enforceRateLimit, clientIp } from "./rateLimit";
 import { sendOrderConfirmed, sendPaymentFailed } from "./clientNotifications";
 import type { TrpcContext } from "./_core/context";
+import type { Order } from "../drizzle/schema";
 
 let _stripe: Stripe | null = null;
 let configurationWarningLogged = false;
@@ -251,6 +252,65 @@ export async function retrieveCheckoutSession(sessionId: string): Promise<Stripe
   return stripe.checkout.sessions.retrieve(sessionId);
 }
 
+export type StripeCancellationResult = {
+  subscriptionId: string | null;
+  action: "none" | "checkout_expired" | "subscription_cancelled";
+};
+
+/** Stops remote Stripe state before an admin makes the local order terminal. */
+export async function cancelStripeResourcesForOrder(
+  order: Order,
+  stripeClient: Stripe | null = getStripe(),
+): Promise<StripeCancellationResult> {
+  if (order.stripeTerminalAt) {
+    return { subscriptionId: order.stripeSubscriptionId, action: "none" };
+  }
+  if (!stripeClient) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Payments are not configured." });
+  }
+
+  const cancelSubscription = async (subscriptionId: string): Promise<StripeCancellationResult> => {
+    const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
+    if (subscription.status === "canceled") {
+      return { subscriptionId, action: "none" };
+    }
+    await stripeClient.subscriptions.cancel(
+      subscriptionId,
+      {},
+      { idempotencyKey: `admin-cancel-order:${order.id}:subscription` },
+    );
+    return { subscriptionId, action: "subscription_cancelled" };
+  };
+
+  if (order.stripeSubscriptionId) {
+    return cancelSubscription(order.stripeSubscriptionId);
+  }
+  if (!order.stripeCheckoutSessionId) {
+    return { subscriptionId: null, action: "none" };
+  }
+
+  const session = await stripeClient.checkout.sessions.retrieve(order.stripeCheckoutSessionId, {
+    expand: ["subscription"],
+  });
+  const subscriptionId = objectId(session.subscription);
+  if (subscriptionId) return cancelSubscription(subscriptionId);
+  if (session.status === "open") {
+    await stripeClient.checkout.sessions.expire(
+      session.id,
+      {},
+      { idempotencyKey: `admin-cancel-order:${order.id}:checkout` },
+    );
+    return { subscriptionId: null, action: "checkout_expired" };
+  }
+  if (session.status === "expired") {
+    return { subscriptionId: null, action: "none" };
+  }
+  throw new TRPCError({
+    code: "CONFLICT",
+    message: "CHECKOUT_SESSION_UNAVAILABLE: the completed Checkout Session has no cancellable subscription.",
+  });
+}
+
 /**
  * Chooses a safe destination when an application-level checkout request is retried.
  * An open Stripe session can still be paid; a completed session belongs on our
@@ -403,11 +463,17 @@ async function applyCheckoutEvent(event: Stripe.Event, session: Stripe.Checkout.
         // Always repair the lead invariant, even if an older/manual path already
         // marked the order paid before this journaled event arrived.
         lead: { status: "converted", selectedOfferId: current.offerId },
+        ...(current.paymentStatus !== "succeeded"
+          ? { inventoryReservation: "reserve" as const }
+          : {}),
       };
     }
     if (isFailed && current.paymentStatus !== "succeeded") {
       if (current.paymentStatus !== "failed" && current.status !== "cancelled") notify = "failed";
-      return { order: { ...referencePatch, paymentStatus: "failed", status: "cancelled" } };
+      return {
+        order: { ...referencePatch, paymentStatus: "failed", status: "cancelled" },
+        inventoryReservation: "release",
+      };
     }
     return Object.keys(referencePatch).length > 0 ? { order: referencePatch } : null;
   });
@@ -446,6 +512,9 @@ async function applyInvoiceEvent(event: Stripe.Event, invoice: Stripe.Invoice): 
             : {}),
         },
         lead: { status: "converted", selectedOfferId: current.offerId },
+        ...(current.paymentStatus !== "succeeded"
+          ? { inventoryReservation: "reserve" as const }
+          : {}),
       };
     }
 
@@ -477,6 +546,7 @@ async function applyInvoiceEvent(event: Stripe.Event, invoice: Stripe.Invoice): 
         paymentStatus: "failed",
         ...(cancelBeforeProvisioning ? { status: "cancelled" as const } : {}),
       },
+      ...(cancelBeforeProvisioning ? { inventoryReservation: "release" as const } : {}),
     };
   });
   if (notify && result.changed) await notifyCustomer(notify, result.order);
@@ -510,6 +580,7 @@ async function applySubscriptionEvent(event: Stripe.Event, subscription: Stripe.
           status: "cancelled",
           stripeTerminalAt: new Date(event.created * 1000),
         },
+        inventoryReservation: "release",
       };
     }
     if (status === "past_due" || status === "incomplete") {
@@ -607,7 +678,18 @@ export function registerStripeWebhook(app: Express) {
     try {
       event = stripe.webhooks.constructEvent(req.body, signature, ENV.stripeWebhookSecret);
     } catch (err) {
-      console.warn("[Stripe] Webhook signature verification failed:", err);
+      const candidate = err && typeof err === "object"
+        ? err as { type?: unknown; code?: unknown; requestId?: unknown; raw?: { requestId?: unknown } }
+        : null;
+      const safeValue = (value: unknown) =>
+        typeof value === "string" && /^[a-zA-Z0-9_.:-]{1,100}$/.test(value) ? value : undefined;
+      console.warn("[Stripe] Webhook signature verification failed", {
+        type: safeValue(candidate?.type) ?? "unknown",
+        ...(safeValue(candidate?.code) ? { code: safeValue(candidate?.code) } : {}),
+        ...(safeValue(candidate?.requestId ?? candidate?.raw?.requestId)
+          ? { requestId: safeValue(candidate?.requestId ?? candidate?.raw?.requestId) }
+          : {}),
+      });
       res.status(400).send("Webhook signature verification failed.");
       return;
     }

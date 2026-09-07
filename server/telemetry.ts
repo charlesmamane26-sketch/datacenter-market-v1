@@ -1,7 +1,7 @@
 import express, { type Express } from "express";
 import { timingSafeEqual } from "crypto";
 import { z } from "zod";
-import { ENV } from "./_core/env";
+import { ENV, parseTelemetryProviderKeys } from "./_core/env";
 import { asyncHandler } from "./_core/asyncHandler";
 import { createInfrastructureMetrics, getOrder } from "./db";
 import { clientIp, enforceRateLimit } from "./rateLimit";
@@ -13,9 +13,10 @@ import { processMetricAlerts } from "./telemetryAlerts";
  * into `infrastructureMetrics` (the same table the client dashboard reads, and
  * that `simulate-telemetry.ts` writes to in dev).
  *
- * Auth is a shared bearer key (TELEMETRY_INGEST_KEY) compared in constant time —
- * the caller is a machine, not a session user. Without the key the route is
- * disabled (503), mirroring how Stripe is gated by its secret.
+ * Auth uses one bearer key per provider (TELEMETRY_PROVIDER_KEYS, a JSON object
+ * keyed by provider id) and binds that identity to order.providerId. The legacy
+ * global TELEMETRY_INGEST_KEY is accepted only outside production so one
+ * provider credential can never write metrics for another provider's order.
  */
 
 // Decimals are stored as strings (mirrors the schema's decimal columns and how
@@ -37,6 +38,7 @@ const MetricSchema = z
   });
 
 type MetricInput = z.infer<typeof MetricSchema>;
+type AuthorizedProvider = number | "legacy";
 const TELEMETRY_ORDER_STATUSES = new Set([
   "processing",
   "provisioning",
@@ -53,18 +55,62 @@ function isTelemetryEligibleOrder(order: {
   );
 }
 
-/** Constant-time bearer-key check. Returns false unless a key is configured. */
-function isAuthorized(header: string | undefined): boolean {
-  const configured = ENV.telemetryIngestKey;
-  if (!configured) return false;
-  if (typeof header !== "string" || !header.startsWith("Bearer ")) return false;
-  const provided = header.slice("Bearer ".length);
+function constantTimeKeyMatch(provided: string, expected: string): boolean {
   const a = Buffer.from(provided);
-  const b = Buffer.from(configured);
-  // timingSafeEqual throws on length mismatch — guard it, but still compare to
-  // avoid leaking length via early return timing.
+  const b = Buffer.from(expected);
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+export function parseProviderTelemetryKeys(
+  raw = process.env.TELEMETRY_PROVIDER_KEYS
+): Map<number, string> {
+  const parsed = parseTelemetryProviderKeys(raw);
+  const providerKeys = new Map<number, string>();
+  for (const [providerId, key] of Object.entries(parsed ?? {})) {
+    providerKeys.set(Number(providerId), key);
+  }
+  return providerKeys;
+}
+
+/** Resolve the provider represented by a bearer key without leaking the key. */
+export function resolveAuthorizedProvider(
+  header: string | undefined
+): AuthorizedProvider | null {
+  if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;
+  const provided = header.slice("Bearer ".length);
+  for (const [providerId, key] of parseProviderTelemetryKeys()) {
+    if (constantTimeKeyMatch(provided, key)) return providerId;
+  }
+
+  if (
+    process.env.NODE_ENV !== "production" &&
+    ENV.telemetryIngestKey &&
+    constantTimeKeyMatch(provided, ENV.telemetryIngestKey)
+  ) {
+    return "legacy";
+  }
+  return null;
+}
+
+/** Constant-time bearer-key check, optionally bound to an expected provider. */
+function isAuthorized(
+  header: string | undefined,
+  providerId?: number
+): boolean {
+  const authorized = resolveAuthorizedProvider(header);
+  return (
+    authorized === "legacy" ||
+    (typeof authorized === "number" &&
+      (providerId === undefined || authorized === providerId))
+  );
+}
+
+function hasTelemetryConfiguration(): boolean {
+  return (
+    parseProviderTelemetryKeys().size > 0 ||
+    (process.env.NODE_ENV !== "production" && Boolean(ENV.telemetryIngestKey))
+  );
 }
 
 /** Decimal columns are stored as strings; ints as numbers. */
@@ -89,13 +135,16 @@ export function registerTelemetryIngest(app: Express) {
     "/api/telemetry/:orderId",
     express.json({ limit: "16kb" }),
     asyncHandler(async (req, res) => {
-      if (!ENV.telemetryIngestKey) {
+      if (!hasTelemetryConfiguration()) {
         res
           .status(503)
           .json({ error: "Telemetry ingestion is not configured." });
         return;
       }
-      if (!isAuthorized(req.headers.authorization)) {
+      const authorizedProvider = resolveAuthorizedProvider(
+        req.headers.authorization
+      );
+      if (authorizedProvider === null) {
         res.status(401).json({ error: "Unauthorized." });
         return;
       }
@@ -107,7 +156,7 @@ export function registerTelemetryIngest(app: Express) {
       }
 
       const limit = await enforceRateLimit(
-        `telemetry:${orderId}:${clientIp(req)}`,
+        `telemetry:${authorizedProvider}:${orderId}:${clientIp(req)}`,
         120,
         60_000
       );
@@ -129,6 +178,15 @@ export function registerTelemetryIngest(app: Express) {
       // be seeded with orphan rows.
       const order = await getOrder(orderId);
       if (!order) {
+        res.status(404).json({ error: "Order not found." });
+        return;
+      }
+      if (
+        authorizedProvider !== "legacy" &&
+        order.providerId !== authorizedProvider
+      ) {
+        // Use the same response as a missing order to prevent cross-provider id
+        // probing with an otherwise valid machine credential.
         res.status(404).json({ error: "Order not found." });
         return;
       }
@@ -156,4 +214,10 @@ export function registerTelemetryIngest(app: Express) {
 }
 
 // Exported for unit tests.
-export { MetricSchema, isAuthorized, isTelemetryEligibleOrder, toRow };
+export {
+  MetricSchema,
+  hasTelemetryConfiguration,
+  isAuthorized,
+  isTelemetryEligibleOrder,
+  toRow,
+};

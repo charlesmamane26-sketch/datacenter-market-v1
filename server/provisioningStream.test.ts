@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  MAX_SSE_CONNECTIONS_PER_IP,
+  __activeStreamCount,
   subscribeProvisioning,
   publishProvisioningEvent,
   __subscriberCount,
+  acquireStreamSlot,
   type ProvisioningStreamEvent,
 } from "./provisioningStream";
 
@@ -79,5 +82,27 @@ describe("provisioning broadcaster", () => {
     expect(ok).toHaveBeenCalledOnce();
     u1();
     u2();
+  });
+
+  it("caps concurrent streams per IP and releases slots idempotently", () => {
+    const releases = Array.from(
+      { length: MAX_SSE_CONNECTIONS_PER_IP },
+      () => acquireStreamSlot("1.2.3.4")
+    );
+    expect(releases.every(Boolean)).toBe(true);
+    expect(__activeStreamCount("1.2.3.4")).toBe(MAX_SSE_CONNECTIONS_PER_IP);
+    expect(acquireStreamSlot("1.2.3.4")).toBeNull();
+
+    releases[0]?.();
+    releases[0]?.();
+    expect(__activeStreamCount("1.2.3.4")).toBe(
+      MAX_SSE_CONNECTIONS_PER_IP - 1
+    );
+    const replacement = acquireStreamSlot("1.2.3.4");
+    expect(replacement).not.toBeNull();
+
+    releases.slice(1).forEach(release => release?.());
+    replacement?.();
+    expect(__activeStreamCount("1.2.3.4")).toBe(0);
   });
 });

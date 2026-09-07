@@ -320,6 +320,7 @@ describe("applyStripeEvent journal and transitions", () => {
         stripeSubscriptionId: "sub_1",
       }),
       lead: { status: "converted", selectedOfferId: 7 },
+      inventoryReservation: "reserve",
     });
     expect(sendOrderConfirmed).toHaveBeenCalledWith("client@example.com", 42);
   });
@@ -360,6 +361,7 @@ describe("applyStripeEvent journal and transitions", () => {
     );
     expect(transitionPlan).toEqual({
       order: expect.objectContaining({ paymentStatus: "failed", status: "cancelled" }),
+      inventoryReservation: "release",
     });
     expect(sendPaymentFailed).toHaveBeenCalledWith("client@example.com", 42);
   });

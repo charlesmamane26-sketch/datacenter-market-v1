@@ -20,6 +20,7 @@ import {
   getStripe,
   getOrigin,
   retrieveCheckoutSession,
+  cancelStripeResourcesForOrder,
 } from "./stripe";
 import { z } from "zod";
 import {
@@ -40,7 +41,6 @@ import {
   getOrder,
   getOrdersByUser,
   getAllOrders,
-  updateOrder,
   transitionOrderStatus,
   getProvisioningEventsByOrder,
   createProvisioningEvent,
@@ -53,8 +53,36 @@ import {
   getOrderByCheckoutIdempotencyKey,
   linkOrderStripeReferences,
   releaseExpiredCheckout,
+  ensureCheckoutOrderReservation,
+  updateOrderPaymentStatusAtomic,
 } from "./db";
 import { OrderLifecycleError } from "./orderLifecycle";
+import { isAvailabilityStale, isOfferSellable } from "./inventory";
+
+export const CHECKOUT_CONFLICT_CODES = {
+  capacityUnavailable: "CHECKOUT_CAPACITY_UNAVAILABLE",
+  offerExpired: "CHECKOUT_OFFER_EXPIRED",
+  offerUnavailable: "CHECKOUT_OFFER_UNAVAILABLE",
+  idempotencyConflict: "CHECKOUT_IDEMPOTENCY_CONFLICT",
+  sessionUnavailable: "CHECKOUT_SESSION_UNAVAILABLE",
+  leadConflict: "CHECKOUT_LEAD_CONFLICT",
+} as const;
+
+function checkoutConflictMessage(error: CheckoutConflictError): string {
+  const code =
+    error.reason === "capacity_unavailable"
+      ? CHECKOUT_CONFLICT_CODES.capacityUnavailable
+      : error.reason === "offer_expired"
+        ? CHECKOUT_CONFLICT_CODES.offerExpired
+        : error.reason === "offer_unavailable"
+          ? CHECKOUT_CONFLICT_CODES.offerUnavailable
+          : error.reason === "idempotency_conflict"
+            ? CHECKOUT_CONFLICT_CODES.idempotencyConflict
+            : error.reason === "lead_conflict"
+              ? CHECKOUT_CONFLICT_CODES.leadConflict
+              : CHECKOUT_CONFLICT_CODES.sessionUnavailable;
+  return `${code}: ${error.message}`;
+}
 
 /**
  * Loads an order and authorizes access: only its owner or an admin may read it.
@@ -114,9 +142,32 @@ async function createPendingOrder(
     termsVersion: string;
   },
 ) {
-  const offer = await getOffer(input.offerId, { sellableOnly: true });
+  const offer = await getOffer(input.offerId);
   if (!offer) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Offer not found" });
+  }
+  const hasInventorySnapshot =
+    typeof offer.isActive === "boolean" &&
+    typeof offer.availableCapacity === "number" &&
+    typeof offer.availabilityStatus === "string" &&
+    "availabilityExpiresAt" in offer;
+  if (hasInventorySnapshot && isAvailabilityStale(offer)) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: `${CHECKOUT_CONFLICT_CODES.offerExpired}: this offer's availability confirmation has expired.`,
+    });
+  }
+  if (hasInventorySnapshot && offer.availableCapacity <= 0) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: `${CHECKOUT_CONFLICT_CODES.capacityUnavailable}: this offer has no capacity available.`,
+    });
+  }
+  if (hasInventorySnapshot && !isOfferSellable(offer)) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: `${CHECKOUT_CONFLICT_CODES.offerUnavailable}: this offer is no longer available.`,
+    });
   }
   if (offer.providerId == null) {
     throw new TRPCError({ code: "CONFLICT", message: "Offer supplier is not assigned." });
@@ -206,7 +257,7 @@ async function createPendingOrder(
       }
     } catch (error) {
       if (error instanceof CheckoutConflictError) {
-        throw new TRPCError({ code: "CONFLICT", message: error.message });
+        throw new TRPCError({ code: "CONFLICT", message: checkoutConflictMessage(error) });
       }
       throw error;
     }
@@ -307,6 +358,9 @@ export const appRouter = router({
           // recorded server-side (consentedAt + policy version) as proof of
           // consent. z.literal(true) rejects a missing or false value.
           consent: z.literal(true),
+          // Reject a stale browser tab instead of recording the current policy
+          // version for text the user did not actually see.
+          consentPolicyVersion: z.literal(CONSENT_POLICY_VERSION),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -331,7 +385,7 @@ export const appRouter = router({
           deploymentDuration: input.deploymentDuration,
           infrastructureConstraints: input.infrastructureConstraints,
           consentedAt: new Date(),
-          consentPolicyVersion: CONSENT_POLICY_VERSION,
+          consentPolicyVersion: input.consentPolicyVersion,
         });
         const insertId = Array.isArray(result)
           ? (result[0] as { insertId?: number } | undefined)?.insertId
@@ -592,6 +646,9 @@ export const appRouter = router({
           // Proof the caller may claim an anonymous lead (see createPendingOrder).
           claimToken: z.string().optional(),
           termsAccepted: z.literal(true),
+          // Bind the server-side evidence to the exact text rendered by this
+          // client. Old tabs must reload after a terms-version deployment.
+          termsVersion: z.literal(PURCHASE_TERMS_VERSION),
           idempotencyKey: z.string().trim().min(16).max(128),
         })
       )
@@ -624,7 +681,7 @@ export const appRouter = router({
         if (existing && (existing.leadId !== input.leadId || existing.offerId !== input.offerId)) {
           throw new TRPCError({
             code: "CONFLICT",
-            message: "This checkout idempotency key is already bound to another order.",
+            message: `${CHECKOUT_CONFLICT_CODES.idempotencyConflict}: this key is already bound to another order.`,
           });
         }
 
@@ -633,7 +690,7 @@ export const appRouter = router({
           : await createPendingOrder(input, ctx.user.id, {
               idempotencyKey: input.idempotencyKey,
               termsAcceptedAt: new Date(),
-              termsVersion: PURCHASE_TERMS_VERSION,
+              termsVersion: input.termsVersion,
             });
         const order = existing ?? pendingOrder;
         const compensation =
@@ -669,16 +726,38 @@ export const appRouter = router({
               });
               throw new TRPCError({
                 code: "CONFLICT",
-                message: "This Checkout Session is no longer payable. Start a new checkout attempt.",
+                message: `${CHECKOUT_CONFLICT_CODES.sessionUnavailable}: this Checkout Session is no longer payable. Start a new checkout attempt.`,
               });
             }
+            await ensureCheckoutOrderReservation({
+              orderId: order.id,
+              userId: ctx.user.id,
+              idempotencyKey: input.idempotencyKey,
+            });
           } else {
+            await ensureCheckoutOrderReservation({
+              orderId: order.id,
+              userId: ctx.user.id,
+              idempotencyKey: input.idempotencyKey,
+            });
             // Re-read immediately before creating remote state. The atomic path
             // already validated inventory; this second gate covers an admin
             // change between local persistence and Stripe Session creation.
-            const sellableOffer = await getOffer(order.offerId, { sellableOnly: true });
-            if (!sellableOffer) {
-              throw new TRPCError({ code: "CONFLICT", message: "This offer is no longer available." });
+            const sellableOffer = await getOffer(order.offerId);
+            const hasCurrentInventorySnapshot =
+              sellableOffer != null &&
+              typeof sellableOffer.isActive === "boolean" &&
+              typeof sellableOffer.availabilityStatus === "string" &&
+              "availabilityExpiresAt" in sellableOffer;
+            if (
+              !sellableOffer ||
+              (hasCurrentInventorySnapshot &&
+                !isOfferSellable({ ...sellableOffer, availableCapacity: 1 }))
+            ) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: `${CHECKOUT_CONFLICT_CODES.offerUnavailable}: this offer is no longer available.`,
+              });
             }
             session = await createCheckoutSession(
               {
@@ -717,6 +796,9 @@ export const appRouter = router({
               );
             }
           }
+          if (error instanceof CheckoutConflictError) {
+            throw new TRPCError({ code: "CONFLICT", message: checkoutConflictMessage(error) });
+          }
           throw error;
         }
       }),
@@ -736,26 +818,27 @@ export const appRouter = router({
         z.object({
           id: z.number().int().positive(),
           paymentStatus: z.enum(["pending", "succeeded", "failed", "cancelled"]),
-          stripePaymentIntentId: z.string().optional(),
+          stripePaymentIntentId: z.string().trim().min(1).max(255).optional(),
         })
       )
       .mutation(async ({ input }) => {
-        const order = await getOrder(input.id);
+        let order;
+        try {
+          order = await updateOrderPaymentStatusAtomic(
+            input.id,
+            input.paymentStatus,
+            input.stripePaymentIntentId,
+          );
+        } catch (error) {
+          if (error instanceof CheckoutConflictError) {
+            throw new TRPCError({ code: "CONFLICT", message: checkoutConflictMessage(error) });
+          }
+          rethrowOrderLifecycleError(error);
+        }
         if (!order) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
         }
-        // Only advance a still-pending order to processing on success. Never derive
-        // status from paymentStatus unconditionally: doing so would drag an already
-        // advanced order (provisioning/active/completed) back to "pending" when a
-        // later paymentStatus (e.g. a chargeback marked "failed") is recorded.
-        const advanceToProcessing =
-          input.paymentStatus === "succeeded" && order.status === "pending";
-        await updateOrder(input.id, {
-          paymentStatus: input.paymentStatus,
-          stripePaymentIntentId: input.stripePaymentIntentId,
-          ...(advanceToProcessing ? { status: "processing" as const } : {}),
-        });
-        return getOrder(input.id);
+        return order;
       }),
 
     updateStatus: adminProcedure
@@ -767,7 +850,23 @@ export const appRouter = router({
       )
       .mutation(async ({ input }) => {
         try {
-          const order = await transitionOrderStatus(input.id, input.status);
+          const current = await getOrder(input.id);
+          if (!current) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+          }
+          const terminal = input.status === "cancelled"
+            ? await cancelStripeResourcesForOrder(current)
+            : null;
+          const order = await transitionOrderStatus(
+            input.id,
+            input.status,
+            terminal
+              ? {
+                  stripeSubscriptionId: terminal.subscriptionId,
+                  stripeTerminalAt: new Date(),
+                }
+              : undefined,
+          );
           if (!order) {
             throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
           }

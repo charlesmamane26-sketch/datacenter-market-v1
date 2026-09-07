@@ -15,7 +15,9 @@ import {
   getOrderByCheckoutIdempotencyKey,
   linkOrderStripeReferences,
   releaseExpiredCheckout,
+  ensureCheckoutOrderReservation,
   transitionOrderStatus,
+  updateOrderPaymentStatusAtomic,
   updateLead,
   updateOrder,
 } from "./db";
@@ -24,11 +26,16 @@ import {
   getCheckoutSessionReferences,
   getStripe,
   retrieveCheckoutSession,
+  cancelStripeResourcesForOrder,
 } from "./stripe";
-import { signLeadClaim } from "./leadClaim";
+import { signLeadClaim, verifyLeadClaim } from "./leadClaim";
 import { __resetRateLimit } from "./rateLimit";
 import { OrderLifecycleError } from "./orderLifecycle";
 import type { TrpcContext } from "./_core/context";
+import {
+  CONSENT_POLICY_VERSION,
+  PURCHASE_TERMS_VERSION,
+} from "@shared/const";
 
 // Unit-test authorization & pricing logic without a real database by mocking the db layer.
 vi.mock("./db", () => ({
@@ -53,7 +60,9 @@ vi.mock("./db", () => ({
   getOrderByCheckoutIdempotencyKey: vi.fn(),
   linkOrderStripeReferences: vi.fn(),
   releaseExpiredCheckout: vi.fn(),
+  ensureCheckoutOrderReservation: vi.fn(),
   transitionOrderStatus: vi.fn(),
+  updateOrderPaymentStatusAtomic: vi.fn(),
   CheckoutConflictError: class CheckoutConflictError extends Error {},
 }));
 
@@ -65,6 +74,7 @@ vi.mock("./stripe", async importOriginal => {
     createCheckoutSession: vi.fn(),
     getCheckoutSessionReferences: vi.fn(),
     retrieveCheckoutSession: vi.fn(),
+    cancelStripeResourcesForOrder: vi.fn(),
   };
 });
 
@@ -98,6 +108,11 @@ function ctxFor(user: TrpcContext["user"]): TrpcContext {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(getStripe).mockReturnValue(null);
+  vi.mocked(ensureCheckoutOrderReservation).mockResolvedValue({ id: 42 } as any);
+  vi.mocked(cancelStripeResourcesForOrder).mockResolvedValue({
+    subscriptionId: null,
+    action: "none",
+  });
   // enforceRateLimit is NOT mocked here (only ./db is), so reset the in-memory
   // limiter between tests to keep per-user/IP counters deterministic.
   __resetRateLimit();
@@ -243,6 +258,7 @@ function checkoutInput(idempotencyKey: string, claimToken?: string) {
     offerId: 7,
     claimToken,
     termsAccepted: true as const,
+    termsVersion: PURCHASE_TERMS_VERSION as typeof PURCHASE_TERMS_VERSION,
     idempotencyKey,
   };
 }
@@ -656,6 +672,7 @@ describe("leads.create input bounds", () => {
         email: "a@b.com",
         company: "x".repeat(256),
         consent: true,
+        consentPolicyVersion: CONSENT_POLICY_VERSION,
       })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
@@ -663,6 +680,7 @@ describe("leads.create input bounds", () => {
         email: "a@b.com",
         monthlyBudget: -100,
         consent: true,
+        consentPolicyVersion: CONSENT_POLICY_VERSION,
       })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
@@ -688,6 +706,7 @@ describe("leads.create RGPD consent", () => {
     const result = await caller.leads.create({
       email: "a@b.com",
       consent: true,
+      consentPolicyVersion: CONSENT_POLICY_VERSION,
     });
     // consentedAt (a Date) + policy version are persisted for accountability.
     expect(createLead).toHaveBeenCalledWith(
@@ -699,7 +718,19 @@ describe("leads.create RGPD consent", () => {
     );
     // The creator gets the capability token needed to later claim the lead.
     expect(result.id).toBe(77);
-    expect(result.claimToken).toBe(signLeadClaim(77));
+    expect(verifyLeadClaim(77, result.claimToken)).toBe(true);
+  });
+
+  it("rejects a stale privacy-policy version", async () => {
+    const caller = appRouter.createCaller(ctxFor(null));
+    await expect(
+      caller.leads.create({
+        email: "a@b.com",
+        consent: true,
+        consentPolicyVersion: "2026-01-01",
+      } as any)
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(createLead).not.toHaveBeenCalled();
   });
 });
 
@@ -812,54 +843,49 @@ describe("offers.match does not leak a lead's private criteria", () => {
 
 describe("orders.updatePaymentStatus (admin) does not regress lifecycle", () => {
   it("advances a still-pending order to processing on success", async () => {
-    vi.mocked(getOrder).mockResolvedValue({ id: 10, status: "pending" } as any);
+    vi.mocked(updateOrderPaymentStatusAtomic).mockResolvedValue({
+      id: 10,
+      status: "processing",
+      paymentStatus: "succeeded",
+    } as any);
     const caller = appRouter.createCaller(ctxFor(makeUser(99, "admin")));
-    await caller.orders.updatePaymentStatus({
+    await expect(caller.orders.updatePaymentStatus({
       id: 10,
       paymentStatus: "succeeded",
-    });
-    expect(updateOrder).toHaveBeenCalledWith(
-      10,
-      expect.objectContaining({
-        paymentStatus: "succeeded",
-        status: "processing",
-      })
-    );
+    })).resolves.toMatchObject({ status: "processing", paymentStatus: "succeeded" });
+    expect(updateOrderPaymentStatusAtomic).toHaveBeenCalledWith(10, "succeeded", undefined);
   });
 
   it("does NOT drag an active order back to pending when payment is marked failed", async () => {
-    vi.mocked(getOrder).mockResolvedValue({ id: 10, status: "active" } as any);
+    vi.mocked(updateOrderPaymentStatusAtomic).mockResolvedValue({
+      id: 10,
+      status: "active",
+      paymentStatus: "failed",
+    } as any);
     const caller = appRouter.createCaller(ctxFor(makeUser(99, "admin")));
-    await caller.orders.updatePaymentStatus({
+    await expect(caller.orders.updatePaymentStatus({
       id: 10,
       paymentStatus: "failed",
-    });
-    // paymentStatus updates, but status is left untouched (no "pending" override).
-    const call = vi.mocked(updateOrder).mock.calls[0][1] as Record<
-      string,
-      unknown
-    >;
-    expect(call.paymentStatus).toBe("failed");
-    expect(call).not.toHaveProperty("status");
+    })).resolves.toMatchObject({ status: "active", paymentStatus: "failed" });
   });
 
   it("does not re-run provisioning by re-deriving processing on an already-active order", async () => {
-    vi.mocked(getOrder).mockResolvedValue({ id: 10, status: "active" } as any);
+    vi.mocked(updateOrderPaymentStatusAtomic).mockResolvedValue({
+      id: 10,
+      status: "active",
+      paymentStatus: "succeeded",
+    } as any);
     const caller = appRouter.createCaller(ctxFor(makeUser(99, "admin")));
-    await caller.orders.updatePaymentStatus({
+    await expect(caller.orders.updatePaymentStatus({
       id: 10,
       paymentStatus: "succeeded",
-    });
-    const call = vi.mocked(updateOrder).mock.calls[0][1] as Record<
-      string,
-      unknown
-    >;
-    expect(call).not.toHaveProperty("status"); // stays "active", not reset to "processing"
+    })).resolves.toMatchObject({ status: "active" });
   });
 });
 
 describe("admin order and provisioning lifecycle", () => {
   it("surfaces an invalid manual service transition as a conflict", async () => {
+    vi.mocked(getOrder).mockResolvedValue({ id: 10, status: "pending" } as any);
     vi.mocked(transitionOrderStatus).mockRejectedValue(
       new OrderLifecycleError("Stripe must confirm payment before service activation."),
     );
@@ -917,6 +943,7 @@ describe("orders.checkout", () => {
     leadId: 3,
     offerId: 7,
     termsAccepted: true as const,
+    termsVersion: PURCHASE_TERMS_VERSION as typeof PURCHASE_TERMS_VERSION,
     idempotencyKey: "checkout-test-key-0001",
   };
 

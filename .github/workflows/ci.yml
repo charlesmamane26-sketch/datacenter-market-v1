@@ -33,6 +33,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Audit production dependencies
+        run: pnpm audit:prod
+
+      - name: Verify migrations are committed
+        run: |
+          pnpm db:generate
+          git diff --exit-code -- drizzle
+        env:
+          # drizzle.config.ts validates the URL while generate itself stays offline.
+          DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/schema_check
+
       - name: Typecheck
         run: pnpm check
 

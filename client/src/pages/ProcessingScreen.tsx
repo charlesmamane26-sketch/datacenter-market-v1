@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { leadRef } from "@/lib/format";
+import { loadLeadClaim } from "@/lib/leadClaim";
+import { trpc } from "@/lib/trpc";
 import { JourneyStepper, MarketChrome } from "@/components/market";
 
 const SIMULATION_LOGS = [
-  { text: "Validation des critères transmis", duration: 1000 },
-  { text: "Consultation du catalogue disponible", duration: 1200 },
-  { text: "Filtrage des configurations GPU", duration: 1000 },
-  { text: "Classement par prix et délai", duration: 1000 },
-  { text: "Préparation des options disponibles", duration: 800 },
+  "Validation des critères transmis",
+  "Consultation du catalogue disponible",
+  "Filtrage des configurations GPU",
+  "Classement par prix et délai",
+  "Préparation des options disponibles",
 ];
 
 function timeNow(): string {
@@ -22,36 +24,45 @@ export default function ProcessingScreen() {
   const [currentLine, setCurrentLine] = useState(0);
   const [timestamps, setTimestamps] = useState<string[]>([]);
   const [isComplete, setIsComplete] = useState(false);
-  const leadId = new URLSearchParams(window.location.search).get("leadId");
+  const utils = trpc.useUtils();
+  const rawLeadId = new URLSearchParams(window.location.search).get("leadId");
+  const parsedLeadId = rawLeadId == null ? Number.NaN : Number(rawLeadId);
+  const leadId =
+    Number.isInteger(parsedLeadId) && parsedLeadId > 0
+      ? parsedLeadId
+      : undefined;
 
   useEffect(() => {
-    let elapsed = 0;
-    const timers: NodeJS.Timeout[] = [];
+    let active = true;
+    setCurrentLine(1);
 
-    SIMULATION_LOGS.forEach((log, index) => {
-      elapsed += log.duration + 200;
-      timers.push(
-        setTimeout(() => {
-          setTimestamps(prev => [...prev, timeNow()]);
-          setCurrentLine(index + 1);
-        }, elapsed),
-      );
-    });
-
-    // Mark as complete and redirect, carrying the lead id forward.
-    timers.push(
-      setTimeout(() => {
+    // Start the real matching request immediately and warm the Results query
+    // cache. The console is progress feedback for actual work, never a fixed
+    // artificial delay before the request begins.
+    void utils.offers.match
+      .fetch(
+        leadId != null
+          ? { leadId, claimToken: loadLeadClaim(leadId) ?? undefined }
+          : {}
+      )
+      .then(() => {
+        if (!active) return;
+        const completedAt = timeNow();
+        setTimestamps(SIMULATION_LOGS.map(() => completedAt));
+        setCurrentLine(SIMULATION_LOGS.length);
         setIsComplete(true);
-        setTimeout(() => {
-          setLocation(leadId ? `/results?leadId=${leadId}` : "/results");
-        }, 1500);
-      }, elapsed + 400),
-    );
+        setLocation(leadId ? `/results?leadId=${leadId}` : "/results");
+      })
+      .catch(() => {
+        if (!active) return;
+        // ResultsScreen owns the actionable error/retry UI.
+        setLocation(leadId ? `/results?leadId=${leadId}` : "/results");
+      });
 
     return () => {
-      timers.forEach(t => clearTimeout(t));
+      active = false;
     };
-  }, [setLocation, leadId]);
+  }, [leadId, setLocation, utils]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -94,7 +105,7 @@ export default function ProcessingScreen() {
             </span>
           </div>
           <div className="flex flex-col px-[22px] py-5 font-mono text-[13px] leading-[2]">
-            {SIMULATION_LOGS.map((log, i) => {
+            {SIMULATION_LOGS.map((text, i) => {
               const done = i < currentLine;
               const running = i === currentLine && !isComplete;
               return (
@@ -104,7 +115,7 @@ export default function ProcessingScreen() {
                       done ? "text-accent" : running ? "text-foreground" : "text-muted-foreground/60"
                     }
                   >
-                    {done ? "✓" : running ? "→" : "○"} {log.text}
+                    {done ? "✓" : running ? "→" : "○"} {text}
                     {running && (
                       <span className="ml-1 inline-block h-4 w-2 translate-y-[3px] bg-accent animate-cursor-blink" />
                     )}

@@ -61,9 +61,13 @@ services:
         sync: false #   non renseigné = e-mails clients seulement loggés, jamais envoyés
       - key: EMAIL_API_KEY
         sync: false
+      - key: TELEMETRY_PROVIDER_KEYS # optionnel — JSON {"providerId":"clé aléatoire ≥32 caractères"}
+        sync: false #   une clé distincte par fournisseur ; absent = ingestion désactivée
+      - key: STORAGE_PUBLIC_PREFIXES # préfixes publics séparés par des virgules, ex. public,contracts
+        sync: false #   une valeur invalide refuse tout accès au lieu d'élargir l'exposition
       # REDIS_URL (rate-limit partagé + révocation de session) : inutile à 1 instance,
       # REQUIS si le service passe un jour à plusieurs instances.
-      # TELEMETRY_INGEST_KEY : à ajouter le jour où un provider pousse de la télémétrie.
+      # TELEMETRY_INGEST_KEY est un ancien fallback de développement : ne pas le définir ici.
       # Les crons RGPD (LEAD_RETENTION_DAYS, STALE_ORDER_HOURS) tournent dans GitHub
       # Actions (.github/workflows/crons.yml), PAS sur Render — inutile de les mettre ici.
       # ---- Build (VITE_* — inlinées dans le bundle public au build) ----

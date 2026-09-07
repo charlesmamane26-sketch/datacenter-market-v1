@@ -5,7 +5,15 @@ import { Loader2 } from "lucide-react";
 import { fmtEUR } from "@/lib/format";
 import { saveWorkloadRecap } from "@/lib/workloadRecap";
 import { saveLeadClaim } from "@/lib/leadClaim";
-import { JourneyStepper, MarketChrome, MarketOpenChip } from "@/components/market";
+import {
+  JourneyStepper,
+  MarketChrome,
+  MarketOpenChip,
+} from "@/components/market";
+import {
+  CONSENT_POLICY_UPDATED_AT_FR,
+  CONSENT_POLICY_VERSION,
+} from "@shared/const";
 
 type FormStep = "workload" | "requirements" | "constraints" | "contact";
 
@@ -22,10 +30,22 @@ interface FormData {
 }
 
 const WORKLOAD_TYPES = [
-  { value: "llm-training", label: "Entraînement LLM", tag: "MULTI-GPU · NVLINK" },
+  {
+    value: "llm-training",
+    label: "Entraînement LLM",
+    tag: "MULTI-GPU · NVLINK",
+  },
   { value: "inference", label: "Inférence", tag: "HAUT DÉBIT · SERVING" },
-  { value: "data-processing", label: "Traitement de données", tag: "ETL · BATCH" },
-  { value: "computer-vision", label: "Vision par ordinateur", tag: "CV · TEMPS RÉEL" },
+  {
+    value: "data-processing",
+    label: "Traitement de données",
+    tag: "ETL · BATCH",
+  },
+  {
+    value: "computer-vision",
+    label: "Vision par ordinateur",
+    tag: "CV · TEMPS RÉEL",
+  },
   { value: "research", label: "R&D", tag: "EXPLORATION · FLEXIBLE" },
   { value: "other", label: "Autre", tag: "À PRÉCISER" },
 ];
@@ -52,7 +72,10 @@ const DURATION_OPTIONS = [
   { value: "12-months", label: "12 mois +" },
 ];
 
-const STEP_TITLES: Record<FormStep, { title: string; sub: string; label: string; next: string }> = {
+const STEP_TITLES: Record<
+  FormStep,
+  { title: string; sub: string; label: string; next: string }
+> = {
   workload: {
     title: "Votre workload",
     sub: "Décrivez ce que vous voulez exécuter — nous trouvons l'infrastructure.",
@@ -86,7 +109,8 @@ const cardIdle = "border-border bg-input/40 hover:border-accent/40";
 const cardSelected = "border-accent bg-accent/7";
 const chipBase =
   "cursor-pointer rounded-full border px-4 py-2 text-[13.5px] font-medium transition-colors duration-150 min-h-[40px]";
-const chipIdle = "border-border bg-input/40 text-foreground hover:border-accent/40";
+const chipIdle =
+  "border-border bg-input/40 text-foreground hover:border-accent/40";
 const chipSelected = "border-accent bg-accent text-accent-foreground";
 const inputClass =
   "rounded-lg border border-border bg-input px-3.5 py-3 text-[14px] text-foreground outline-none transition-colors focus:border-accent/50";
@@ -109,12 +133,19 @@ export default function WorkloadForm() {
   const createLeadMutation = trpc.leads.create.useMutation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitRequiresReload, setSubmitRequiresReload] = useState(false);
   const [consent, setConsent] = useState(false);
 
   // "Aperçu du marché": matching pool derived client-side from the public catalogue.
-  const { data: catalogue, isError: catalogueError } = trpc.offers.list.useQuery();
+  const { data: catalogue, isError: catalogueError } =
+    trpc.offers.list.useQuery();
 
-  const steps: FormStep[] = ["workload", "requirements", "constraints", "contact"];
+  const steps: FormStep[] = [
+    "workload",
+    "requirements",
+    "constraints",
+    "contact",
+  ];
   const currentStepIndex = steps.indexOf(currentStep);
   const meta = STEP_TITLES[currentStep];
 
@@ -122,7 +153,8 @@ export default function WorkloadForm() {
     setFormData(prev => ({ ...prev, [field]: value }));
 
   const handleNext = () => {
-    if (currentStepIndex < steps.length - 1) setCurrentStep(steps[currentStepIndex + 1]);
+    if (currentStepIndex < steps.length - 1)
+      setCurrentStep(steps[currentStepIndex + 1]);
   };
   const handlePrev = () => {
     if (currentStepIndex > 0) setCurrentStep(steps[currentStepIndex - 1]);
@@ -131,9 +163,13 @@ export default function WorkloadForm() {
   const matchingPool = (catalogue ?? []).filter(o => {
     if (formData.gpuRequirement && formData.gpuRequirement !== "any") {
       const key = formData.gpuRequirement.replace(/\s+/g, "").toLowerCase();
-      if (!o.gpuType.replace(/\s+/g, "").toLowerCase().includes(key)) return false;
+      if (!o.gpuType.replace(/\s+/g, "").toLowerCase().includes(key))
+        return false;
     }
-    if (formData.monthlyBudget && Number(o.monthlyPrice) > Number(formData.monthlyBudget)) {
+    if (
+      formData.monthlyBudget &&
+      Number(o.monthlyPrice) > Number(formData.monthlyBudget)
+    ) {
       return false;
     }
     return true;
@@ -144,11 +180,14 @@ export default function WorkloadForm() {
       ? `${fmtEUR(Math.min(...poolPrices))} — ${fmtEUR(Math.max(...poolPrices))}/MOIS HT`
       : "AFFINEZ POUR VOIR LA FOURCHETTE";
 
-  const labelOf = (options: { value: string; label: string }[], value: string) =>
-    options.find(o => o.value === value)?.label ?? "—";
+  const labelOf = (
+    options: { value: string; label: string }[],
+    value: string
+  ) => options.find(o => o.value === value)?.label ?? "—";
 
   const handleSubmit = async () => {
     setSubmitError(null);
+    setSubmitRequiresReload(false);
     setIsSubmitting(true);
     try {
       const lead = await createLeadMutation.mutateAsync({
@@ -158,11 +197,14 @@ export default function WorkloadForm() {
         contactRole: formData.contactRole.trim() || undefined,
         workloadType: formData.workloadType,
         gpuRequirement: formData.gpuRequirement,
-        monthlyBudget: formData.monthlyBudget ? parseFloat(formData.monthlyBudget) : undefined,
+        monthlyBudget: formData.monthlyBudget
+          ? parseFloat(formData.monthlyBudget)
+          : undefined,
         deploymentDuration: formData.deploymentDuration,
         infrastructureConstraints: formData.infrastructureConstraints,
         // Required server-side (RGPD); the submit button is gated on `consent`.
         consent: true,
+        consentPolicyVersion: CONSENT_POLICY_VERSION,
       });
 
       // Stash the claim token so this browser can order against / match on the
@@ -184,6 +226,10 @@ export default function WorkloadForm() {
               ? `BUDGET ${labelOf(BUDGET_OPTIONS, formData.monthlyBudget).toUpperCase()}/MOIS`
               : "BUDGET LIBRE",
           ],
+          requestedDuration: labelOf(
+            DURATION_OPTIONS,
+            formData.deploymentDuration
+          ),
         });
       }
 
@@ -191,8 +237,21 @@ export default function WorkloadForm() {
       setLocation(lead?.id ? `/processing?leadId=${lead.id}` : "/processing");
     } catch (error) {
       console.error("Error submitting form:", error);
+      const serializedError = (() => {
+        try {
+          return JSON.stringify(error);
+        } catch {
+          return String(error);
+        }
+      })();
+      const stalePolicy =
+        serializedError.includes("consentPolicyVersion") ||
+        serializedError.includes(CONSENT_POLICY_VERSION);
+      setSubmitRequiresReload(stalePolicy);
       setSubmitError(
-        "Votre demande n'a pas pu être envoyée. Vérifiez votre adresse e-mail puis réessayez.",
+        stalePolicy
+          ? "La politique de confidentialité a changé depuis l'ouverture de cette page. Rechargez-la avant de confirmer votre consentement."
+          : "Votre demande n'a pas pu être envoyée. Vérifiez les informations saisies et votre connexion, puis réessayez."
       );
       setIsSubmitting(false);
     }
@@ -203,7 +262,9 @@ export default function WorkloadForm() {
       case "workload":
         return formData.workloadType !== "" && formData.gpuRequirement !== "";
       case "requirements":
-        return formData.monthlyBudget !== "" && formData.deploymentDuration !== "";
+        return (
+          formData.monthlyBudget !== "" && formData.deploymentDuration !== ""
+        );
       case "constraints":
         return true; // Optional step
       case "contact":
@@ -272,7 +333,9 @@ export default function WorkloadForm() {
             {currentStep === "workload" && (
               <div className="flex flex-col gap-[26px]">
                 <div className="flex flex-col gap-3.5">
-                  <span className="text-[15px] font-semibold">Type de workload</span>
+                  <span className="text-[15px] font-semibold">
+                    Type de workload
+                  </span>
                   <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                     {WORKLOAD_TYPES.map(w => {
                       const selected = formData.workloadType === w.value;
@@ -286,7 +349,9 @@ export default function WorkloadForm() {
                         >
                           <span className="flex items-center justify-between text-[14px] font-semibold">
                             {w.label}
-                            {selected && <span className="font-bold text-accent">✓</span>}
+                            {selected && (
+                              <span className="font-bold text-accent">✓</span>
+                            )}
                           </span>
                           <span className="font-mono text-[10.5px] tracking-[.06em] text-muted-foreground">
                             {w.tag}
@@ -306,7 +371,9 @@ export default function WorkloadForm() {
                         onClick={() => set("gpuRequirement", g.value)}
                         aria-pressed={formData.gpuRequirement === g.value}
                         className={`${chipBase} ${
-                          formData.gpuRequirement === g.value ? chipSelected : chipIdle
+                          formData.gpuRequirement === g.value
+                            ? chipSelected
+                            : chipIdle
                         }`}
                       >
                         {g.label}
@@ -320,7 +387,9 @@ export default function WorkloadForm() {
             {currentStep === "requirements" && (
               <div className="flex flex-col gap-[26px]">
                 <div className="flex flex-col gap-3.5">
-                  <span className="text-[15px] font-semibold">Budget mensuel</span>
+                  <span className="text-[15px] font-semibold">
+                    Budget mensuel
+                  </span>
                   <div className="flex flex-wrap gap-2.5">
                     {BUDGET_OPTIONS.map(b => (
                       <button
@@ -329,7 +398,9 @@ export default function WorkloadForm() {
                         onClick={() => set("monthlyBudget", b.value)}
                         aria-pressed={formData.monthlyBudget === b.value}
                         className={`${chipBase} ${
-                          formData.monthlyBudget === b.value ? chipSelected : chipIdle
+                          formData.monthlyBudget === b.value
+                            ? chipSelected
+                            : chipIdle
                         }`}
                       >
                         {b.label}
@@ -338,7 +409,9 @@ export default function WorkloadForm() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-3.5">
-                  <span className="text-[15px] font-semibold">Durée du déploiement</span>
+                  <span className="text-[15px] font-semibold">
+                    Durée d'engagement demandée
+                  </span>
                   <div className="flex flex-wrap gap-2.5">
                     {DURATION_OPTIONS.map(d => (
                       <button
@@ -347,7 +420,9 @@ export default function WorkloadForm() {
                         onClick={() => set("deploymentDuration", d.value)}
                         aria-pressed={formData.deploymentDuration === d.value}
                         className={`${chipBase} ${
-                          formData.deploymentDuration === d.value ? chipSelected : chipIdle
+                          formData.deploymentDuration === d.value
+                            ? chipSelected
+                            : chipIdle
                         }`}
                       >
                         {d.label}
@@ -360,19 +435,28 @@ export default function WorkloadForm() {
 
             {currentStep === "constraints" && (
               <div className="flex flex-col gap-2.5">
-                <label htmlFor="infrastructureConstraints" className="text-[15px] font-semibold">
+                <label
+                  htmlFor="infrastructureConstraints"
+                  className="text-[15px] font-semibold"
+                >
                   Contraintes d'infrastructure{" "}
-                  <span className="font-normal text-muted-foreground">(optionnel)</span>
+                  <span className="font-normal text-muted-foreground">
+                    (optionnel)
+                  </span>
                 </label>
                 <textarea
                   id="infrastructureConstraints"
                   placeholder="ex. : UE uniquement, RGPD, haute disponibilité, bare metal…"
                   value={formData.infrastructureConstraints}
-                  onChange={e => set("infrastructureConstraints", e.target.value)}
+                  onChange={e =>
+                    set("infrastructureConstraints", e.target.value)
+                  }
                   className={`${inputClass} min-h-[130px] resize-y font-sans`}
                 />
                 <span className="text-[12.5px] text-muted-foreground">
-                  Ces exigences sont transmises avec votre demande. Le classement automatique utilise le GPU et le budget sélectionnés.
+                  Ces exigences sont transmises avec votre demande. Le
+                  classement automatique utilise le GPU et le budget
+                  sélectionnés.
                 </span>
               </div>
             )}
@@ -381,7 +465,10 @@ export default function WorkloadForm() {
               <div className="flex flex-col gap-5">
                 <div className="grid gap-[18px] md:grid-cols-2">
                   <div className="flex flex-col gap-2">
-                    <label htmlFor="email" className="text-[13.5px] font-semibold">
+                    <label
+                      htmlFor="email"
+                      className="text-[13.5px] font-semibold"
+                    >
                       Adresse e-mail <span className="text-accent">*</span>
                     </label>
                     <input
@@ -396,7 +483,10 @@ export default function WorkloadForm() {
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label htmlFor="contactName" className="text-[13.5px] font-semibold">
+                    <label
+                      htmlFor="contactName"
+                      className="text-[13.5px] font-semibold"
+                    >
                       Nom complet <span className="text-accent">*</span>
                     </label>
                     <input
@@ -411,11 +501,20 @@ export default function WorkloadForm() {
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <span className="text-[13.5px] font-semibold">
-                      Société <span className="font-normal text-muted-foreground">(optionnel)</span>
-                    </span>
+                    <label
+                      htmlFor="company"
+                      className="text-[13.5px] font-semibold"
+                    >
+                      Société{" "}
+                      <span className="font-normal text-muted-foreground">
+                        (optionnel)
+                      </span>
+                    </label>
                     <input
+                      id="company"
+                      name="company"
                       type="text"
+                      autoComplete="organization"
                       placeholder="Votre société"
                       value={formData.company}
                       onChange={e => set("company", e.target.value)}
@@ -423,11 +522,20 @@ export default function WorkloadForm() {
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <span className="text-[13.5px] font-semibold">
-                      Votre rôle <span className="font-normal text-muted-foreground">(optionnel)</span>
-                    </span>
+                    <label
+                      htmlFor="contactRole"
+                      className="text-[13.5px] font-semibold"
+                    >
+                      Votre rôle{" "}
+                      <span className="font-normal text-muted-foreground">
+                        (optionnel)
+                      </span>
+                    </label>
                     <input
+                      id="contactRole"
+                      name="organization-title"
                       type="text"
+                      autoComplete="organization-title"
                       placeholder="ex. : ML Engineer"
                       value={formData.contactRole}
                       onChange={e => set("contactRole", e.target.value)}
@@ -435,29 +543,53 @@ export default function WorkloadForm() {
                     />
                   </div>
                 </div>
-                <label className="flex cursor-pointer items-start gap-[11px] border-t border-border/70 pt-[18px]">
+                <label
+                  htmlFor="privacy-consent"
+                  className="flex cursor-pointer items-start gap-[11px] border-t border-border/70 pt-[18px]"
+                >
                   <input
+                    id="privacy-consent"
                     type="checkbox"
                     checked={consent}
                     onChange={e => setConsent(e.target.checked)}
                     className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
                   />
                   <span className="text-[13px] leading-[1.55] text-muted-foreground">
-                    J'accepte que mes données soient traitées par Anavim Advisory pour répondre à ma
-                    demande, conformément à la{" "}
-                    <a href="/privacy" className="text-accent hover:underline">
-                      politique de confidentialité
+                    J'accepte que mes données soient traitées par Anavim
+                    Advisory pour répondre à ma demande, conformément à la{" "}
+                    <a
+                      href="/privacy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent hover:underline"
+                    >
+                      politique de confidentialité du{" "}
+                      {CONSENT_POLICY_UPDATED_AT_FR}
                     </a>
-                    .
+                    {" "}
+                    (version {CONSENT_POLICY_VERSION}). Elle s'ouvre dans un nouvel onglet afin de
+                    conserver ce formulaire.
                   </span>
                 </label>
               </div>
             )}
 
             {submitError && (
-              <p role="alert" className="m-0 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                {submitError}
-              </p>
+              <div
+                role="alert"
+                className="m-0 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+              >
+                <p>{submitError}</p>
+                {submitRequiresReload && (
+                  <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="mt-3 rounded-[7px] border border-destructive/40 px-3 py-2 font-semibold"
+                  >
+                    Recharger la page
+                  </button>
+                )}
+              </div>
             )}
 
             <div className="flex gap-3.5">

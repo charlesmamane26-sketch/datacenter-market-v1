@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
@@ -15,7 +15,10 @@ import {
 
 const ACTIVE_STATUSES = ["processing", "provisioning", "active"];
 
-const STATUS_META: Record<string, { tone: StatusTone; label: string; pulse?: boolean }> = {
+const STATUS_META: Record<
+  string,
+  { tone: StatusTone; label: string; pulse?: boolean }
+> = {
   active: { tone: "lime", label: "ACTIVE" },
   provisioning: { tone: "cyan", label: "PROVISIONING", pulse: true },
   processing: { tone: "cyan", label: "PROVISIONING", pulse: true },
@@ -25,25 +28,47 @@ const STATUS_META: Record<string, { tone: StatusTone; label: string; pulse?: boo
 };
 
 export default function ClientDashboard() {
-  const { user, loading, logout } = useAuth();
+  const {
+    user,
+    loading,
+    error: authError,
+    refresh: refreshAuth,
+    logout,
+  } = useAuth();
   const [, setLocation] = useLocation();
-  const { data: orders } = trpc.orders.list.useQuery();
-  const { data: offers } = trpc.offers.list.useQuery();
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const ordersQuery = trpc.orders.list.useQuery(undefined, {
+    enabled: Boolean(user),
+  });
+  const offersQuery = trpc.offers.list.useQuery(undefined, {
+    enabled: Boolean(user),
+  });
+  const orders = ordersQuery.data;
+  const offers = offersQuery.data;
   const handleLogout = async () => {
+    setLogoutError(null);
     try {
       await logout();
-    } finally {
       setLocation("/");
+    } catch {
+      setLogoutError(
+        "La déconnexion n'a pas abouti. Vous êtes toujours connecté ; vérifiez votre réseau puis réessayez."
+      );
     }
   };
 
   const orderList = orders ?? [];
   const offerById = new Map((offers ?? []).map(o => [o.id, o]));
   const billable = orderList.filter(
-    o => o.paymentStatus === "succeeded" && ACTIVE_STATUSES.includes(o.status),
+    o => o.paymentStatus === "succeeded" && ACTIVE_STATUSES.includes(o.status)
   );
-  const monthlySpend = billable.reduce((sum, o) => sum + Number(o.monthlyRecurring), 0);
-  const activeServices = orderList.filter(o => ACTIVE_STATUSES.includes(o.status)).length;
+  const monthlySpend = billable.reduce(
+    (sum, o) => sum + Number(o.monthlyRecurring),
+    0
+  );
+  const activeServices = orderList.filter(o =>
+    ACTIVE_STATUSES.includes(o.status)
+  ).length;
 
   // Primary service: prefer live states over raw recency (orders arrive newest
   // first) so an abandoned checkout (pending/cancelled) never masks the real
@@ -55,15 +80,19 @@ export default function ClientDashboard() {
   const primaryOrderId = primaryOrder?.id;
   const { data: m } = trpc.metrics.getLatest.useQuery(
     { orderId: primaryOrderId ?? 0 },
-    { enabled: primaryOrderId != null },
+    { enabled: primaryOrderId != null }
   );
 
-  const gpuUsage = m?.gpuUsagePercent != null ? Number(m.gpuUsagePercent) : null;
+  const gpuUsage =
+    m?.gpuUsagePercent != null ? Number(m.gpuUsagePercent) : null;
   const vramUsage =
     m?.gpuMemoryUsedGb != null && m?.gpuMemoryTotalGb
-      ? Math.round((Number(m.gpuMemoryUsedGb) / Number(m.gpuMemoryTotalGb)) * 100)
+      ? Math.round(
+          (Number(m.gpuMemoryUsedGb) / Number(m.gpuMemoryTotalGb)) * 100
+        )
       : null;
-  const cpuUsage = m?.cpuUsagePercent != null ? Number(m.cpuUsagePercent) : null;
+  const cpuUsage =
+    m?.cpuUsagePercent != null ? Number(m.cpuUsagePercent) : null;
   const ramUsage =
     m?.ramUsedGb != null && m?.ramTotalGb
       ? Math.round((Number(m.ramUsedGb) / Number(m.ramTotalGb)) * 100)
@@ -72,9 +101,17 @@ export default function ClientDashboard() {
   // Live threshold alerts pushed over SSE for the primary order.
   const { alerts } = useProvisioningStream(primaryOrderId ?? undefined);
 
-  const telemetryRows: { label: string; value: number | null; tone: "lime" | "cyan" | "amber" }[] = [
+  const telemetryRows: {
+    label: string;
+    value: number | null;
+    tone: "lime" | "cyan" | "amber";
+  }[] = [
     { label: "GPU", value: gpuUsage, tone: "lime" },
-    { label: "VRAM", value: vramUsage, tone: vramUsage != null && vramUsage > 90 ? "amber" : "lime" },
+    {
+      label: "VRAM",
+      value: vramUsage,
+      tone: vramUsage != null && vramUsage > 90 ? "amber" : "lime",
+    },
     { label: "CPU", value: cpuUsage, tone: "cyan" },
     { label: "RAM", value: ramUsage, tone: "cyan" },
   ];
@@ -84,8 +121,35 @@ export default function ClientDashboard() {
   // already protects the data; this is the UX-level gate). A logged-in user of
   // any role may view their own client dashboard.
   useEffect(() => {
-    if (!loading && !user) setLocation("/login");
-  }, [loading, user, setLocation]);
+    if (!loading && !authError && !user) setLocation("/login");
+  }, [authError, loading, user, setLocation]);
+
+  if (!loading && authError && !user) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <MarketChrome onBrandClick={() => setLocation("/")} />
+        <div
+          role="alert"
+          className="flex flex-col items-center px-5 py-24 text-center"
+        >
+          <h1 className="mb-3 text-[30px] font-extrabold uppercase tracking-[-0.035em]">
+            Session indisponible<span className="text-destructive">.</span>
+          </h1>
+          <p className="mb-6 max-w-[540px] text-muted-foreground">
+            Impossible de vérifier votre session. Aucune donnée de compte n'est
+            affichée.
+          </p>
+          <button
+            type="button"
+            onClick={() => refreshAuth()}
+            className="rounded-[9px] bg-accent px-5 py-3 text-[14px] font-semibold text-accent-foreground"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !user) {
     return (
@@ -105,16 +169,49 @@ export default function ClientDashboard() {
               {user?.email}
             </span>
             <button
+              type="button"
               onClick={handleLogout}
+              disabled={loading}
               className="rounded-[7px] border border-border px-3.5 py-[7px] text-[12.5px] font-medium text-foreground transition-colors hover:bg-card"
             >
-              Déconnexion
+              {loading ? "Déconnexion…" : "Déconnexion"}
             </button>
           </div>
         }
       />
 
       <main className="mx-auto max-w-[1240px] px-5 pb-16 pt-9 md:px-10">
+        {logoutError && (
+          <div
+            role="alert"
+            className="mb-6 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          >
+            {logoutError}
+          </div>
+        )}
+
+        {(ordersQuery.error || offersQuery.error) && (
+          <div
+            role="alert"
+            className="mb-6 flex flex-col items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span>
+              {ordersQuery.error
+                ? "Vos commandes n'ont pas pu être chargées. Les totaux sont masqués pour éviter d'afficher des valeurs inexactes."
+                : "Le catalogue n'a pas pu être chargé ; certains détails de configuration sont indisponibles."}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                void ordersQuery.refetch();
+                void offersQuery.refetch();
+              }}
+              className="whitespace-nowrap rounded-[7px] border border-destructive/40 px-3 py-1.5 font-semibold"
+            >
+              Réessayer
+            </button>
+          </div>
+        )}
         <div className="mb-6 flex flex-col justify-between gap-5 md:flex-row md:items-end">
           <div className="flex flex-col gap-2">
             <h1 className="m-0 text-[28px] font-extrabold uppercase leading-none tracking-[-0.03em] md:text-[36px]">
@@ -152,7 +249,9 @@ export default function ClientDashboard() {
                       critical ? "bg-destructive" : "bg-chart-5"
                     }`}
                   />
-                  <span className="font-mono text-[12px] tracking-[.04em]">{a.message}</span>
+                  <span className="font-mono text-[12px] tracking-[.04em]">
+                    {a.message}
+                  </span>
                   <span
                     className={`ml-auto font-mono text-[10px] font-semibold uppercase tracking-[.1em] ${
                       critical ? "text-destructive" : "text-chart-5"
@@ -172,22 +271,46 @@ export default function ClientDashboard() {
             <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
               DÉPENSE MENSUELLE
             </span>
-            <span className="font-mono text-[26px] font-bold">{fmtEUR(monthlySpend)}</span>
-            <span className="text-[12px] text-muted-foreground">Abonnements en cours</span>
+            <span className="font-mono text-[26px] font-bold">
+              {ordersQuery.isLoading
+                ? "…"
+                : ordersQuery.error
+                  ? "—"
+                  : fmtEUR(monthlySpend)}
+            </span>
+            <span className="text-[12px] text-muted-foreground">
+              Abonnements en cours
+            </span>
           </div>
           <div className="flex flex-col gap-1.5 bg-card p-[22px]">
             <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
               SERVICES ACTIFS
             </span>
-            <span className="font-mono text-[26px] font-bold">{activeServices}</span>
-            <span className="text-[12px] text-muted-foreground">En cours d'exécution</span>
+            <span className="font-mono text-[26px] font-bold">
+              {ordersQuery.isLoading
+                ? "…"
+                : ordersQuery.error
+                  ? "—"
+                  : activeServices}
+            </span>
+            <span className="text-[12px] text-muted-foreground">
+              En cours d'exécution
+            </span>
           </div>
           <div className="flex flex-col gap-1.5 bg-card p-[22px]">
             <span className="font-mono text-[10.5px] tracking-[.1em] text-muted-foreground">
               COMMANDES
             </span>
-            <span className="font-mono text-[26px] font-bold">{orderList.length}</span>
-            <span className="text-[12px] text-muted-foreground">Depuis le début</span>
+            <span className="font-mono text-[26px] font-bold">
+              {ordersQuery.isLoading
+                ? "…"
+                : ordersQuery.error
+                  ? "—"
+                  : orderList.length}
+            </span>
+            <span className="text-[12px] text-muted-foreground">
+              Depuis le début
+            </span>
           </div>
           {/* With live telemetry this cell shows GPU usage; without any source
               (nothing pushes metrics yet at launch) it falls back to the primary
@@ -200,7 +323,9 @@ export default function ClientDashboard() {
                 </span>
                 <span className="h-1.5 w-1.5 rounded-full bg-accent animate-live-dot-fast" />
               </div>
-              <span className="font-mono text-[26px] font-bold text-accent">{gpuUsage} %</span>
+              <span className="font-mono text-[26px] font-bold text-accent">
+                {gpuUsage} %
+              </span>
               <MeterBar value={gpuUsage} />
             </div>
           ) : (
@@ -210,7 +335,8 @@ export default function ClientDashboard() {
               </span>
               <span className="font-mono text-[26px] font-bold">
                 {primaryOrder
-                  ? (STATUS_META[primaryOrder.status] ?? STATUS_META.pending).label
+                  ? (STATUS_META[primaryOrder.status] ?? STATUS_META.pending)
+                      .label
                   : "—"}
               </span>
               <span className="text-[12px] text-muted-foreground">
@@ -265,11 +391,36 @@ export default function ClientDashboard() {
             <span className="text-right">MENSUEL HT</span>
             <span />
           </div>
-          {orderList.length > 0 ? (
+          {ordersQuery.isLoading ? (
+            <div
+              role="status"
+              className="flex items-center justify-center gap-2 py-12 text-muted-foreground"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Chargement des commandes…
+            </div>
+          ) : ordersQuery.error ? (
+            <div className="flex flex-col items-center gap-4 px-5 py-12 text-center">
+              <p className="m-0 text-muted-foreground">
+                Les commandes sont temporairement indisponibles.
+              </p>
+              <button
+                type="button"
+                onClick={() => void ordersQuery.refetch()}
+                className="rounded-[9px] border border-border px-5 py-3 text-[14px] font-semibold"
+              >
+                Réessayer
+              </button>
+            </div>
+          ) : orderList.length > 0 ? (
             orderList.map((order, i) => {
               const offer = offerById.get(order.offerId);
               const status = STATUS_META[order.status] ?? STATUS_META.pending;
-              const tracking = ["pending", "processing", "provisioning"].includes(order.status);
+              const tracking = [
+                "pending",
+                "processing",
+                "provisioning",
+              ].includes(order.status);
               return (
                 <div
                   key={order.id}
@@ -277,16 +428,26 @@ export default function ClientDashboard() {
                     i < orderList.length - 1 ? "border-b border-border/70" : ""
                   }`}
                 >
-                  <span className="font-mono text-[12.5px]">{orderRef(order.id)}</span>
-                  <span className="text-[13.5px] font-semibold">
-                    {offer ? `${offer.gpuCount}× ${offer.gpuType} · ${offer.location}` : "—"}
+                  <span className="font-mono text-[12.5px]">
+                    {orderRef(order.id)}
                   </span>
-                  <StatusPill tone={status.tone} label={status.label} pulse={status.pulse} />
+                  <span className="text-[13.5px] font-semibold">
+                    {offer
+                      ? `${offer.gpuCount}× ${offer.gpuType} · ${offer.location}`
+                      : "—"}
+                  </span>
+                  <StatusPill
+                    tone={status.tone}
+                    label={status.label}
+                    pulse={status.pulse}
+                  />
                   <span className="text-left font-mono text-[13.5px] font-semibold md:text-right">
                     {fmtEUR(Number(order.monthlyRecurring))}
                   </span>
                   <button
-                    onClick={() => setLocation(`/confirmation?orderId=${order.id}`)}
+                    onClick={() =>
+                      setLocation(`/confirmation?orderId=${order.id}`)
+                    }
                     className="flex items-center justify-center rounded-[7px] border border-border py-[7px] text-[12px] font-medium text-foreground transition-colors hover:bg-input"
                   >
                     {tracking ? "Suivre" : "Gérer"}
@@ -296,7 +457,9 @@ export default function ClientDashboard() {
             })
           ) : (
             <div className="flex flex-col items-center gap-4 py-12 text-center">
-              <p className="m-0 text-muted-foreground">Aucune infrastructure active</p>
+              <p className="m-0 text-muted-foreground">
+                Aucune infrastructure active
+              </p>
               <button
                 onClick={() => setLocation("/workload")}
                 className="glow-accent rounded-[9px] bg-accent px-5 py-3 text-[14px] font-semibold text-accent-foreground"
