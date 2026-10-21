@@ -41,8 +41,11 @@ describe("lead claim token", () => {
     parts[1] = (Number.parseInt(parts[1], 36) + 60).toString(36);
     expect(verifyLeadClaim(42, parts.join("."), NOW)).toBe(false);
 
+    // A 16-byte nonce ends in one of A/Q/g/w, so a fixed "A" would leave it
+    // unchanged a quarter of the time: always substitute a different character.
     const nonceParts = token.split(".");
-    nonceParts[2] = `${nonceParts[2].slice(0, -1)}A`;
+    const lastNonceChar = nonceParts[2].slice(-1) === "A" ? "Q" : "A";
+    nonceParts[2] = `${nonceParts[2].slice(0, -1)}${lastNonceChar}`;
     expect(verifyLeadClaim(42, nonceParts.join("."), NOW)).toBe(false);
   });
 });
