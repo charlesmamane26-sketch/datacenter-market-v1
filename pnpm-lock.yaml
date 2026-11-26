@@ -222,8 +222,8 @@ importers:
         specifier: ^2.0.8
         version: 2.0.8(@types/react@19.3.3)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       stripe:
-        specifier: ^22.6.2
-        version: 22.6.2(@types/node@24.19.4)
+        specifier: ^22.2.0
+        version: 22.2.0(@types/node@24.19.4)
       superjson:
         specifier: ^1.13.3
         version: 1.13.3
@@ -237,7 +237,7 @@ importers:
         specifier: ^1.1.2
         version: 1.1.2(@types/react-dom@19.3.0(@types/react@19.3.3))(@types/react@19.3.3)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       wouter:
-        specifier: ^3.3.5
+        specifier: 3.7.1
         version: 3.7.1(patch_hash=4e16e6ff3fde7d6c1024d3e0c8605dc9eb6afb690d0d49958c2f449091813072)(react@19.3.1)
       zod:
         specifier: ^4.6.7
@@ -3170,8 +3170,8 @@ packages:
   std-env@4.3.0:
     resolution: {integrity: sha512-OtU/EgQ1kIm5KwqQpBC6ZEMXrZRui11w8zgfTWp8cdO9B8OaPsbA8bTHO2P+HNo1VlUTGMVBwPhydu6poeXiag==}
 
-  stripe@22.6.2:
-    resolution: {integrity: sha512-PwRE2scocvXqDKPiskMa5vRJEAEkq46W69XyUYmAwrNSLr675lQnfqLwnsndAWizwgihOWw/irLmoFRo3ez7ew==}
+  stripe@22.2.0:
+    resolution: {integrity: sha512-WFGpMOom9QZqso1kcnSwJsCdC1QHDlMoCOxBZRf3JraMzhkfw7dgSdD2a1CFZrqC+mzAfqeEtYILrZhWKIDruA==}
     engines: {node: '>=18'}
     peerDependencies:
       '@types/node': '>=18'
@@ -6084,7 +6084,7 @@ snapshots:
 
   std-env@4.3.0: {}
 
-  stripe@22.6.2(@types/node@24.19.4):
+  stripe@22.2.0(@types/node@24.19.4):
     optionalDependencies:
       '@types/node': 24.19.4
 
