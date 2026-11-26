@@ -172,6 +172,12 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // Never inline fonts as data: URIs. The production CSP (server/_core/csp.ts)
+    // allows font-src 'self' only, and Chromium fetches data: font faces eagerly
+    // whatever their unicode-range: each inlined subset logged a CSP violation
+    // on every page view. Other small assets keep Vite's default 4 kB threshold.
+    assetsInlineLimit: filePath =>
+      /\.(woff2?|ttf|otf|eot)$/i.test(filePath) ? false : undefined,
   },
   server: {
     host: true,
