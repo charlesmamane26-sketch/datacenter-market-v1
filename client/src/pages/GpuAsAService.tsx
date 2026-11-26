@@ -94,8 +94,8 @@ export default function GpuAsAService() {
             <h3 className="text-xl font-semibold">Entraînement de modèles</h3>
             <p className="text-muted-foreground leading-relaxed">
               L'entraînement de modèles — de fondation ou spécialisés — mobilise des clusters
-              multi-GPU pendant des semaines, parfois des mois, et privilégie les gammes les plus
-              récentes. Sur notre catalogue, les clusters NVIDIA H100 de 8 à 16 GPU, à Francfort,
+              multi-GPU pendant des semaines, parfois des mois, et privilégie les GPU à forte
+              capacité mémoire. Sur notre catalogue, les clusters NVIDIA H100 de 8 à 16 GPU, à Francfort,
               Paris ou Amsterdam, sont dimensionnés pour ce cas d'usage.
             </p>
             <h3 className="text-xl font-semibold">Fine-tuning et adaptation de modèles</h3>
@@ -138,9 +138,9 @@ export default function GpuAsAService() {
               jour, il peut être recherché via l'appel au marché — disponibilité et tarifs à
               confirmer.
             </p>
-            <h3 className="text-xl font-semibold">NVIDIA B200 (Blackwell) : 192 Go de HBM3e</h3>
+            <h3 className="text-xl font-semibold">NVIDIA B200 (Blackwell) : 180 Go de HBM3e</h3>
             <p className="text-muted-foreground leading-relaxed">
-              Le B200, sur architecture Blackwell, embarque 192 Go de HBM3e. Lui aussi absent du
+              Le B200, sur architecture Blackwell, embarque 180 Go de HBM3e. Lui aussi absent du
               catalogue standard, il peut faire l'objet d'une consultation de nos fournisseurs
               partenaires — disponibilité et tarifs à confirmer.
             </p>

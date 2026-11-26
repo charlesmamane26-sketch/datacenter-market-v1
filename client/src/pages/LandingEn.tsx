@@ -205,7 +205,7 @@ export default function LandingEn() {
       {/* Footer */}
       <footer className="border-t border-border/50 bg-surface-sunken">
         <div className="mx-auto flex max-w-[1240px] flex-col items-start justify-between gap-3 px-5 py-8 text-[12px] text-muted-foreground md:flex-row md:items-center md:px-10">
-          <span>© 2026 DatacenterMarket — a service by Anavim Advisory SAS, Paris, France.</span>
+          <span>© {new Date().getFullYear()} DatacenterMarket — a service by Anavim Advisory SAS, Paris, France.</span>
           <div className="flex gap-5">
             <Link href="/" className="text-accent transition-colors hover:text-accent/80">
               Version française

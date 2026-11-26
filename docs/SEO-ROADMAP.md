@@ -45,8 +45,8 @@ recherche en anglais). **Livré dans cette itération :**
 - Ciblage : *GPU as a service Europe*, *rent H100 Europe*, *sovereign GPU EU*, *GDPR GPU hosting*.
 
 **Reste à faire (itérations suivantes — contenu à faire relire par toi) :**
-- Versions EN du **pilier** (`/en/gpu-as-a-service`) et des **satellites** (prix, souveraineté) :
-  l'infra hreflang est prête — ajouter les pages + les entrées `SEO_ROUTES` avec leur cluster.
+- ~~Versions EN du **pilier** et des **satellites**~~ — livrées le 14 juillet 2026 (pilier, prix,
+  location, souveraineté, colocation), avec leurs clusters hreflang dans `SEO_ROUTES`.
 - **Mentions légales EN** — relecture juridique indispensable (Anavim est un conseil).
 - **Localisation du tunnel** (`/workload` → checkout) : aujourd'hui le CTA « Request capacity » de la
   landing EN mène au formulaire **français**.

@@ -133,7 +133,7 @@ export default function PrivacyPolicy() {
             <p>
               La sécurité de vos données personnelles est importante pour nous.
               Nous utilisons des mesures de sécurité appropriées, y compris le
-              chiffrement SSL, pour protéger vos informations contre l'accès non
+              chiffrement TLS, pour protéger vos informations contre l'accès non
               autorisé, l'altération ou la destruction.
             </p>
           </section>
@@ -216,10 +216,10 @@ export default function PrivacyPolicy() {
               75008 Paris, France
               <br />
               <a
-                href="https://www.anavimadvisory.com"
+                href="https://www.anavim-advisory.com"
                 className="text-accent hover:underline"
               >
-                www.anavimadvisory.com
+                www.anavim-advisory.com
               </a>
             </p>
           </section>

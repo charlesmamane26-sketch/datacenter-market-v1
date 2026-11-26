@@ -23,7 +23,7 @@ const TICKER_QUOTES: TickerQuote[] = [
   { site: "FRA", config: "H100 ×8", price: "18 400 €/mois", suffix: "· 72 h" },
   { site: "PAR", config: "H100 ×8", price: "22 000 €/mois", suffix: "· 24 h" },
   { site: "AMS", config: "H100 ×16", price: "34 000 €/mois", suffix: "· 96 h" },
-  { site: "VAR", config: "A100 ×8", price: "9 600 €/mois", suffix: "· 6-7 j" },
+  { site: "WAW", config: "A100 ×8", price: "9 600 €/mois", suffix: "· 6-7 j" },
   { site: "MAD", config: "A100 ×4", price: "5 200 €/mois", suffix: "· 7 j" },
   { site: "DUB", config: "L40S ×8", price: "8 800 €/mois", suffix: "· 72 h" },
   { site: "STO", config: "RTX 4090 ×8", price: "7 200 €/mois", suffix: "· 48 h" },
@@ -39,7 +39,7 @@ const REGIONS = [
   { code: "FRA — Francfort", note: "8× H100 · dès 18 400 €/mois", meta: "SLA 99,9 % · 72 H" },
   { code: "PAR — Paris", note: "8× H100 · provision 24 h", meta: "SLA 99,99 % · 24 H" },
   { code: "AMS — Amsterdam", note: "16× H100 · InfiniBand 400 Gb/s", meta: "SLA 99,9 % · 96 H" },
-  { code: "VAR — Varsovie", note: "8× A100 · dès 9 600 €/mois", meta: "SLA 99,5 % · 6-7 J" },
+  { code: "WAW — Varsovie", note: "8× A100 · dès 9 600 €/mois", meta: "SLA 99,5 % · 6-7 J" },
 ];
 
 const HOW_IT_WORKS = [
@@ -473,7 +473,7 @@ export default function Home() {
                 SOCIÉTÉ
               </span>
               <a
-                href="https://www.anavimadvisory.com"
+                href="https://www.anavim-advisory.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
@@ -481,7 +481,7 @@ export default function Home() {
                 À propos
               </a>
               <a
-                href="https://www.anavimadvisory.com"
+                href="https://www.anavim-advisory.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
@@ -505,9 +505,9 @@ export default function Home() {
             </div>
           </div>
           <div className="flex flex-col items-start justify-between gap-3 border-t border-border/50 pt-[22px] text-[12px] text-muted-foreground md:flex-row md:items-center">
-            <span>© 2026 DatacenterMarket. Tous droits réservés.</span>
+            <span>© {new Date().getFullYear()} DatacenterMarket. Tous droits réservés.</span>
             <a
-              href="https://www.anavimadvisory.com"
+              href="https://www.anavim-advisory.com"
               target="_blank"
               rel="noopener noreferrer"
               className="text-accent transition-colors hover:text-accent/80"

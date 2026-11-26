@@ -149,10 +149,10 @@ export default function TermsOfService() {
               75008 Paris, France
               <br />
               <a
-                href="https://www.anavimadvisory.com"
+                href="https://www.anavim-advisory.com"
                 className="text-accent hover:underline"
               >
-                www.anavimadvisory.com
+                www.anavim-advisory.com
               </a>
             </p>
           </section>

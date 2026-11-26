@@ -91,7 +91,7 @@ export default function GpuPrixLocation() {
             </p>
             <h3 className="text-xl font-semibold">H200 et B200 : via l'appel au marché</h3>
             <p className="text-muted-foreground leading-relaxed">
-              Les NVIDIA H200 (141 Go HBM3e) et B200 (Blackwell, 192 Go HBM3e) ne figurent pas à
+              Les NVIDIA H200 (141 Go HBM3e) et B200 (Blackwell, 180 Go HBM3e) ne figurent pas à
               notre catalogue standard à ce jour. Nous pouvons les rechercher auprès de nos
               fournisseurs partenaires via l'appel au marché — disponibilité et tarifs à confirmer.
             </p>

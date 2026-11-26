@@ -75,7 +75,7 @@ export default function SiteFooterEn() {
             </p>
             <p className="text-sm mt-2">
               <a
-                href="https://www.anavimadvisory.com"
+                href="https://www.anavim-advisory.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-accent hover:underline"
@@ -86,7 +86,7 @@ export default function SiteFooterEn() {
           </div>
         </div>
         <div className="border-t border-border/50 pt-8 text-sm text-muted-foreground">
-          <p>&copy; 2026 DatacenterMarket — Anavim Advisory SAS. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} DatacenterMarket — Anavim Advisory SAS. All rights reserved.</p>
         </div>
       </div>
     </footer>

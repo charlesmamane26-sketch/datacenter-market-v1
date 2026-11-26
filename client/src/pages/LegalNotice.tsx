@@ -17,7 +17,7 @@ export default function LegalNotice() {
             className="gap-2"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back
+            Retour
           </Button>
           <span className="font-bold text-lg">DatacenterMarket</span>
           <div className="w-20" />
@@ -44,7 +44,7 @@ export default function LegalNotice() {
               <strong>Forme juridique :</strong> Société par Actions Simplifiée
             </p>
             <p>
-              <strong>Site web :</strong> <a href="https://www.anavimadvisory.com" className="text-accent hover:underline">www.anavimadvisory.com</a>
+              <strong>Site web :</strong> <a href="https://www.anavim-advisory.com" className="text-accent hover:underline">www.anavim-advisory.com</a>
             </p>
           </section>
 
@@ -115,7 +115,7 @@ export default function LegalNotice() {
             <h2 className="text-2xl font-bold">8. Liens Externes</h2>
             <p>
               DatacenterMarket peut contenir des liens vers des sites externes. Anavim Advisory n'est pas responsable 
-              du contenu de ces sites externes et ne cautionné pas nécessairement leurs contenus.
+              du contenu de ces sites externes et ne cautionne pas nécessairement leurs contenus.
             </p>
           </section>
 
@@ -144,7 +144,7 @@ export default function LegalNotice() {
               <strong>Anavim Advisory SAS</strong><br />
               10 Rue du Colisée<br />
               75008 Paris, France<br />
-              <a href="https://www.anavimadvisory.com" className="text-accent hover:underline">www.anavimadvisory.com</a>
+              <a href="https://www.anavim-advisory.com" className="text-accent hover:underline">www.anavim-advisory.com</a>
             </p>
           </section>
         </div>

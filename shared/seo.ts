@@ -222,7 +222,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/en/datacenter-colocation/",
     title: "Datacenter colocation: compare market offers",
     description:
-      "Datacenter capacity rental — racks, kW and private suites: overview of European colocation criteria and a contact path for requirements outside the GPU catalogue.",
+      "Datacenter capacity rental — racks, kW, private suites: European colocation criteria and a contact path for needs outside the GPU catalogue.",
     indexable: true,
     lang: "en",
     hreflang: COLOCATION_HREFLANG,
@@ -416,7 +416,7 @@ export function organizationJsonLd(base: string): object {
     // Marchés visés — signal géographique pour la France et l'UE.
     areaServed: ["FR", "BE", "LU", "CH", "EU"],
     // Profils officiels rattachés (désambiguïsation d'entité).
-    sameAs: ["https://www.anavimadvisory.com"],
+    sameAs: ["https://www.anavim-advisory.com"],
     address: {
       "@type": "PostalAddress",
       streetAddress: "10 rue du Colisée",

@@ -98,7 +98,7 @@ export default function GpuPricingEn() {
             </p>
             <h3 className="text-xl font-semibold">H200 and B200: via the market call</h3>
             <p className="text-muted-foreground leading-relaxed">
-              NVIDIA H200 (141 GB HBM3e) and B200 (Blackwell, 192 GB HBM3e) are not in our standard
+              NVIDIA H200 (141 GB HBM3e) and B200 (Blackwell, 180 GB HBM3e) are not in our standard
               catalogue to date. We can source them from our partner providers via the market call —
               availability and pricing to be confirmed.
             </p>
