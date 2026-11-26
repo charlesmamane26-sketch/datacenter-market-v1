@@ -64,7 +64,7 @@
     "@trpc/client": "11.18.0",
     "@trpc/react-query": "11.18.0",
     "@trpc/server": "11.18.0",
-    "axios": "^1.19.0",
+    "axios": "^1.20.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -95,7 +95,7 @@
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
-    "zod": "^4.1.12"
+    "zod": "^4.6.6"
   },
   "optionalDependencies": {
     "ioredis": "^5.4.1"
