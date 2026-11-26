@@ -416,7 +416,7 @@ export function organizationJsonLd(base: string): object {
     // Marchés visés — signal géographique pour la France et l'UE.
     areaServed: ["FR", "BE", "LU", "CH", "EU"],
     // Profils officiels rattachés (désambiguïsation d'entité).
-    sameAs: ["https://www.anavimadvisory.com"],
+    sameAs: ["https://www.anavim-advisory.com"],
     address: {
       "@type": "PostalAddress",
       streetAddress: "10 rue du Colisée",

@@ -473,7 +473,7 @@ export default function Home() {
                 SOCIÉTÉ
               </span>
               <a
-                href="https://www.anavimadvisory.com"
+                href="https://www.anavim-advisory.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
@@ -481,7 +481,7 @@ export default function Home() {
                 À propos
               </a>
               <a
-                href="https://www.anavimadvisory.com"
+                href="https://www.anavim-advisory.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
@@ -507,7 +507,7 @@ export default function Home() {
           <div className="flex flex-col items-start justify-between gap-3 border-t border-border/50 pt-[22px] text-[12px] text-muted-foreground md:flex-row md:items-center">
             <span>© 2026 DatacenterMarket. Tous droits réservés.</span>
             <a
-              href="https://www.anavimadvisory.com"
+              href="https://www.anavim-advisory.com"
               target="_blank"
               rel="noopener noreferrer"
               className="text-accent transition-colors hover:text-accent/80"

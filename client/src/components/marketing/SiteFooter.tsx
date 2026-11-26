@@ -69,7 +69,7 @@ export default function SiteFooter() {
             </p>
             <p className="text-sm mt-2">
               <a
-                href="https://www.anavimadvisory.com"
+                href="https://www.anavim-advisory.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-accent hover:underline"

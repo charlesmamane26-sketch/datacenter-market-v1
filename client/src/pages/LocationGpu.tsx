@@ -144,7 +144,7 @@ export default function LocationGpu() {
                 7 jours sur notre catalogue.
               </li>
               <li>
-                <strong className="text-foreground">Le SLA</strong> — 99,5 % à 99,99 % selon les
+                <strong className="text-foreground">Le SLA</strong> — 99,0 % à 99,99 % selon les
                 offres, avec des pénalités contractuelles ou non.
               </li>
               <li>

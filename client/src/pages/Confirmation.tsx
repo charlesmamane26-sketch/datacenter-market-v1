@@ -427,7 +427,7 @@ export default function Confirmation() {
               </button>
             </div>
             <a
-              href="https://www.anavimadvisory.com"
+              href="https://www.anavim-advisory.com"
               target="_blank"
               rel="noopener noreferrer"
               className="mt-4 text-[13px] text-accent hover:underline"
