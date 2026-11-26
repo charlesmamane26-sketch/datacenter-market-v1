@@ -93,8 +93,8 @@ export default function GpuRentalEn() {
                 guarantees.
               </li>
               <li>
-                <strong className="text-foreground">Guaranteed availability:</strong> recent ranges
-                (H100) are often unavailable by the hour exactly when you need them; reserved
+                <strong className="text-foreground">Guaranteed availability:</strong> the most
+                sought-after ranges are often unavailable by the hour exactly when you need them; reserved
                 capacity does not vanish.
               </li>
             </ul>
@@ -136,7 +136,7 @@ export default function GpuRentalEn() {
                 to 7 days on our catalogue.
               </li>
               <li>
-                <strong className="text-foreground">The SLA</strong> — 99.5% to 99.99% depending on
+                <strong className="text-foreground">The SLA</strong> — 99.0% to 99.99% depending on
                 the offer, with or without contractual penalties.
               </li>
               <li>

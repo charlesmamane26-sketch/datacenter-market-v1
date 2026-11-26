@@ -80,7 +80,7 @@ export default function SiteFooter() {
           </div>
         </div>
         <div className="border-t border-border/50 pt-8 text-sm text-muted-foreground">
-          <p>&copy; 2026 DatacenterMarket — Anavim Advisory SAS. Tous droits réservés.</p>
+          <p>&copy; {new Date().getFullYear()} DatacenterMarket — Anavim Advisory SAS. Tous droits réservés.</p>
         </div>
       </div>
     </footer>

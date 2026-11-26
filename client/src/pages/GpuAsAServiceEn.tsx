@@ -90,7 +90,7 @@ export default function GpuAsAServiceEn() {
             <h3 className="text-xl font-semibold">Model training</h3>
             <p className="text-muted-foreground leading-relaxed">
               Training models — foundation or specialised — mobilises multi-GPU clusters for weeks,
-              sometimes months, and favours the most recent ranges. In our catalogue, the NVIDIA
+              sometimes months, and favours GPUs with large memory. In our catalogue, the NVIDIA
               H100 clusters of 8 to 16 GPUs, in Frankfurt, Paris or Amsterdam, are sized for this
               use case.
             </p>
@@ -131,9 +131,9 @@ export default function GpuAsAServiceEn() {
               large models and long contexts. Absent from our standard catalogue to date, it can be
               sourced via a market call — availability and pricing to be confirmed.
             </p>
-            <h3 className="text-xl font-semibold">NVIDIA B200 (Blackwell): 192 GB of HBM3e</h3>
+            <h3 className="text-xl font-semibold">NVIDIA B200 (Blackwell): 180 GB of HBM3e</h3>
             <p className="text-muted-foreground leading-relaxed">
-              The B200, on the Blackwell architecture, carries 192 GB of HBM3e. Also absent from the
+              The B200, on the Blackwell architecture, carries 180 GB of HBM3e. Also absent from the
               standard catalogue, it can be the subject of a consultation with our partner providers
               — availability and pricing to be confirmed.
             </p>

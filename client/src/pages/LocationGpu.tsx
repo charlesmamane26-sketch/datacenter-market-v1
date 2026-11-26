@@ -99,7 +99,7 @@ export default function LocationGpu() {
               </li>
               <li>
                 <strong className="text-foreground">Disponibilité garantie :</strong> les gammes
-                récentes (H100) sont souvent introuvables à l'heure au moment où on en a besoin ;
+                les plus demandées sont souvent introuvables à l'heure au moment où on en a besoin ;
                 une capacité réservée ne disparaît pas.
               </li>
             </ul>

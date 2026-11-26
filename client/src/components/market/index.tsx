@@ -185,7 +185,7 @@ const DEFAULT_QUOTES: TickerQuote[] = [
   { site: "FRA", config: "H100 ×8", price: "18 400 €/mois", delta: { text: "▼ −4,2 %", tone: "accent" } },
   { site: "PAR", config: "H100 ×8", price: "22 000 €/mois", suffix: "· 24 h" },
   { site: "AMS", config: "H100 ×16", price: "34 000 €/mois", delta: { text: "▼ −2,1 %", tone: "cyan" } },
-  { site: "VAR", config: "A100 ×8", price: "9 600 €/mois" },
+  { site: "WAW", config: "A100 ×8", price: "9 600 €/mois" },
   { site: "MAD", config: "A100 ×4", price: "5 200 €/mois", delta: { text: "▲ +1,8 %", tone: "down" } },
   { site: "DUB", config: "L40S ×8", price: "8 800 €/mois" },
   { site: "STO", config: "RTX 4090 ×8", price: "7 200 €/mois", suffix: "· 48 h" },

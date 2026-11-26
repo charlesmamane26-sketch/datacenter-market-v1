@@ -222,7 +222,7 @@ export const SEO_ROUTES: RouteSeo[] = [
     canonicalPath: "/en/datacenter-colocation/",
     title: "Datacenter colocation: compare market offers",
     description:
-      "Datacenter capacity rental — racks, kW and private suites: overview of European colocation criteria and a contact path for requirements outside the GPU catalogue.",
+      "Datacenter capacity rental — racks, kW, private suites: European colocation criteria and a contact path for needs outside the GPU catalogue.",
     indexable: true,
     lang: "en",
     hreflang: COLOCATION_HREFLANG,
